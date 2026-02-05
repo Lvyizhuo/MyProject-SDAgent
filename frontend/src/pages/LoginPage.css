@@ -1,0 +1,199 @@
+.login-container {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, hsl(215, 90%, 35%) 0%, hsl(215, 85%, 25%) 100%);
+    padding: var(--space-md);
+}
+
+.login-card {
+    width: 100%;
+    max-width: 400px;
+    background: white;
+    border-radius: var(--radius-xl);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+}
+
+.login-header {
+    background: linear-gradient(135deg, hsl(215, 90%, 35%) 0%, hsl(215, 85%, 28%) 100%);
+    color: white;
+    padding: var(--space-xl) var(--space-lg);
+    text-align: center;
+}
+
+.login-logo {
+    width: 64px;
+    height: 64px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto var(--space-md);
+}
+
+.login-header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 var(--space-xs);
+}
+
+.login-header p {
+    font-size: 0.85rem;
+    opacity: 0.85;
+    margin: 0;
+}
+
+.login-form {
+    padding: var(--space-xl) var(--space-lg);
+}
+
+.login-form h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: hsl(var(--color-text-main));
+    margin: 0 0 var(--space-lg);
+    text-align: center;
+}
+
+.error-message {
+    background-color: hsl(0, 70%, 95%);
+    color: hsl(0, 70%, 45%);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    margin-bottom: var(--space-md);
+    text-align: center;
+}
+
+.input-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    background-color: hsl(var(--color-chat-ai));
+    border: 1px solid hsl(var(--color-chat-ai-border));
+    border-radius: var(--radius-md);
+    padding: 0 var(--space-md);
+    margin-bottom: var(--space-md);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-group:focus-within {
+    border-color: hsl(var(--color-primary));
+    box-shadow: 0 0 0 3px hsl(var(--color-primary) / 0.1);
+}
+
+.input-group svg {
+    color: hsl(var(--color-text-secondary));
+    flex-shrink: 0;
+}
+
+.input-group input {
+    flex: 1;
+    padding: var(--space-md) 0;
+    border: none;
+    background: transparent;
+    font-size: 0.95rem;
+    color: hsl(var(--color-text-main));
+    outline: none;
+}
+
+.input-group input::placeholder {
+    color: hsl(var(--color-text-secondary));
+}
+
+.login-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background-color: hsl(var(--color-primary));
+    color: white;
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    font-weight: 500;
+    transition: background-color 0.2s;
+    margin-top: var(--space-md);
+}
+
+.login-btn:hover:not(:disabled) {
+    background-color: hsl(215, 90%, 40%);
+}
+
+.login-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.btn-loading {
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.login-footer {
+    padding: 0 var(--space-lg) var(--space-xl);
+    text-align: center;
+    color: hsl(var(--color-text-secondary));
+    font-size: 0.9rem;
+}
+
+.toggle-btn {
+    color: hsl(var(--color-primary));
+    font-weight: 500;
+    background: none;
+    padding: 0;
+    margin-left: var(--space-xs);
+}
+
+.toggle-btn:hover {
+    text-decoration: underline;
+}
+
+.loading-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: hsl(var(--color-bg-app));
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid hsl(var(--color-chat-ai-border));
+    border-top-color: hsl(var(--color-primary));
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@media (max-width: 480px) {
+    .login-card {
+        border-radius: var(--radius-lg);
+    }
+
+    .login-header {
+        padding: var(--space-lg) var(--space-md);
+    }
+
+    .login-form {
+        padding: var(--space-lg) var(--space-md);
+    }
+
+    .login-footer {
+        padding: 0 var(--space-md) var(--space-lg);
+    }
+}

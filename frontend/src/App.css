@@ -1,0 +1,127 @@
+.app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    background-color: hsl(var(--color-bg-app));
+    overflow: hidden;
+}
+
+.app-header {
+    background: linear-gradient(135deg, hsl(215, 90%, 35%) 0%, hsl(215, 85%, 28%) 100%);
+    color: white;
+    padding: var(--space-md) var(--space-lg);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+}
+
+.header-content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.header-menu-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+    transition: background-color 0.2s;
+    flex-shrink: 0;
+}
+
+.header-menu-btn:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.header-logo {
+    width: 44px;
+    height: 44px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.header-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.header-text h1 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.header-text p {
+    font-size: 0.8rem;
+    margin: 2px 0 0;
+    opacity: 0.85;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.app-main {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+@media (max-width: 640px) {
+    .app-header {
+        padding: var(--space-sm) var(--space-md);
+    }
+
+    .header-content {
+        gap: var(--space-sm);
+    }
+
+    .header-menu-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    .header-logo {
+        width: 36px;
+        height: 36px;
+    }
+
+    .header-logo svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .header-text h1 {
+        font-size: 0.95rem;
+    }
+
+    .header-text p {
+        font-size: 0.7rem;
+    }
+}
+
+@media (max-width: 380px) {
+    .header-logo {
+        display: none;
+    }
+
+    .header-text h1 {
+        font-size: 0.9rem;
+    }
+}

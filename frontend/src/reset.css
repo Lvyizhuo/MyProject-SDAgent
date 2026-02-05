@@ -1,0 +1,45 @@
+/* Basic Modern Reset */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    background-color: hsl(var(--color-bg-app));
+    color: hsl(var(--color-text-main));
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+    display: block;
+    max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+    font: inherit;
+    outline: none;
+}
+
+button {
+    cursor: pointer;
+}
+
+#root {
+    isolation: isolate;
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    flex-direction: column;
+}

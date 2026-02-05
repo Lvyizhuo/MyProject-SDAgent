@@ -1,0 +1,216 @@
+.input-area-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.attached-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    background-color: white;
+    border-radius: var(--radius-md);
+    border: 1px solid hsl(var(--color-chat-ai-border));
+}
+
+.attached-file {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+    background-color: hsl(var(--color-chat-ai));
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    max-width: 200px;
+}
+
+.file-preview {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.file-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: hsl(var(--color-primary) / 0.1);
+    border-radius: 4px;
+    color: hsl(var(--color-primary));
+}
+
+.file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: hsl(var(--color-text-main));
+}
+
+.remove-file-btn {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    color: hsl(var(--color-text-secondary));
+    transition: all 0.2s;
+}
+
+.remove-file-btn:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    color: hsl(var(--color-text-main));
+}
+
+.input-area-container {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    background-color: white;
+    border: 1px solid hsl(var(--color-chat-ai-border));
+    border-radius: var(--radius-xl);
+    padding: var(--space-sm) var(--space-md);
+    box-shadow: var(--shadow-md);
+    transition: all 0.2s;
+}
+
+.input-area-container:focus-within {
+    box-shadow: var(--shadow-float);
+    border-color: hsl(var(--color-primary));
+}
+
+.attach-wrapper {
+    position: relative;
+}
+
+.attach-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    background-color: white;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-float);
+    border: 1px solid hsl(var(--color-chat-ai-border));
+    overflow: hidden;
+    z-index: 100;
+    min-width: 120px;
+}
+
+.attach-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    cursor: pointer;
+    transition: background-color 0.15s;
+    color: hsl(var(--color-text-main));
+    font-size: 0.9rem;
+}
+
+.attach-option:hover {
+    background-color: hsl(var(--color-chat-ai));
+}
+
+.input-field {
+    flex: 1;
+    border: none;
+    font-size: 1rem;
+    padding: var(--space-sm);
+    color: hsl(var(--color-text-main));
+    background: transparent;
+    min-width: 0;
+}
+
+.input-field:focus {
+    outline: none;
+}
+
+.input-field::placeholder {
+    color: hsl(var(--color-text-secondary));
+}
+
+.icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    background-color: transparent;
+    color: hsl(var(--color-text-secondary));
+}
+
+.icon-btn:hover:not(:disabled) {
+    background-color: hsl(var(--color-chat-ai));
+    color: hsl(var(--color-primary));
+}
+
+.icon-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.attach-btn:hover:not(:disabled) {
+    background-color: hsl(var(--color-chat-ai));
+}
+
+.voice-btn:hover:not(:disabled) {
+    color: hsl(160, 60%, 45%);
+}
+
+.send-btn {
+    background-color: hsl(var(--color-primary));
+    color: white;
+}
+
+.send-btn:hover:not(.disabled):not(:disabled) {
+    background-color: hsl(215, 90%, 45%);
+    transform: scale(1.05);
+    color: white;
+}
+
+.send-btn.disabled {
+    background-color: hsl(var(--color-text-secondary) / 0.3);
+    color: hsl(var(--color-text-secondary));
+    cursor: not-allowed;
+    transform: none;
+}
+
+@media (max-width: 640px) {
+    .input-area-container {
+        padding: var(--space-xs) var(--space-sm);
+        gap: var(--space-xs);
+    }
+
+    .icon-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    .input-field {
+        font-size: 0.95rem;
+        padding: var(--space-xs);
+    }
+
+    .attach-menu {
+        min-width: 100px;
+    }
+
+    .attached-file {
+        max-width: 150px;
+    }
+
+    .file-preview,
+    .file-icon {
+        width: 28px;
+        height: 28px;
+    }
+}

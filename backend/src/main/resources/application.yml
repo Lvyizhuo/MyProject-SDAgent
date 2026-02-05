@@ -1,0 +1,95 @@
+# ===========================================
+# 山东省智能政策咨询助手 - 应用配置
+# ===========================================
+
+spring:
+  application:
+    name: policy-agent
+
+  # PostgreSQL + PgVector 配置
+  datasource:
+    url: jdbc:postgresql://localhost:5432/policy_agent
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # Redis 配置 (用于 ChatMemory)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  # Spring AI 配置 - 使用阿里云 DashScope (通义千问)
+  ai:
+    openai:
+      # 使用 DashScope API (OpenAI 兼容接口)
+      base-url: https://dashscope.aliyuncs.com/compatible-mode
+      api-key: ${DASHSCOPE_API_KEY}
+      chat:
+        options:
+          model: qwen3-max
+          temperature: 0.7
+      embedding:
+        options:
+          model: text-embedding-v3
+    
+    # PgVector 向量存储配置
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 1024
+        initialize-schema: true
+        schema-name: public
+        table-name: vector_store
+        max-document-batch-size: 10000
+
+# 服务器配置
+server:
+  port: 8080
+
+# Actuator 监控
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# 日志配置
+logging:
+  level:
+    com.shandong.policyagent: DEBUG
+    org.springframework.ai: DEBUG
+
+# 应用配置
+app:
+  # JWT 配置
+  jwt:
+    # Base64 encoded secret key (生产环境请更换)
+    secret: c2VjdXJlU2VjcmV0S2V5Rm9yUG9saWN5QWdlbnRBcHBsaWNhdGlvbjIwMjZKV1Q=
+    # Token 有效期 (毫秒) - 默认 24 小时
+    expiration: 86400000
+
+  # RAG 配置
+  rag:
+    document-path: data
+    chunking:
+      default-chunk-size: 800
+      min-chunk-size-chars: 350
+      min-chunk-length-to-embed: 5
+      chunk-overlap: 100
+      keep-separator: true
+    retrieval:
+      top-k: 5
+      similarity-threshold: 0.7

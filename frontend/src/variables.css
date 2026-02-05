@@ -1,0 +1,40 @@
+:root {
+  /* HSL Color Palette - Premium Government Blue */
+  --color-primary: 215 90% 35%; /* #0947A1 - Solid trustworthy blue */
+  --color-primary-light: 215 90% 96%;
+  --color-accent: 38 90% 55%; /* Gold/Orange for actions */
+
+  /* Surface */
+  --color-bg-app: 220 15% 95%;
+  --color-bg-card: 0 0% 100%;
+  
+  /* Chat Bubbles - 区分用户和AI */
+  --color-chat-user: 215 90% 45%; /* 用户: 蓝色 */
+  --color-chat-ai: 220 15% 96%; /* AI: 浅灰蓝色 */
+  --color-chat-ai-border: 220 15% 88%;
+  
+  /* Avatars */
+  --color-avatar-user: 215 90% 50%;
+  --color-avatar-ai: 160 60% 45%; /* 绿色 - 区分于用户 */
+
+  /* Text */
+  --color-text-main: 215 20% 15%;
+  --color-text-secondary: 215 15% 45%;
+  --color-text-inverse: 0 0% 100%;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Borders & Shadows */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
+  --shadow-float: 0 10px 15px -3px rgba(0,0,0,0.1);
+}

@@ -1,0 +1,205 @@
+这里为您提供了《山东省智能政策咨询助手》项目的中文版开发规范文档。
+
+---
+
+### AGENTS.md - 政策智能体（山东省智能政策咨询助手）
+
+一个基于 AI/LLM 的山东省以旧换新政策咨询聊天机器人。
+
+#### 项目结构
+
+```
+/
+├── backend/               # 后端：Spring Boot 3.4 + Spring AI (Java 21)
+│   └── src/main/java/com/shandong/policyagent/
+│       ├── config/        # Spring 配置类
+│       ├── controller/    # REST API 控制器
+│       ├── exception/     # 全局异常处理器
+│       ├── model/         # 数据传输对象和领域模型
+│       └── service/       # 业务逻辑服务
+├── frontend/              # 前端：React 19 + Vite 7 (JavaScript/JSX)
+│   └── src/
+│       ├── components/    # React 组件
+│       └── *.css          # CSS 模块 (variables.css 用于设计标记)
+└── data/                  # 政策文档数据
+```
+
+#### 构建与运行命令
+
+**后端 (Spring Boot)**
+
+```bash
+# 首先切换到后端目录
+cd backend
+
+# 构建项目
+./mvnw clean package
+
+# 运行 (需要先启动 PostgreSQL + Redis)
+./mvnw spring-boot:run
+
+# 运行所有测试
+./mvnw test
+
+# 运行单个测试类
+./mvnw test -Dtest=ChatServiceTest
+
+# 运行单个测试方法
+./mvnw test -Dtest=ChatServiceTest#testChatResponse
+```
+
+**前端 (Vite + React)**
+
+```bash
+cd frontend
+
+# 安装依赖
+npm install
+
+# 启动开发服务器 (热重载)
+npm run dev
+
+# 构建生产版本
+npm run build
+
+# 代码检查
+npm run lint
+
+# 预览生产构建
+npm run preview
+```
+
+**基础设施 (Docker)**
+
+```bash
+cd backend
+
+# 启动 PostgreSQL (pgvector) + Redis
+docker-compose up -d
+
+# 停止服务
+docker-compose down
+```
+
+#### 代码风格规范
+
+**后端 (Java)**
+
+**导入顺序：**
+1. Java 标准库 (`java.*`, `jakarta.*`)
+2. 第三方库 (`org.springframework.*`, `lombok.*`)
+3. 项目内部类 (`com.shandong.policyagent.*`)
+
+**命名规范：**
+- 类名：帕斯卡命名法 (`ChatController`, `ChatService`)
+- 方法/变量：驼峰命名法 (`chatStream`, `conversationId`)
+- 常量：全大写下划线命名法 (`MAX_RETRIES`)
+- 包名：全小写 (`controller`, `service`, `model`)
+
+**类结构规范：**
+1. 首先是 Lombok 注解 (`@Slf4j`, `@Data`, `@Builder`)
+2. 紧接着是 Spring 注解 (`@RestController`, `@Service`)
+3. 类级别注解独占一行
+4. 使用 `final` 字段进行依赖注入 (通过 `@RequiredArgsConstructor` 构造器注入)
+
+**设计模式：**
+- 使用 Lombok 减少样板代码 (`@Data`, `@Builder`, `@RequiredArgsConstructor`)
+- 在请求参数上使用 `@Valid` 进行校验 (Jakarta Validation)
+- 控制器层仅负责转发请求，不包含业务逻辑，全部委托给服务层
+- 使用 Slf4j 进行日志记录 (`@Slf4j` 注解，使用 `log.info()`)
+- 成功响应直接返回数据，错误响应使用 `ResponseEntity` 包装
+
+**异常处理：**
+- 在 `GlobalExceptionHandler` 类中统一处理异常
+- 返回包含时间戳、状态码和消息的结构化错误响应
+- 使用 `log.error()` 记录异常并包含堆栈跟踪
+- 异常处理器按具体异常 -> 通用异常的顺序排列
+
+**前端 (React/JavaScript)**
+
+**导入顺序：**
+1. React 及其钩子 (`import React, { useState } from 'react'`)
+2. 第三方库 (`import { marked } from 'marked'`)
+3. 本地组件 (`import MessageBubble from './MessageBubble'`)
+4. CSS 文件最后导入 (`import './Component.css'`)
+
+**命名规范：**
+- 组件：帕斯卡命名法 (文件名和导出名均为 `ChatWindow.jsx`)
+- 钩子/工具函数：驼峰命名法 (`useState`, `scrollToBottom`)
+- CSS 类名：短横线命名法 (`message-row`, `input-field`)
+- 事件处理函数：`handle` 前缀 (`handleSend`, `handleSubmit`)
+
+**组件结构：**
+1. 导入语句
+2. 函数式组件声明
+3. 状态声明 (`useState`)
+4. 引用声明 (`useRef`)
+5. 副作用处理 (`useEffect`)
+6. 事件处理函数
+7. 返回 JSX 结构
+8. 默认导出
+
+**状态管理：**
+- 使用 `useState` 钩子管理局部状态
+- 无全局状态库 (应用较简单)
+- 通过属性 (Props) 进行父子组件通信
+
+**CSS 规范：**
+- 设计标记定义在 `variables.css` 中
+- 颜色格式使用 HSL：`--color-primary: 215 90% 35%`
+- 样式中使用 `hsl(var(--color-name))` 引用变量
+- 组件样式文件独立 (例如 `ChatWindow.css`)
+- 间距标记：`--space-xs`, `--space-sm`, `--space-md`, `--space-lg`, `--space-xl`
+
+#### 配置文件说明
+
+| 文件 | 用途 |
+| :--- | :--- |
+| `backend/pom.xml` | Maven 构建配置，依赖管理 |
+| `backend/src/main/resources/application.yml` | Spring Boot 配置文件 |
+| `backend/docker-compose.yml` | PostgreSQL (pgvector) + Redis 服务编排 |
+| `frontend/package.json` | npm 依赖包和脚本 |
+| `frontend/vite.config.js` | Vite 构建配置 |
+| `frontend/eslint.config.js` | ESLint 代码检查规则 |
+
+#### 关键技术栈
+
+**后端：**
+- Java 21 + Spring Boot 3.4.1
+- Spring AI 1.0.0-M5 (兼容 OpenAI，使用阿里云 DashScope/通义千问)
+- PostgreSQL 16 配合 pgvector 扩展 (用于 RAG 向量存储)
+- Redis 7 (用于聊天记忆/会话存储)
+- Lombok (减少样板代码)
+- Jakarta Validation (请求参数校验)
+
+**前端：**
+- React 19.2 + Vite 7.2
+- lucide-react (图标库)
+- marked (Markdown 渲染)
+- uuid (生成唯一 ID)
+- ESLint 9 配合 React hooks 插件
+
+#### API 接口列表
+
+| 方法 | 路径 | 描述 |
+| :--- | :--- | :--- |
+| POST | `/api/chat` | 标准对话 (完整响应) |
+| POST | `/api/chat/stream` | 流式对话 (SSE) |
+| GET | `/api/chat/health` | 健康检查 |
+
+#### 环境变量
+
+后端运行所需环境变量：
+- `DASHSCOPE_API_KEY` - 阿里云 DashScope API 密钥，用于调用通义千问
+
+#### 类型安全
+
+**后端：** 使用 Lombok 生成的 Getter/Setter 实现强类型约束
+**前端：** 使用原生 JavaScript (无 TypeScript)
+
+#### 常见注意事项
+
+1. **后端：** 在 `@RequestBody` 参数上务必使用 `@Valid` 注解进行校验。
+2. **前端：** 别忘了在组件中导入对应的 CSS 文件。
+3. **Docker：** 确保 PostgreSQL 服务完全启动健康后，再启动 Spring Boot 应用。
+4. **API：** 流式接口返回的内容类型为 `text/event-stream`。
