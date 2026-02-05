@@ -30,27 +30,29 @@
 引入 Advisors 和 Tools，提升智能度。
 
 #### Advisors 智能拦截系统
-- [ ] 实现 ChatMemory Advisor (Redis 存储会话)
-- [ ] 实现 Security Advisor (敏感词过滤)
-- [ ] 实现 ReReading Advisor (答案校验)
-- [ ] 开发结构化日志 Advisor
+- [x] 实现 ChatMemory Advisor (Redis 存储会话) ✅ 2026-02-05
+- [x] 实现 Security Advisor (敏感词过滤) ✅ 2026-02-05
+- [x] 实现 ReReading Advisor (答案校验) ✅ 2026-02-05
+- [x] 开发结构化日志 Advisor ✅ 2026-02-05
 
 #### Tools 工具体系
-- [ ] 开发“补贴计算器”工具 (Java Function)
-- [ ] 开发“文件解析”工具 (处理用户上传)
-- [ ] 配置 Function Callback 机制
+- [x] 开发"补贴计算器"工具 (Java Function) ✅ 2026-02-05
+- [x] 开发"文件解析"工具 (处理用户上传) ✅ 2026-02-05
+- [x] 配置 Function Callback 机制 ✅ 2026-02-05
 
 #### 模型升级
-- [ ] 接入 DeepSeek-R1 / 通义千问 Max
-- [ ] 实现多模型路由策略
+- [x] 接入 语音识别模型"qwen3-asr-flash"、视觉理解模型"qwen-vl-plus" ✅ 2026-02-05
+- [x] 实现多模型路由策略 (ModelRouterService) ✅ 2026-02-05
+- [ ] 实现Manus智能体
 
 ## 📅 第三阶段：MCP 与 生产化 (3周)
 ### 阶段目标
 MCP 协议落地，后台管理，系统稳健性。
 
 #### MCP 协议集成
-- [ ] 搭建 MCP Server (联网搜索服务)
-- [ ] Spring AI MCP Client 接入
+- [x] 升级 Spring AI 到 1.0.0-M6 (支持 MCP) ✅ 2026-02-05
+- [x] 添加 MCP Client 依赖 ✅ 2026-02-05
+- [x] 实现联网搜索工具 (WebSearchTool) ✅ 2026-02-05
 - [ ] 集成外部 API (如京东/苏宁估价)
 
 #### 后台管理系统
@@ -78,7 +80,7 @@ MCP 协议落地，后台管理，系统稳健性。
 |--------------|---------------------------|---------------------------------------|
 | 语言         | Java 21 (LTS)             | 利用 Virtual Threads 提升并发性能    |
 | 框架         | Spring Boot 3.4+          | 核心容器                              |
-| AI 框架      | Spring AI 0.8.0+          | 提供统一 AI 抽象                      |
+| AI 框架      | Spring AI 1.0.0-M6        | 提供统一 AI 抽象 + MCP 支持           |
 | 数据库       | PostgreSQL 16 + pgvector  | 关系型数据与向量数据共存              |
 | 缓存/会话    | Redis 7                   | 存储 ChatMemory 和会话状态            |
 | 模型服务     | DeepSeek-V3 / Qwen-Max    | 通过 OpenAI 兼容接口接入              |

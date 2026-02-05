@@ -35,7 +35,9 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/auth/register",
                     "/api/auth/login",
-                    "/api/chat/health",
+                    "/api/chat/**",
+                    "/api/documents/**",
+                    "/api/multimodal/**",
                     "/actuator/**"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")

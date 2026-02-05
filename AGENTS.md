@@ -12,11 +12,17 @@
 /
 ├── backend/               # 后端：Spring Boot 3.4 + Spring AI (Java 21)
 │   └── src/main/java/com/shandong/policyagent/
+│       ├── advisor/       # Spring AI Advisors (安全、记忆、日志等)
 │       ├── config/        # Spring 配置类
 │       ├── controller/    # REST API 控制器
+│       ├── entity/        # JPA 实体类
 │       ├── exception/     # 全局异常处理器
 │       ├── model/         # 数据传输对象和领域模型
-│       └── service/       # 业务逻辑服务
+│       ├── rag/           # RAG 相关服务 (文档加载、切片、检索)
+│       ├── repository/    # 数据访问层
+│       ├── security/      # JWT 认证相关
+│       ├── service/       # 业务逻辑服务
+│       └── tool/          # LLM 可调用工具 (补贴计算器等)
 ├── frontend/              # 前端：React 19 + Vite 7 (JavaScript/JSX)
 │   └── src/
 │       ├── components/    # React 组件
@@ -203,3 +209,21 @@ docker-compose down
 2. **前端：** 别忘了在组件中导入对应的 CSS 文件。
 3. **Docker：** 确保 PostgreSQL 服务完全启动健康后，再启动 Spring Boot 应用。
 4. **API：** 流式接口返回的内容类型为 `text/event-stream`。
+
+#### Advisor 执行顺序
+
+Advisors 按 order 值从小到大执行：
+
+| Advisor | Order | 功能 |
+| :--- | :--- | :--- |
+| SecurityAdvisor | 10 | 敏感词过滤、Prompt Injection 防护 |
+| ReReadingAdvisor | 50 | 强制模型核对答案准确性 |
+| MessageChatMemoryAdvisor | 100 | 多轮对话上下文管理 |
+| QuestionAnswerAdvisor | - | RAG 检索增强 |
+| LoggingAdvisor | 90 | Token 消耗、响应延迟、引用来源记录 |
+
+#### 可用工具 (Tools)
+
+| 工具名 | 功能 |
+| :--- | :--- |
+| calculateSubsidy | 计算山东省以旧换新补贴金额，支持家电/手机/平板/智能手表 |

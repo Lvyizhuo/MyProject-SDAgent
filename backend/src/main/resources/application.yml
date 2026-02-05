@@ -72,6 +72,20 @@ logging:
     com.shandong.policyagent: DEBUG
     org.springframework.ai: DEBUG
 
+# DashScope 多模态配置
+dashscope:
+  multimodal:
+    api-key: ${DASHSCOPE_API_KEY}
+    base-url: https://dashscope.aliyuncs.com/api/v1
+    asr:
+      model: qwen3-asr-flash
+      # 长音频使用 filetrans 模型
+      long-audio-model: qwen3-asr-flash-filetrans
+    vision:
+      model: qwen-vl-plus
+      # 高精度场景使用 max 模型
+      high-quality-model: qwen-vl-max
+
 # 应用配置
 app:
   # JWT 配置
@@ -93,3 +107,24 @@ app:
     retrieval:
       top-k: 5
       similarity-threshold: 0.7
+
+  # Advisor 配置
+  advisor:
+    # ChatMemory 配置
+    memory:
+      ttl-days: 7
+    # Security Advisor 配置
+    security:
+      enabled: true
+    # ReReading Advisor 配置
+    re-reading:
+      enabled: true
+    # Logging Advisor 配置
+    logging:
+      log-token-usage: true
+      log-retrieved-docs: true
+
+  # 联网搜索配置
+  websearch:
+    enabled: true
+    timeout-seconds: 10

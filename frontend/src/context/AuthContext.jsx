@@ -40,14 +40,14 @@ export const AuthProvider = ({ children }) => {
     const login = async (username, password) => {
         const response = await authApi.login(username, password);
         localStorage.setItem('token', response.token);
-        setUser(response.user);
+        setUser({ username: response.username, role: response.role });
         return response;
     };
 
     const register = async (username, password) => {
         const response = await authApi.register(username, password);
         localStorage.setItem('token', response.token);
-        setUser(response.user);
+        setUser({ username: response.username, role: response.role });
         return response;
     };
 

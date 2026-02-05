@@ -37,15 +37,16 @@ public class ChatController {
     public ChatResponse chat(
             @AuthenticationPrincipal User user,
             @Valid @RequestBody ChatRequest request) {
+        Long userId = user != null ? user.getId() : null;
         log.info("收到对话请求: userId={}, conversationId={}, message={}", 
-                user.getId(), request.getConversationId(), request.getMessage());
+                userId, request.getConversationId(), request.getMessage());
         
         String conversationId = request.getConversationId();
         if (conversationId == null || conversationId.isBlank()) {
             conversationId = UUID.randomUUID().toString();
             request.setConversationId(conversationId);
         }
-        conversationService.getOrCreateSession(user.getId(), conversationId);
+        conversationService.getOrCreateSession(userId, conversationId);
         
         ChatMessage userMessage = ChatMessage.builder()
                 .id(UUID.randomUUID().toString())
@@ -75,15 +76,16 @@ public class ChatController {
     public Flux<String> chatStream(
             @AuthenticationPrincipal User user,
             @Valid @RequestBody ChatRequest request) {
+        Long userId = user != null ? user.getId() : null;
         log.info("收到流式对话请求: userId={}, conversationId={}, message={}", 
-                user.getId(), request.getConversationId(), request.getMessage());
+                userId, request.getConversationId(), request.getMessage());
         
         String conversationId = request.getConversationId();
         if (conversationId == null || conversationId.isBlank()) {
             conversationId = UUID.randomUUID().toString();
             request.setConversationId(conversationId);
         }
-        conversationService.getOrCreateSession(user.getId(), conversationId);
+        conversationService.getOrCreateSession(userId, conversationId);
         
         ChatMessage userMessage = ChatMessage.builder()
                 .id(UUID.randomUUID().toString())
