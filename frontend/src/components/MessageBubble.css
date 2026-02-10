@@ -3,18 +3,7 @@
     gap: var(--space-md);
     margin-bottom: var(--space-lg);
     align-items: flex-start;
-    animation: fadeIn 0.3s ease-out;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    animation: slideUp 0.4s ease-out;
 }
 
 .message-row.message-user {
@@ -29,17 +18,20 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: var(--shadow-md);
 }
 
 .message-ai .avatar {
-    background: linear-gradient(135deg, hsl(var(--color-avatar-ai)) 0%, hsl(160, 50%, 38%) 100%);
-    color: white;
+    background: rgba(57, 213, 255, 0.1);
+    color: hsl(var(--glow-cyan));
+    border: 1px solid hsl(var(--glow-cyan) / 0.25);
+    box-shadow: 0 0 12px rgba(57, 213, 255, 0.1);
 }
 
 .message-user .avatar {
-    background: linear-gradient(135deg, hsl(var(--color-avatar-user)) 0%, hsl(215, 85%, 40%) 100%);
-    color: white;
+    background: rgba(88, 166, 255, 0.1);
+    color: hsl(var(--glow-blue));
+    border: 1px solid hsl(var(--glow-blue) / 0.25);
+    box-shadow: 0 0 12px rgba(88, 166, 255, 0.1);
 }
 
 .bubble {
@@ -51,17 +43,18 @@
 }
 
 .message-ai .bubble {
-    background-color: hsl(var(--color-chat-ai));
+    background-color: hsl(var(--color-bg-card));
     color: hsl(var(--color-text-main));
     border: 1px solid hsl(var(--color-chat-ai-border));
+    border-left: 3px solid hsl(var(--glow-cyan) / 0.6);
     border-top-left-radius: var(--space-xs);
 }
 
 .message-user .bubble {
-    background: linear-gradient(135deg, hsl(var(--color-chat-user)) 0%, hsl(215, 85%, 40%) 100%);
+    background: linear-gradient(135deg, #1f6feb 0%, #8b5cf6 100%);
     color: white;
     border-top-right-radius: var(--space-xs);
-    box-shadow: var(--shadow-md);
+    box-shadow: 0 4px 15px rgba(31, 111, 235, 0.2);
 }
 
 .markdown-body ul,
@@ -82,18 +75,42 @@
     margin-bottom: 0;
 }
 
+.markdown-body strong {
+    color: hsl(var(--glow-cyan));
+}
+
+.message-user .markdown-body strong {
+    color: rgba(255, 255, 255, 0.95);
+}
+
 .markdown-body code {
-    background-color: rgba(0, 0, 0, 0.06);
+    background-color: rgba(88, 166, 255, 0.1);
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 0.9em;
+    color: hsl(var(--glow-cyan));
+    border: 1px solid rgba(88, 166, 255, 0.1);
+}
+
+.message-user .markdown-body code {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.9);
+    border-color: rgba(255, 255, 255, 0.1);
 }
 
 .markdown-body pre {
-    background-color: rgba(0, 0, 0, 0.04);
+    background-color: rgba(0, 0, 0, 0.3);
     padding: var(--space-md);
     border-radius: var(--radius-sm);
     overflow-x: auto;
+    border: 1px solid hsl(var(--color-chat-ai-border));
+}
+
+.markdown-body pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: hsl(var(--color-text-main));
 }
 
 .markdown-body table {
@@ -110,7 +127,19 @@
 }
 
 .markdown-body th {
-    background-color: rgba(0, 0, 0, 0.03);
+    background-color: rgba(88, 166, 255, 0.08);
+    color: hsl(var(--glow-blue));
+}
+
+.markdown-body a {
+    color: hsl(var(--glow-cyan));
+    text-decoration: underline;
+    text-decoration-color: hsl(var(--glow-cyan) / 0.3);
+    transition: text-decoration-color 0.2s;
+}
+
+.markdown-body a:hover {
+    text-decoration-color: hsl(var(--glow-cyan));
 }
 
 @media (max-width: 640px) {
@@ -133,4 +162,24 @@
         padding: var(--space-sm) var(--space-md);
         font-size: 0.9rem;
     }
+
+    .message-image-thumb {
+        max-width: 120px;
+        max-height: 100px;
+    }
+}
+
+.message-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.message-image-thumb {
+    max-width: 180px;
+    max-height: 140px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    border: 1px solid rgba(255, 255, 255, 0.15);
 }

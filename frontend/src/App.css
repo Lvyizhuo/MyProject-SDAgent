@@ -1,6 +1,5 @@
 .app-container {
     display: flex;
-    flex-direction: column;
     height: 100vh;
     height: 100dvh;
     background-color: hsl(var(--color-bg-app));
@@ -8,10 +7,13 @@
 }
 
 .app-header {
-    background: linear-gradient(135deg, hsl(215, 90%, 35%) 0%, hsl(215, 85%, 28%) 100%);
-    color: white;
-    padding: var(--space-md) var(--space-lg);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    display: none;
+    background: rgba(13, 17, 23, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: hsl(var(--color-text-main));
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid rgba(88, 166, 255, 0.08);
     position: relative;
     z-index: 10;
     flex-shrink: 0;
@@ -20,37 +22,38 @@
 .header-content {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
-    max-width: 900px;
-    margin: 0 auto;
+    gap: var(--space-sm);
 }
 
 .header-menu-btn {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: rgba(255, 255, 255, 0.1);
-    color: white;
-    transition: background-color 0.2s;
+    background-color: rgba(88, 166, 255, 0.08);
+    color: hsl(var(--color-text-secondary));
+    transition: all 0.2s;
     flex-shrink: 0;
 }
 
 .header-menu-btn:hover {
-    background-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(88, 166, 255, 0.15);
+    color: hsl(var(--glow-cyan));
 }
 
 .header-logo {
-    width: 44px;
-    height: 44px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: var(--radius-md);
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, hsl(var(--glow-blue) / 0.15), hsl(var(--glow-cyan) / 0.15));
+    border: 1px solid hsl(var(--glow-cyan) / 0.2);
+    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    color: hsl(var(--glow-cyan));
 }
 
 .header-text {
@@ -59,19 +62,23 @@
 }
 
 .header-text h1 {
-    font-size: 1.15rem;
+    font-size: 0.95rem;
     font-weight: 600;
     margin: 0;
     letter-spacing: 0.3px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    background: linear-gradient(135deg, hsl(var(--glow-blue)), hsl(var(--glow-cyan)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .header-text p {
-    font-size: 0.8rem;
-    margin: 2px 0 0;
-    opacity: 0.85;
+    font-size: 0.7rem;
+    margin: 1px 0 0;
+    color: hsl(var(--color-text-secondary));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -81,47 +88,22 @@
     flex: 1;
     overflow: hidden;
     position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+
     .app-header {
-        padding: var(--space-sm) var(--space-md);
-    }
-
-    .header-content {
-        gap: var(--space-sm);
-    }
-
-    .header-menu-btn {
-        width: 36px;
-        height: 36px;
-    }
-
-    .header-logo {
-        width: 36px;
-        height: 36px;
-    }
-
-    .header-logo svg {
-        width: 20px;
-        height: 20px;
-    }
-
-    .header-text h1 {
-        font-size: 0.95rem;
-    }
-
-    .header-text p {
-        font-size: 0.7rem;
+        display: block;
     }
 }
 
 @media (max-width: 380px) {
     .header-logo {
         display: none;
-    }
-
-    .header-text h1 {
-        font-size: 0.9rem;
     }
 }

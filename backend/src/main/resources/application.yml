@@ -124,7 +124,13 @@ app:
       log-token-usage: true
       log-retrieved-docs: true
 
-  # 联网搜索配置
+  # 联网搜索配置 (Tavily Search API)
   websearch:
     enabled: true
-    timeout-seconds: 10
+    timeout-seconds: 15
+    cache-to-vectorstore: true
+    tavily:
+      api-key: ${TAVILY_API_KEY:}
+      base-url: https://api.tavily.com
+      search-depth: advanced
+      max-results: 5

@@ -1,4 +1,3 @@
-/* Basic Modern Reset */
 *,
 *::before,
 *::after {
@@ -8,9 +7,10 @@
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     background-color: hsl(var(--color-bg-app));
     color: hsl(var(--color-text-main));
 }
@@ -39,7 +39,30 @@ button {
 #root {
     isolation: isolate;
     height: 100vh;
+    height: 100dvh;
     width: 100vw;
     display: flex;
     flex-direction: column;
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(88, 166, 255, 0.15);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(88, 166, 255, 0.3);
+}
+
+::selection {
+    background: hsl(var(--color-primary) / 0.3);
+    color: hsl(var(--color-text-main));
 }

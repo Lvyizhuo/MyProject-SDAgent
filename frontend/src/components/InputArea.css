@@ -1,17 +1,20 @@
+/* === Input Area - Dark Sci-Fi Theme === */
+
 .input-area-wrapper {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
 }
 
+/* --- Attached Files --- */
 .attached-files {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-sm);
     padding: var(--space-sm);
-    background-color: white;
+    background-color: hsl(var(--color-bg-card));
     border-radius: var(--radius-md);
-    border: 1px solid hsl(var(--color-chat-ai-border));
+    border: 1px solid hsl(var(--glow-blue) / 0.15);
 }
 
 .attached-file {
@@ -19,7 +22,8 @@
     align-items: center;
     gap: var(--space-xs);
     padding: var(--space-xs) var(--space-sm);
-    background-color: hsl(var(--color-chat-ai));
+    background-color: hsl(var(--color-bg-elevated));
+    border: 1px solid hsl(var(--glow-cyan) / 0.15);
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
     max-width: 200px;
@@ -30,6 +34,7 @@
     height: 32px;
     object-fit: cover;
     border-radius: 4px;
+    border: 1px solid hsl(var(--glow-cyan) / 0.2);
 }
 
 .file-icon {
@@ -38,9 +43,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: hsl(var(--color-primary) / 0.1);
+    background-color: hsl(var(--color-primary) / 0.12);
     border-radius: 4px;
-    color: hsl(var(--color-primary));
+    color: hsl(var(--glow-cyan));
 }
 
 .file-name {
@@ -64,27 +69,34 @@
 }
 
 .remove-file-btn:hover {
-    background-color: rgba(0, 0, 0, 0.1);
-    color: hsl(var(--color-text-main));
+    background-color: rgba(255, 60, 60, 0.15);
+    color: #ff6b6b;
 }
 
+/* --- Main Input Container --- */
 .input-area-container {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    background-color: white;
-    border: 1px solid hsl(var(--color-chat-ai-border));
+    background-color: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-xl);
     padding: var(--space-sm) var(--space-md);
     box-shadow: var(--shadow-md);
-    transition: all 0.2s;
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    transition: all 0.3s ease;
 }
 
 .input-area-container:focus-within {
-    box-shadow: var(--shadow-float);
-    border-color: hsl(var(--color-primary));
+    border-color: hsl(var(--glow-cyan) / 0.5);
+    box-shadow:
+        var(--shadow-float),
+        0 0 20px rgba(57, 213, 255, 0.08),
+        inset 0 0 20px rgba(57, 213, 255, 0.03);
 }
 
+/* --- Attach Menu --- */
 .attach-wrapper {
     position: relative;
 }
@@ -93,13 +105,16 @@
     position: absolute;
     bottom: calc(100% + 8px);
     left: 0;
-    background-color: white;
+    background-color: hsl(var(--color-bg-card));
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-float);
-    border: 1px solid hsl(var(--color-chat-ai-border));
+    box-shadow:
+        var(--shadow-float),
+        0 0 15px rgba(88, 166, 255, 0.08);
+    border: 1px solid hsl(var(--glow-blue) / 0.2);
     overflow: hidden;
     z-index: 100;
     min-width: 120px;
+    animation: slideUp 0.15s ease-out;
 }
 
 .attach-option {
@@ -108,15 +123,17 @@
     gap: var(--space-sm);
     padding: var(--space-sm) var(--space-md);
     cursor: pointer;
-    transition: background-color 0.15s;
+    transition: all 0.15s;
     color: hsl(var(--color-text-main));
     font-size: 0.9rem;
 }
 
 .attach-option:hover {
-    background-color: hsl(var(--color-chat-ai));
+    background-color: hsl(var(--color-primary) / 0.12);
+    color: hsl(var(--glow-cyan));
 }
 
+/* --- Text Input --- */
 .input-field {
     flex: 1;
     border: none;
@@ -135,6 +152,7 @@
     color: hsl(var(--color-text-secondary));
 }
 
+/* --- Icon Buttons --- */
 .icon-btn {
     width: 40px;
     height: 40px;
@@ -149,41 +167,54 @@
 }
 
 .icon-btn:hover:not(:disabled) {
-    background-color: hsl(var(--color-chat-ai));
-    color: hsl(var(--color-primary));
+    background-color: hsl(var(--color-primary) / 0.12);
+    color: hsl(var(--glow-cyan));
 }
 
 .icon-btn:disabled {
-    opacity: 0.5;
+    opacity: 0.35;
     cursor: not-allowed;
 }
 
 .attach-btn:hover:not(:disabled) {
-    background-color: hsl(var(--color-chat-ai));
+    background-color: hsl(var(--color-primary) / 0.12);
 }
 
 .voice-btn:hover:not(:disabled) {
-    color: hsl(160, 60%, 45%);
+    color: hsl(var(--glow-cyan));
 }
 
+/* --- Send Button - Gradient Glow --- */
 .send-btn {
-    background-color: hsl(var(--color-primary));
+    background: linear-gradient(
+        135deg,
+        hsl(var(--glow-blue)),
+        hsl(var(--glow-purple))
+    );
     color: white;
+    box-shadow: 0 0 12px rgba(88, 166, 255, 0.2);
 }
 
 .send-btn:hover:not(.disabled):not(:disabled) {
-    background-color: hsl(215, 90%, 45%);
-    transform: scale(1.05);
+    background: linear-gradient(
+        135deg,
+        hsl(var(--glow-cyan)),
+        hsl(var(--glow-blue))
+    );
+    transform: scale(1.08);
     color: white;
+    box-shadow: 0 0 20px rgba(57, 213, 255, 0.3);
 }
 
 .send-btn.disabled {
-    background-color: hsl(var(--color-text-secondary) / 0.3);
-    color: hsl(var(--color-text-secondary));
+    background: hsl(var(--color-bg-card));
+    color: hsl(var(--color-text-secondary) / 0.5);
     cursor: not-allowed;
     transform: none;
+    box-shadow: none;
 }
 
+/* --- Mobile Responsive --- */
 @media (max-width: 640px) {
     .input-area-container {
         padding: var(--space-xs) var(--space-sm);

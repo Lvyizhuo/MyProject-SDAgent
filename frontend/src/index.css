@@ -1,7 +1,6 @@
 @import './variables.css';
 @import './reset.css';
 
-/* Global Utilities */
 .container {
   max-width: 1200px;
   margin: 0 auto;

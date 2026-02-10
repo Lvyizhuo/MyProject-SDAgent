@@ -1,26 +1,36 @@
 :root {
-  /* HSL Color Palette - Premium Government Blue */
-  --color-primary: 215 90% 35%; /* #0947A1 - Solid trustworthy blue */
-  --color-primary-light: 215 90% 96%;
-  --color-accent: 38 90% 55%; /* Gold/Orange for actions */
-
-  /* Surface */
-  --color-bg-app: 220 15% 95%;
-  --color-bg-card: 0 0% 100%;
+  /* === Dark Sci-Fi Color Palette === */
   
-  /* Chat Bubbles - 区分用户和AI */
-  --color-chat-user: 215 90% 45%; /* 用户: 蓝色 */
-  --color-chat-ai: 220 15% 96%; /* AI: 浅灰蓝色 */
-  --color-chat-ai-border: 220 15% 88%;
+  /* Primary Accent - Electric Blue → Cyan */
+  --color-primary: 212 92% 67%;       /* #58a6ff */
+  --color-primary-light: 212 92% 15%; /* subtle bg tint */
+  --color-accent: 190 100% 61%;       /* #39d5ff cyan */
+  --color-accent-purple: 263 70% 68%; /* #8b5cf6 purple */
+
+  /* Surfaces - Deep Space */
+  --color-bg-app: 215 28% 7%;         /* #0d1117 */
+  --color-bg-elevated: 215 22% 11%;   /* #161b22 */
+  --color-bg-card: 220 25% 16%;       /* #1c2333 */
+  --color-bg-sidebar: 215 50% 2%;     /* #010409 */
+  
+  /* Chat Bubbles */
+  --color-chat-user: 215 80% 42%;     /* blue base for user gradient */
+  --color-chat-ai: 220 25% 16%;       /* dark card for AI */
+  --color-chat-ai-border: 215 20% 25%;/* subtle border */
   
   /* Avatars */
-  --color-avatar-user: 215 90% 50%;
-  --color-avatar-ai: 160 60% 45%; /* 绿色 - 区分于用户 */
+  --color-avatar-user: 212 92% 67%;   /* electric blue */
+  --color-avatar-ai: 190 100% 61%;    /* cyan */
 
   /* Text */
-  --color-text-main: 215 20% 15%;
-  --color-text-secondary: 215 15% 45%;
+  --color-text-main: 210 17% 90%;     /* #e6edf3 */
+  --color-text-secondary: 215 10% 57%;/* #8b949e */
   --color-text-inverse: 0 0% 100%;
+
+  /* Glow Colors */
+  --glow-blue: 212 92% 67%;
+  --glow-cyan: 190 100% 61%;
+  --glow-purple: 263 70% 68%;
 
   /* Spacing */
   --space-xs: 4px;
@@ -34,7 +44,50 @@
   --radius-md: 12px;
   --radius-lg: 20px;
   --radius-xl: 24px;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
-  --shadow-float: 0 10px 15px -3px rgba(0,0,0,0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --shadow-glow-blue: 0 0 20px rgba(88, 166, 255, 0.15);
+  --shadow-glow-cyan: 0 0 20px rgba(57, 213, 255, 0.15);
+
+  /* Sidebar */
+  --sidebar-width: 280px;
+
+  /* Glassmorphism */
+  --glass-bg: rgba(13, 17, 23, 0.8);
+  --glass-border: rgba(88, 166, 255, 0.1);
+  --glass-blur: 20px;
+}
+
+/* === Global Animations === */
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes borderGlow {
+  0%, 100% { border-color: hsl(var(--glow-cyan) / 0.3); }
+  50% { border-color: hsl(var(--glow-cyan) / 0.6); }
+}
+
+@keyframes subtlePulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(57, 213, 255, 0.1); }
+  50% { box-shadow: 0 0 16px rgba(57, 213, 255, 0.25); }
 }

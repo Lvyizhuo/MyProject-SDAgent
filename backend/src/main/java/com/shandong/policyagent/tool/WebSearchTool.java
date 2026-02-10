@@ -1,19 +1,25 @@
 package com.shandong.policyagent.tool;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
+import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Configuration
@@ -22,12 +28,29 @@ public class WebSearchTool {
     @Value("${app.websearch.enabled:true}")
     private boolean enabled;
 
-    @Value("${app.websearch.timeout-seconds:10}")
+    @Value("${app.websearch.timeout-seconds:15}")
     private int timeoutSeconds;
 
-    private final WebClient webClient;
+    @Value("${app.websearch.tavily.api-key:}")
+    private String tavilyApiKey;
 
-    public WebSearchTool() {
+    @Value("${app.websearch.tavily.base-url:https://api.tavily.com}")
+    private String tavilyBaseUrl;
+
+    @Value("${app.websearch.tavily.search-depth:advanced}")
+    private String searchDepth;
+
+    @Value("${app.websearch.tavily.max-results:5}")
+    private int defaultMaxResults;
+
+    @Value("${app.websearch.cache-to-vectorstore:true}")
+    private boolean cacheToVectorStore;
+
+    private final WebClient webClient;
+    private final VectorStore vectorStore;
+
+    public WebSearchTool(VectorStore vectorStore) {
+        this.vectorStore = vectorStore;
         this.webClient = WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
                 .build();
@@ -44,147 +67,173 @@ public class WebSearchTool {
             String summary
     ) {}
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record TavilyResponse(
+            String query,
+            String answer,
+            @JsonProperty("results") List<TavilyResult> results
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record TavilyResult(
+            String title,
+            String url,
+            String content,
+            double score
+    ) {}
+
     @Bean
-    @Description("联网搜索工具，用于获取最新的政策信息、新闻动态等网络内容。当用户询问最新政策变化、市场价格、新闻事件等需要实时信息时使用此工具。输入搜索关键词(query)和最大结果数(maxResults，默认5条)，返回搜索结果列表。")
+    @Description("联网搜索工具，用于搜索最新的产品价格、政策信息、新闻动态等实时网络内容。" +
+            "当用户询问具体产品的市场价格（如iPhone、华为手机的售价）、最新政策变化、新闻事件等需要实时信息时，必须调用此工具。" +
+            "输入搜索关键词(query)和最大结果数(maxResults，默认5条)，返回搜索结果摘要和详细列表。")
     public Function<SearchRequest, SearchResponse> webSearch() {
         return request -> {
             if (!enabled) {
                 log.warn("联网搜索功能已禁用");
-                return new SearchResponse(
-                        request.query(),
-                        List.of(),
-                        0,
-                        "联网搜索功能当前未启用"
-                );
+                return new SearchResponse(request.query(), List.of(), 0, "联网搜索功能当前未启用");
             }
 
-            log.info("执行联网搜索 | 关键词={} | 最大结果数={}", 
-                    request.query(), 
-                    request.maxResults() != null ? request.maxResults() : 5);
+            if (tavilyApiKey == null || tavilyApiKey.isBlank()) {
+                log.error("Tavily API Key 未配置，无法执行联网搜索");
+                return new SearchResponse(request.query(), List.of(), 0,
+                        "联网搜索服务未配置API密钥，请联系管理员设置 TAVILY_API_KEY 环境变量");
+            }
+
+            int maxResults = request.maxResults() != null ? request.maxResults() : defaultMaxResults;
+            log.info("执行 Tavily 联网搜索 | 关键词={} | 最大结果数={}", request.query(), maxResults);
 
             try {
-                List<SearchResult> results = performBingSearch(
-                        request.query(),
-                        request.maxResults() != null ? request.maxResults() : 5
-                );
+                TavilyResponse tavilyResponse = callTavilyApi(request.query(), maxResults);
+                List<SearchResult> results = convertResults(tavilyResponse);
+                String summary = buildSummary(request.query(), tavilyResponse, results);
 
-                String summary = buildSummary(request.query(), results);
-                
                 log.info("联网搜索完成 | 关键词={} | 结果数={}", request.query(), results.size());
 
-                return new SearchResponse(
-                        request.query(),
-                        results,
-                        results.size(),
-                        summary
-                );
+                // 将搜索结果缓存到向量数据库
+                if (cacheToVectorStore && !results.isEmpty()) {
+                    cacheSearchResultToVectorStore(request.query(), tavilyResponse, results);
+                }
+
+                return new SearchResponse(request.query(), results, results.size(), summary);
+
             } catch (Exception e) {
                 log.error("联网搜索失败 | 关键词={}", request.query(), e);
-                return new SearchResponse(
-                        request.query(),
-                        List.of(),
-                        0,
-                        "搜索失败: " + e.getMessage()
-                );
+                return new SearchResponse(request.query(), List.of(), 0,
+                        "搜索失败: " + e.getMessage());
             }
         };
     }
 
-    private List<SearchResult> performBingSearch(String query, int maxResults) {
-        String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-        String searchUrl = "https://www.bing.com/search?q=" + encodedQuery + "&count=" + maxResults;
+    private TavilyResponse callTavilyApi(String query, int maxResults) {
+        Map<String, Object> requestBody = Map.of(
+                "query", query,
+                "search_depth", searchDepth,
+                "max_results", maxResults,
+                "include_answer", true
+        );
 
-        try {
-            String html = webClient.get()
-                    .uri(searchUrl)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .header("Accept-Language", "zh-CN,zh;q=0.9")
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(timeoutSeconds))
-                    .block();
-
-            return parseSearchResults(html, maxResults);
-        } catch (Exception e) {
-            log.warn("Bing搜索失败，尝试备用方案 | 错误={}", e.getMessage());
-            return performFallbackSearch(query, maxResults);
-        }
+        return webClient.post()
+                .uri(tavilyBaseUrl + "/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .header("Authorization", "Bearer " + tavilyApiKey)
+                .retrieve()
+                .bodyToMono(TavilyResponse.class)
+                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .block();
     }
 
-    private List<SearchResult> parseSearchResults(String html, int maxResults) {
-        if (html == null || html.isEmpty()) {
+    private List<SearchResult> convertResults(TavilyResponse response) {
+        if (response == null || response.results() == null) {
             return List.of();
         }
-
-        java.util.ArrayList<SearchResult> results = new java.util.ArrayList<>();
-
-        Pattern titlePattern = Pattern.compile("<h2[^>]*><a[^>]*href=\"([^\"]+)\"[^>]*>([^<]+)</a></h2>");
-        Pattern snippetPattern = Pattern.compile("<p[^>]*class=\"[^\"]*b_algoSlug[^\"]*\"[^>]*>([^<]+)</p>");
-
-        Matcher titleMatcher = titlePattern.matcher(html);
-        Matcher snippetMatcher = snippetPattern.matcher(html);
-
-        while (titleMatcher.find() && results.size() < maxResults) {
-            String url = titleMatcher.group(1);
-            String title = cleanHtml(titleMatcher.group(2));
-            String snippet = "";
-            
-            if (snippetMatcher.find()) {
-                snippet = cleanHtml(snippetMatcher.group(1));
-            }
-
-            if (!url.contains("bing.com") && !url.contains("microsoft.com")) {
-                results.add(new SearchResult(title, url, snippet));
-            }
-        }
-
-        if (results.isEmpty()) {
-            results.add(new SearchResult(
-                    "搜索结果解析中",
-                    "",
-                    "已执行搜索，但结果解析可能不完整。建议用户直接访问搜索引擎获取最新信息。"
-            ));
-        }
-
-        return results;
+        return response.results().stream()
+                .map(r -> new SearchResult(
+                        r.title() != null ? r.title() : "",
+                        r.url() != null ? r.url() : "",
+                        r.content() != null ? truncate(r.content(), 300) : ""
+                ))
+                .collect(Collectors.toList());
     }
 
-    private List<SearchResult> performFallbackSearch(String query, int maxResults) {
-        return List.of(new SearchResult(
-                "搜索服务暂时不可用",
-                "",
-                String.format("关于'%s'的搜索暂时无法完成，建议用户直接访问官方政策网站或使用其他搜索引擎查询。", query)
-        ));
-    }
-
-    private String cleanHtml(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replaceAll("<[^>]+>", "")
-                .replaceAll("&nbsp;", " ")
-                .replaceAll("&amp;", "&")
-                .replaceAll("&lt;", "<")
-                .replaceAll("&gt;", ">")
-                .replaceAll("&quot;", "\"")
-                .trim();
-    }
-
-    private String buildSummary(String query, List<SearchResult> results) {
+    private String buildSummary(String query, TavilyResponse tavilyResponse, List<SearchResult> results) {
         if (results.isEmpty()) {
             return String.format("未找到与'%s'相关的搜索结果", query);
         }
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("【联网搜索结果】关键词：%s，共找到%d条相关信息：\n", query, results.size()));
-        
+
+        if (tavilyResponse.answer() != null && !tavilyResponse.answer().isBlank()) {
+            sb.append(String.format("AI摘要：%s\n\n", tavilyResponse.answer()));
+        }
+
         for (int i = 0; i < results.size(); i++) {
             SearchResult result = results.get(i);
             sb.append(String.format("%d. %s", i + 1, result.title()));
             if (!result.snippet().isEmpty()) {
                 sb.append(String.format(" - %s", result.snippet()));
             }
+            if (!result.url().isEmpty()) {
+                sb.append(String.format(" (%s)", result.url()));
+            }
             sb.append("\n");
+        }
+
+        return sb.toString();
+    }
+
+    private String truncate(String text, int maxLength) {
+        if (text == null || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, maxLength) + "...";
+    }
+
+    private void cacheSearchResultToVectorStore(String query, TavilyResponse tavilyResponse, List<SearchResult> results) {
+        try {
+            String documentText = buildCacheDocumentText(query, tavilyResponse, results);
+
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("source", "web-search");
+            metadata.put("query", query);
+            metadata.put("searchedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+            metadata.put("resultCount", results.size());
+
+            String sourceUrls = results.stream()
+                    .map(SearchResult::url)
+                    .filter(url -> url != null && !url.isEmpty())
+                    .collect(Collectors.joining(", "));
+            metadata.put("sourceUrls", sourceUrls);
+
+            Document document = new Document(documentText, metadata);
+            vectorStore.add(List.of(document));
+
+            log.info("搜索结果已缓存到向量数据库 | 关键词={}", query);
+        } catch (Exception e) {
+            log.warn("搜索结果缓存到向量数据库失败 | 关键词={}", query, e);
+        }
+    }
+
+    private String buildCacheDocumentText(String query, TavilyResponse tavilyResponse, List<SearchResult> results) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("搜索查询：%s\n", query));
+        sb.append(String.format("搜索时间：%s\n\n", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))));
+
+        if (tavilyResponse.answer() != null && !tavilyResponse.answer().isBlank()) {
+            sb.append(String.format("综合摘要：%s\n\n", tavilyResponse.answer()));
+        }
+
+        sb.append("详细搜索结果：\n");
+        for (int i = 0; i < results.size(); i++) {
+            SearchResult result = results.get(i);
+            sb.append(String.format("%d. %s\n", i + 1, result.title()));
+            if (!result.snippet().isEmpty()) {
+                sb.append(String.format("   %s\n", result.snippet()));
+            }
+            if (!result.url().isEmpty()) {
+                sb.append(String.format("   来源：%s\n", result.url()));
+            }
         }
 
         return sb.toString();

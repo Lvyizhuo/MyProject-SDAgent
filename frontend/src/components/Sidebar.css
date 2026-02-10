@@ -4,7 +4,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: rgba(0, 0, 0, 0.4);
+    background-color: rgba(0, 0, 0, 0.6);
     opacity: 0;
     visibility: hidden;
     transition: all 0.3s;
@@ -21,10 +21,12 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 300px;
+    width: var(--sidebar-width);
     max-width: 85vw;
-    background-color: white;
-    box-shadow: var(--shadow-float);
+    background: rgba(1, 4, 9, 0.95);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-right: 1px solid rgba(88, 166, 255, 0.08);
     transform: translateX(-100%);
     transition: transform 0.3s ease-out;
     z-index: 100;
@@ -41,15 +43,14 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-md) var(--space-lg);
-    border-bottom: 1px solid hsl(var(--color-chat-ai-border));
-    background: linear-gradient(135deg, hsl(215, 90%, 35%) 0%, hsl(215, 85%, 28%) 100%);
-    color: white;
+    border-bottom: 1px solid rgba(88, 166, 255, 0.08);
 }
 
 .sidebar-header h2 {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
     margin: 0;
+    color: hsl(var(--color-text-main));
 }
 
 .sidebar-close-btn {
@@ -59,61 +60,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: rgba(255, 255, 255, 0.15);
-    color: white;
-    transition: background-color 0.2s;
-}
-
-.sidebar-close-btn:hover {
-    background-color: rgba(255, 255, 255, 0.25);
-}
-
-.user-info {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-md);
-    background-color: hsl(var(--color-chat-ai));
-    border-bottom: 1px solid hsl(var(--color-chat-ai-border));
-}
-
-.user-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background-color: hsl(var(--color-primary));
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.user-name {
-    flex: 1;
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: hsl(var(--color-text-main));
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.logout-btn {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: transparent;
+    background-color: rgba(255, 255, 255, 0.05);
     color: hsl(var(--color-text-secondary));
     transition: all 0.2s;
 }
 
-.logout-btn:hover {
-    background-color: hsl(0, 70%, 95%);
-    color: hsl(0, 70%, 50%);
+.sidebar-close-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: hsl(var(--color-text-main));
 }
 
 .new-chat-btn {
@@ -123,15 +77,19 @@
     gap: var(--space-sm);
     margin: var(--space-md);
     padding: var(--space-sm) var(--space-md);
-    background-color: hsl(var(--color-primary));
-    color: white;
+    background: linear-gradient(135deg, hsl(var(--glow-blue) / 0.15), hsl(var(--glow-cyan) / 0.15));
+    border: 1px solid hsl(var(--glow-cyan) / 0.2);
+    color: hsl(var(--glow-cyan));
     border-radius: var(--radius-md);
     font-weight: 500;
-    transition: background-color 0.2s;
+    font-size: 0.9rem;
+    transition: all 0.2s;
 }
 
 .new-chat-btn:hover {
-    background-color: hsl(215, 90%, 40%);
+    background: linear-gradient(135deg, hsl(var(--glow-blue) / 0.25), hsl(var(--glow-cyan) / 0.25));
+    border-color: hsl(var(--glow-cyan) / 0.4);
+    box-shadow: 0 0 15px rgba(57, 213, 255, 0.1);
 }
 
 .sessions-list {
@@ -162,17 +120,19 @@
     padding: var(--space-sm) var(--space-md);
     border-radius: var(--radius-sm);
     cursor: pointer;
-    transition: background-color 0.15s;
+    transition: all 0.2s;
     margin-bottom: var(--space-xs);
+    border-left: 2px solid transparent;
 }
 
 .session-item:hover {
-    background-color: hsl(var(--color-chat-ai));
+    background-color: rgba(88, 166, 255, 0.05);
 }
 
 .session-item.active {
-    background-color: hsl(var(--color-primary) / 0.1);
-    border-left: 3px solid hsl(var(--color-primary));
+    background-color: rgba(57, 213, 255, 0.08);
+    border-left-color: hsl(var(--glow-cyan));
+    box-shadow: inset 0 0 20px rgba(57, 213, 255, 0.03);
 }
 
 .session-icon {
@@ -182,14 +142,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: hsl(var(--color-chat-ai));
+    background-color: rgba(88, 166, 255, 0.08);
     color: hsl(var(--color-text-secondary));
     flex-shrink: 0;
+    transition: all 0.2s;
 }
 
 .session-item.active .session-icon {
-    background-color: hsl(var(--color-primary) / 0.15);
-    color: hsl(var(--color-primary));
+    background-color: hsl(var(--glow-cyan) / 0.15);
+    color: hsl(var(--glow-cyan));
+}
+
+.session-item:hover .session-icon {
+    color: hsl(var(--glow-blue));
 }
 
 .session-info {
@@ -231,13 +196,79 @@
 }
 
 .delete-session-btn:hover {
-    background-color: hsl(0, 70%, 95%);
-    color: hsl(0, 70%, 50%);
+    background-color: rgba(248, 81, 73, 0.15);
+    color: #f85149;
 }
 
-@media (max-width: 640px) {
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border-top: 1px solid rgba(88, 166, 255, 0.08);
+    margin-top: auto;
+}
+
+.user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, hsl(var(--glow-blue) / 0.3), hsl(var(--glow-purple) / 0.3));
+    border: 1px solid hsl(var(--glow-blue) / 0.3);
+    color: hsl(var(--glow-blue));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.user-name {
+    flex: 1;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: hsl(var(--color-text-main));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.logout-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: transparent;
+    color: hsl(var(--color-text-secondary));
+    transition: all 0.2s;
+}
+
+.logout-btn:hover {
+    background-color: rgba(248, 81, 73, 0.15);
+    color: #f85149;
+}
+
+@media (min-width: 769px) {
+    .sidebar {
+        position: relative;
+        transform: translateX(0);
+        flex-shrink: 0;
+        z-index: auto;
+    }
+
+    .sidebar-overlay {
+        display: none;
+    }
+
+    .sidebar-close-btn {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
     .sidebar {
         width: 100%;
-        max-width: 100%;
+        max-width: 320px;
     }
 }

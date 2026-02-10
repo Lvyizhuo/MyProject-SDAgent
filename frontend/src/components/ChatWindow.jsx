@@ -4,6 +4,13 @@ import InputArea from './InputArea';
 import { chatApi } from '../services/api';
 import './ChatWindow.css';
 
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+});
+
 const WELCOME_MESSAGE = {
     id: 'welcome',
     role: 'assistant',
@@ -34,17 +41,26 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const handleSend = async (text, files = []) => {
         if (!text.trim() && files.length === 0) return;
 
+        const imageFiles = files.filter(f => f.type === 'image');
+
         const userMsg = { 
             id: Date.now(), 
             role: 'user', 
             content: text,
-            files: files.length > 0 ? files.map(f => ({ name: f.name, type: f.type })) : undefined
+            images: imageFiles.length > 0 ? imageFiles.map(f => f.preview) : undefined
         };
         setMessages(prev => [...prev, userMsg]);
         setIsGenerating(true);
 
         try {
-            const response = await chatApi.createStreamRequest(text, sessionId);
+            let imageBase64List = null;
+            if (imageFiles.length > 0) {
+                imageBase64List = await Promise.all(
+                    imageFiles.map(f => fileToBase64(f.file))
+                );
+            }
+
+            const response = await chatApi.createStreamRequest(text, sessionId, imageBase64List);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -130,7 +146,7 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
         <div className="chat-window">
             <div className="messages-list">
                 {messages.map(msg => (
-                    <MessageBubble key={msg.id} role={msg.role} content={msg.content} />
+                    <MessageBubble key={msg.id} role={msg.role} content={msg.content} images={msg.images} />
                 ))}
                 <div ref={messagesEndRef} />
             </div>

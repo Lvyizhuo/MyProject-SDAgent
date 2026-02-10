@@ -91,14 +91,19 @@ export const chatApi = {
         return response.json();
     },
 
-    createStreamRequest(message, conversationId) {
+    createStreamRequest(message, conversationId, imageBase64List = null) {
+        const body = { message, conversationId };
+        if (imageBase64List && imageBase64List.length > 0) {
+            body.imageBase64List = imageBase64List;
+            body.imageFormat = 'jpeg';
+        }
         return fetch(`${API_BASE}/chat/stream`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 ...getAuthHeaders()
             },
-            body: JSON.stringify({ message, conversationId })
+            body: JSON.stringify(body)
         });
     }
 };

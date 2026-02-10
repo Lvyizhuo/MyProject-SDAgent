@@ -14,19 +14,8 @@
     padding: var(--space-lg);
     padding-bottom: 120px;
     -webkit-overflow-scrolling: touch;
-}
-
-.messages-list::-webkit-scrollbar {
-    width: 6px;
-}
-
-.messages-list::-webkit-scrollbar-thumb {
-    background-color: rgba(0, 0, 0, 0.15);
-    border-radius: 3px;
-}
-
-.messages-list::-webkit-scrollbar-track {
-    background-color: transparent;
+    mask-image: linear-gradient(to bottom, transparent 0%, black 2%, black 95%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 2%, black 95%, transparent 100%);
 }
 
 .input-wrapper {
@@ -35,7 +24,7 @@
     left: 0;
     right: 0;
     padding: var(--space-md);
-    background: linear-gradient(to top, hsl(var(--color-bg-app)) 70%, transparent);
+    background: linear-gradient(to top, hsl(var(--color-bg-elevated)) 60%, transparent);
     padding-top: var(--space-xl);
 }
 

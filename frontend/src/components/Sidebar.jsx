@@ -41,18 +41,6 @@ const Sidebar = ({
                     </button>
                 </div>
 
-                {user && (
-                    <div className="user-info">
-                        <div className="user-avatar">
-                            <User size={18} />
-                        </div>
-                        <span className="user-name">{user.username}</span>
-                        <button className="logout-btn" onClick={handleLogout} title="退出登录">
-                            <LogOut size={16} />
-                        </button>
-                    </div>
-                )}
-
                 <button className="new-chat-btn" onClick={onNewSession}>
                     <Plus size={18} />
                     <span>新建会话</span>
@@ -91,6 +79,18 @@ const Sidebar = ({
                         ))
                     )}
                 </div>
+
+                {user && (
+                    <div className="user-info">
+                        <div className="user-avatar">
+                            <User size={18} />
+                        </div>
+                        <span className="user-name">{user.username}</span>
+                        <button className="logout-btn" onClick={handleLogout} title="退出登录">
+                            <LogOut size={16} />
+                        </button>
+                    </div>
+                )}
             </aside>
         </>
     );
