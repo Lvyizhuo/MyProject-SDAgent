@@ -9,11 +9,14 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
+
+import java.util.List;
 
 @Configuration
 public class ChatClientConfig {
@@ -61,6 +64,13 @@ public class ChatClientConfig {
               3. 用户明确要求联网搜索
               4. 需要获取实时数据才能准确回答用户问题时
               调用时将用户的问题转化为有效的搜索关键词，例如用户问"iPhone17 256GB优惠价格"，搜索关键词应为"iPhone 17 256GB 价格"。
+
+            ReAct 执行策略（必须遵守）:
+            - 每次回答前先形成“目标->步骤->工具选择”的简要执行计划，再开始执行。
+            - 执行中优先使用可验证的信息源（RAG文档、工具返回结果、MCP服务返回结果）。
+            - 当用户需求涉及线下购买、以旧换新回收点、门店推荐、路线规划时，优先调用高德地图 MCP 工具查询周边地点与路线。
+            - 若地图 MCP 暂不可用，明确说明并给出人工兜底方案（例如让用户提供区县后再推荐）。
+            - 不要输出内部思维链路，仅输出对用户有用的结论、步骤和建议。
             """;
 
     @Bean
@@ -101,7 +111,8 @@ public class ChatClientConfig {
                                   ChatMemory chatMemory,
                                   SecurityAdvisor securityAdvisor,
                                   ReReadingAdvisor reReadingAdvisor,
-                                  LoggingAdvisor loggingAdvisor) {
+                                  LoggingAdvisor loggingAdvisor,
+                                  List<ToolCallbackProvider> toolCallbackProviders) {
         RagConfig.Retrieval retrievalConfig = ragConfig.getRetrieval();
 
         QuestionAnswerAdvisor qaAdvisor = QuestionAnswerAdvisor.builder(vectorStore)
@@ -123,7 +134,7 @@ public class ChatClientConfig {
                         qaAdvisor,
                         loggingAdvisor
                 )
-                .defaultToolNames("calculateSubsidy", "parseFile", "webSearch")
+                .defaultToolCallbacks(toolCallbackProviders.toArray(ToolCallbackProvider[]::new))
                 .build();
     }
 }

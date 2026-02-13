@@ -1,5 +1,7 @@
 package com.shandong.policyagent.service;
 
+import com.shandong.policyagent.agent.AgentExecutionPlan;
+import com.shandong.policyagent.agent.ReActPlanningService;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.multimodal.service.VisionService;
@@ -31,15 +33,18 @@ public class ChatService {
     
     private final ChatClient chatClient;
     private final VisionService visionService;
+    private final ReActPlanningService planningService;
 
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
         String conversationId = getOrCreateConversationId(request.getConversationId());
         
         String userMessage = buildUserMessage(request);
+        AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
+        String executionPrompt = buildExecutionPrompt(userMessage, plan);
         
         String response = chatClient.prompt()
-                .user(userMessage)
+                .user(executionPrompt)
                 .advisors(advisorSpec -> advisorSpec
                         .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
                 .call()
@@ -62,9 +67,16 @@ public class ChatService {
         log.info("开始流式对话 | conversationId={}", conversationId);
         
         String userMessage = buildUserMessage(request);
+        AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
+        String executionPrompt = buildExecutionPrompt(userMessage, plan);
+
+        if (plan.needToolCall()) {
+            log.info("检测到工具调用计划，直接使用非流式执行以规避流式工具调用缺陷 | conversationId={}", conversationId);
+            return fallbackToNonStreaming(executionPrompt, conversationId);
+        }
         
         return chatClient.prompt()
-                .user(userMessage)
+                .user(executionPrompt)
                 .advisors(advisorSpec -> advisorSpec
                         .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
                 .stream()
@@ -73,15 +85,27 @@ public class ChatService {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}", 
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(userMessage, conversationId);
+                        return fallbackToNonStreaming(executionPrompt, conversationId);
                     }
                     return Flux.error(e);
                 });
     }
 
     private String buildUserMessage(ChatRequest request) {
+        StringBuilder baseMessage = new StringBuilder(request.getMessage());
+        if (request.getCityCode() != null && !request.getCityCode().isBlank()) {
+            baseMessage.append("\n\n【用户城市上下文】cityCode=").append(request.getCityCode());
+        }
+        if (request.getLatitude() != null && request.getLongitude() != null) {
+            baseMessage.append("\n【用户定位上下文】lat=").append(request.getLatitude())
+                    .append(", lng=").append(request.getLongitude());
+            if (request.getLocationAccuracy() != null) {
+                baseMessage.append(", accuracy=").append(request.getLocationAccuracy()).append("m");
+            }
+        }
+
         if (!request.hasImages()) {
-            return request.getMessage();
+            return baseMessage.toString();
         }
 
         log.info("检测到图片上传 | 图片数量={}", request.getImageBase64List().size());
@@ -90,7 +114,7 @@ public class ChatService {
 
         if (imageAnalysis == null || imageAnalysis.isBlank()) {
             log.warn("图片识别失败，使用纯文本消息");
-            return request.getMessage() + "\n\n（注意：用户上传了图片但识别失败，请引导用户手动描述家电类型、品牌、购买价格等信息）";
+            return baseMessage + "\n\n（注意：用户上传了图片但识别失败，请引导用户手动描述家电类型、品牌、购买价格等信息）";
         }
 
         return String.format("""
@@ -103,7 +127,37 @@ public class ChatService {
                 
                 请结合以上图片识别结果和用户问题进行回答。如果识别出了设备类型，请主动调用 calculateSubsidy 工具计算补贴金额。\
                 如果缺少购买价格信息，请询问用户新家电的购买价格。""",
-                request.getMessage(), imageAnalysis);
+                baseMessage, imageAnalysis);
+    }
+
+    private String buildExecutionPrompt(String userMessage, AgentExecutionPlan plan) {
+        StringBuilder stepsBuilder = new StringBuilder();
+        for (AgentExecutionPlan.AgentStep step : plan.steps()) {
+            stepsBuilder.append(step.id())
+                    .append(". ")
+                    .append(step.action())
+                    .append(" [toolHint=")
+                    .append(step.toolHint())
+                    .append("]\n");
+        }
+
+        return String.format("""
+                【用户原始问题】
+                %s
+
+                【ReAct执行计划（由系统规划）】
+                目标：%s
+                需要工具：%s
+                步骤：
+                %s
+
+                【执行要求】
+                1. 严格按计划执行，但如果执行中发现用户信息不足，可先提最少必要问题。
+                2. 需要事实依据时优先使用RAG检索结果。
+                3. 需要计算补贴时必须调用 calculateSubsidy。
+                4. 用户询问线下购买、门店、回收点、路线、导航时，优先调用高德地图MCP工具；若MCP暂不可用再给出人工兜底建议。
+                5. 不要暴露内部思维链路，只输出对用户可读的结论、步骤和建议。
+                """, userMessage, plan.summary(), plan.needToolCall(), stepsBuilder);
     }
 
     private String analyzeImages(List<String> imageBase64List, String imageFormat) {

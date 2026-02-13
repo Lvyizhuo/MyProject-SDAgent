@@ -52,6 +52,12 @@ spring:
         table-name: vector_store
         max-document-batch-size: 10000
 
+    # MCP 客户端默认关闭自动初始化，避免未配置时启动失败
+    mcp:
+      client:
+        enabled: true
+        initialized: false
+
 # 服务器配置
 server:
   port: 8080
@@ -98,15 +104,31 @@ app:
   # RAG 配置
   rag:
     document-path: data
+    scraped:
+      enabled: true
+      policy-json-paths:
+        - scripts/data/scraped/policies.json
+        - data/scraped/policies.json
+    incremental:
+      enabled: true
+      state-file-path: data/.rag-ingestion-state.json
+    bootstrap:
+      auto-load-on-startup: true
     chunking:
-      default-chunk-size: 800
+      default-chunk-size: 1600
       min-chunk-size-chars: 350
       min-chunk-length-to-embed: 5
-      chunk-overlap: 100
+      chunk-overlap: 300
       keep-separator: true
+      no-split-max-chars: 6000
     retrieval:
       top-k: 5
       similarity-threshold: 0.7
+      candidate-top-k: 20
+      rerank-enabled: true
+      rerank-model: qwen3-rerank
+      rerank-endpoint: https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+      rerank-max-doc-chars: 3000
 
   # Advisor 配置
   advisor:
@@ -134,3 +156,8 @@ app:
       base-url: https://api.tavily.com
       search-depth: advanced
       max-results: 5
+
+  # ReAct 智能体工作流配置
+  agent:
+    planning-enabled: true
+    max-planning-steps: 4

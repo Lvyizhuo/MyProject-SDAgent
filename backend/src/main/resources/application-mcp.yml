@@ -1,0 +1,13 @@
+spring:
+  config:
+    activate:
+      on-profile: mcp
+
+  ai:
+    mcp:
+      client:
+        enabled: true
+        initialized: true
+        request-timeout: 20s
+        stdio:
+          servers-configuration: classpath:mcp-servers.json

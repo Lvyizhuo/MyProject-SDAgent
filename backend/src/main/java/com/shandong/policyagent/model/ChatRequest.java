@@ -34,6 +34,21 @@ public class ChatRequest {
     private String cityCode;
 
     /**
+     * 浏览器定位纬度（可选）
+     */
+    private Double latitude;
+
+    /**
+     * 浏览器定位经度（可选）
+     */
+    private Double longitude;
+
+    /**
+     * 浏览器定位精度（米，可选）
+     */
+    private Double locationAccuracy;
+
+    /**
      * 图片Base64数据列表（可选），最多3张，每张≤5MB
      * 格式：纯base64字符串（不含data:image/...;base64,前缀）
      */

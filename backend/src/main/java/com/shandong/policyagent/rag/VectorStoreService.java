@@ -1,7 +1,9 @@
 package com.shandong.policyagent.rag;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +21,7 @@ public class VectorStoreService {
     private final VectorStore vectorStore;
     private final DocumentLoaderService documentLoaderService;
     private final TextSplitterService textSplitterService;
+    private final IngestionStateService ingestionStateService;
 
     public void addDocuments(List<Document> documents) {
         if (documents.isEmpty()) {
@@ -26,8 +29,20 @@ public class VectorStoreService {
             return;
         }
 
-        List<Document> splitDocs = textSplitterService.splitDocuments(documents);
+        List<Document> incrementalDocs = ingestionStateService.filterNewDocuments(documents);
+        if (incrementalDocs.isEmpty()) {
+            log.info("增量模式下没有新文档需要入库");
+            return;
+        }
+        incrementalDocs = sanitizeDocuments(incrementalDocs);
+        if (incrementalDocs.isEmpty()) {
+            log.warn("文档清洗后无有效内容，跳过入库");
+            return;
+        }
+
+        List<Document> splitDocs = textSplitterService.splitDocuments(incrementalDocs);
         addDocumentsInBatches(splitDocs);
+        ingestionStateService.markDocumentsProcessed(incrementalDocs);
         log.info("成功添加 {} 个文档切片到向量存储", splitDocs.size());
     }
 
@@ -38,8 +53,20 @@ public class VectorStoreService {
             return 0;
         }
 
-        List<Document> splitDocs = textSplitterService.splitDocuments(documents);
+        List<Document> incrementalDocs = ingestionStateService.filterNewDocuments(documents);
+        if (incrementalDocs.isEmpty()) {
+            log.info("默认目录中没有新增文档，跳过入库");
+            return 0;
+        }
+        incrementalDocs = sanitizeDocuments(incrementalDocs);
+        if (incrementalDocs.isEmpty()) {
+            log.warn("默认目录文档清洗后无有效内容，跳过入库");
+            return 0;
+        }
+
+        List<Document> splitDocs = textSplitterService.splitDocuments(incrementalDocs);
         addDocumentsInBatches(splitDocs);
+        ingestionStateService.markDocumentsProcessed(incrementalDocs);
         log.info("ETL 完成: 加载并存储 {} 个文档切片", splitDocs.size());
 
         return splitDocs.size();
@@ -52,8 +79,20 @@ public class VectorStoreService {
             return 0;
         }
 
-        List<Document> splitDocs = textSplitterService.splitDocuments(documents);
+        List<Document> incrementalDocs = ingestionStateService.filterNewDocuments(documents);
+        if (incrementalDocs.isEmpty()) {
+            log.info("目录 {} 中没有新增文档，跳过入库", directoryPath);
+            return 0;
+        }
+        incrementalDocs = sanitizeDocuments(incrementalDocs);
+        if (incrementalDocs.isEmpty()) {
+            log.warn("目录 {} 文档清洗后无有效内容，跳过入库", directoryPath);
+            return 0;
+        }
+
+        List<Document> splitDocs = textSplitterService.splitDocuments(incrementalDocs);
         addDocumentsInBatches(splitDocs);
+        ingestionStateService.markDocumentsProcessed(incrementalDocs);
         log.info("从目录 {} 加载并存储 {} 个文档切片", directoryPath, splitDocs.size());
 
         return splitDocs.size();
@@ -84,5 +123,52 @@ public class VectorStoreService {
     public void deleteDocuments(List<String> documentIds) {
         vectorStore.delete(documentIds);
         log.info("已删除 {} 个文档", documentIds.size());
+    }
+
+    private List<Document> sanitizeDocuments(List<Document> documents) {
+        List<Document> result = new ArrayList<>(documents.size());
+        for (Document document : documents) {
+            String cleanText = sanitizeText(document.getText());
+            if (cleanText.isBlank()) {
+                continue;
+            }
+            Map<String, Object> cleanMetadata = sanitizeMetadata(document.getMetadata());
+            result.add(new Document(document.getId(), cleanText, cleanMetadata));
+        }
+        return result;
+    }
+
+    private Map<String, Object> sanitizeMetadata(Map<String, Object> metadata) {
+        Map<String, Object> clean = new HashMap<>();
+        if (metadata == null) {
+            return clean;
+        }
+        for (Map.Entry<String, Object> entry : metadata.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof String s) {
+                clean.put(entry.getKey(), sanitizeText(s));
+            } else {
+                clean.put(entry.getKey(), value);
+            }
+        }
+        return clean;
+    }
+
+    private String sanitizeText(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\u0000') {
+                continue;
+            }
+            if (c < 32 && c != '\n' && c != '\r' && c != '\t') {
+                continue;
+            }
+            sb.append(c);
+        }
+        return sb.toString().trim();
     }
 }

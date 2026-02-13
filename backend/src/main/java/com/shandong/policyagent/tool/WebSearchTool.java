@@ -18,6 +18,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -88,49 +89,58 @@ public class WebSearchTool {
             "输入搜索关键词(query)和最大结果数(maxResults，默认5条)，返回搜索结果摘要和详细列表。")
     public Function<SearchRequest, SearchResponse> webSearch() {
         return request -> {
+            String query = request != null && request.query() != null ? request.query().trim() : "";
+            if (query.isBlank()) {
+                return new SearchResponse(
+                        "",
+                        List.of(),
+                        0,
+                        "搜索关键词为空，请提供明确的搜索内容，例如：iPhone 17 标准版 价格"
+                );
+            }
+
             if (!enabled) {
                 log.warn("联网搜索功能已禁用");
-                return new SearchResponse(request.query(), List.of(), 0, "联网搜索功能当前未启用");
+                return new SearchResponse(query, List.of(), 0, "联网搜索功能当前未启用");
             }
 
             if (tavilyApiKey == null || tavilyApiKey.isBlank()) {
                 log.error("Tavily API Key 未配置，无法执行联网搜索");
-                return new SearchResponse(request.query(), List.of(), 0,
+                return new SearchResponse(query, List.of(), 0,
                         "联网搜索服务未配置API密钥，请联系管理员设置 TAVILY_API_KEY 环境变量");
             }
 
             int maxResults = request.maxResults() != null ? request.maxResults() : defaultMaxResults;
-            log.info("执行 Tavily 联网搜索 | 关键词={} | 最大结果数={}", request.query(), maxResults);
+            log.info("执行 Tavily 联网搜索 | 关键词={} | 最大结果数={}", query, maxResults);
 
             try {
-                TavilyResponse tavilyResponse = callTavilyApi(request.query(), maxResults);
+                TavilyResponse tavilyResponse = callTavilyApi(query, maxResults);
                 List<SearchResult> results = convertResults(tavilyResponse);
-                String summary = buildSummary(request.query(), tavilyResponse, results);
+                String summary = buildSummary(query, tavilyResponse, results);
 
-                log.info("联网搜索完成 | 关键词={} | 结果数={}", request.query(), results.size());
+                log.info("联网搜索完成 | 关键词={} | 结果数={}", query, results.size());
 
                 // 将搜索结果缓存到向量数据库
                 if (cacheToVectorStore && !results.isEmpty()) {
-                    cacheSearchResultToVectorStore(request.query(), tavilyResponse, results);
+                    cacheSearchResultToVectorStore(query, tavilyResponse, results);
                 }
 
-                return new SearchResponse(request.query(), results, results.size(), summary);
+                return new SearchResponse(query, results, results.size(), summary);
 
             } catch (Exception e) {
-                log.error("联网搜索失败 | 关键词={}", request.query(), e);
-                return new SearchResponse(request.query(), List.of(), 0,
+                log.error("联网搜索失败 | 关键词={}", query, e);
+                return new SearchResponse(query, List.of(), 0,
                         "搜索失败: " + e.getMessage());
             }
         };
     }
 
     private TavilyResponse callTavilyApi(String query, int maxResults) {
-        Map<String, Object> requestBody = Map.of(
-                "query", query,
-                "search_depth", searchDepth,
-                "max_results", maxResults,
-                "include_answer", true
-        );
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("query", query);
+        requestBody.put("search_depth", searchDepth);
+        requestBody.put("max_results", maxResults);
+        requestBody.put("include_answer", true);
 
         return webClient.post()
                 .uri(tavilyBaseUrl + "/search")
@@ -206,7 +216,9 @@ public class WebSearchTool {
                     .collect(Collectors.joining(", "));
             metadata.put("sourceUrls", sourceUrls);
 
-            Document document = new Document(documentText, metadata);
+            String documentId = UUID.nameUUIDFromBytes(
+                    (query + "|" + sourceUrls).getBytes()).toString();
+            Document document = new Document(documentId, documentText, metadata);
             vectorStore.add(List.of(document));
 
             log.info("搜索结果已缓存到向量数据库 | 关键词={}", query);

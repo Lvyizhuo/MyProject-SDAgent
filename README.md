@@ -61,6 +61,9 @@ docker ps
 ```bash
 cd backend
 ./mvnw spring-boot:run
+# SPRING_PROFILES_ACTIVE=mcp ./mvnw spring-boot:run
+./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
+
 ```
 
 ### 4. 启动前端服务
