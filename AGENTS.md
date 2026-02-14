@@ -8,7 +8,7 @@
 
 #### 项目结构
 
-```
+```text
 /
 ├── backend/               # 后端：Spring Boot 3.4 + Spring AI (Java 21)
 │   └── src/main/java/com/shandong/policyagent/
@@ -18,11 +18,12 @@
 │       ├── entity/        # JPA 实体类
 │       ├── exception/     # 全局异常处理器
 │       ├── model/         # 数据传输对象和领域模型
+│       ├── multimodal/    # 多模态能力 (ASR/视觉)
 │       ├── rag/           # RAG 相关服务 (文档加载、切片、检索)
 │       ├── repository/    # 数据访问层
 │       ├── security/      # JWT 认证相关
 │       ├── service/       # 业务逻辑服务
-│       └── tool/          # LLM 可调用工具 (补贴计算器等)
+│       └── tool/          # LLM 可调用工具 (补贴/文件解析/联网搜索)
 ├── frontend/              # 前端：React 19 + Vite 7 (JavaScript/JSX)
 │   └── src/
 │       ├── components/    # React 组件
@@ -35,7 +36,6 @@
 **后端 (Spring Boot)**
 
 ```bash
-# 首先切换到后端目录
 cd backend
 
 # 构建项目
@@ -43,6 +43,9 @@ cd backend
 
 # 运行 (需要先启动 PostgreSQL + Redis)
 ./mvnw spring-boot:run
+
+# mcp profile
+./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
 
 # 运行所有测试
 ./mvnw test
@@ -81,10 +84,10 @@ npm run preview
 cd backend
 
 # 启动 PostgreSQL (pgvector) + Redis
-docker-compose up -d
+docker compose up -d
 
 # 停止服务
-docker-compose down
+docker compose down
 ```
 
 #### 代码风格规范
@@ -172,14 +175,15 @@ docker-compose down
 
 **后端：**
 - Java 21 + Spring Boot 3.4.1
-- Spring AI 1.0.0-M5 (兼容 OpenAI，使用阿里云 DashScope/通义千问)
+- Spring AI 1.0.3 (兼容 OpenAI，使用阿里云 DashScope/通义千问)
 - PostgreSQL 16 配合 pgvector 扩展 (用于 RAG 向量存储)
 - Redis 7 (用于聊天记忆/会话存储)
-- Lombok (减少样板代码)
-- Jakarta Validation (请求参数校验)
+- Spring Security + JWT (认证鉴权)
+- Lombok + Jakarta Validation
 
 **前端：**
 - React 19.2 + Vite 7.2
+- react-router-dom (路由)
 - lucide-react (图标库)
 - marked (Markdown 渲染)
 - uuid (生成唯一 ID)
@@ -192,38 +196,55 @@ docker-compose down
 | POST | `/api/chat` | 标准对话 (完整响应) |
 | POST | `/api/chat/stream` | 流式对话 (SSE) |
 | GET | `/api/chat/health` | 健康检查 |
+| POST | `/api/documents/load` | 加载默认文档 |
+| POST | `/api/documents/load-directory` | 加载指定目录文档 |
+| DELETE | `/api/documents` | 按 id 删除文档 |
+| POST | `/api/auth/register` | 用户注册 |
+| POST | `/api/auth/login` | 用户登录 |
+| GET | `/api/auth/me` | 当前用户信息 |
+| GET | `/api/conversations` | 当前用户会话列表 |
+| GET | `/api/conversations/{sessionId}` | 获取/创建指定会话 |
+| DELETE | `/api/conversations/{sessionId}` | 删除会话 |
+| POST | `/api/multimodal/transcribe` | 语音识别 |
+| POST | `/api/multimodal/analyze-image` | 图像分析 |
+| POST | `/api/multimodal/analyze-invoice` | 发票识别 |
+| POST | `/api/multimodal/analyze-device` | 设备识别 |
 
 #### 环境变量
 
 后端运行所需环境变量：
-- `DASHSCOPE_API_KEY` - 阿里云 DashScope API 密钥，用于调用通义千问
+- `DASHSCOPE_API_KEY` - 阿里云 DashScope API 密钥（必需）
+- `TAVILY_API_KEY` - Tavily 搜索 API 密钥（启用联网搜索时需要）
 
 #### 类型安全
 
-**后端：** 使用 Lombok 生成的 Getter/Setter 实现强类型约束
+**后端：** 使用 Lombok 生成的 Getter/Setter 与 Java 类型系统实现强类型约束
 **前端：** 使用原生 JavaScript (无 TypeScript)
 
 #### 常见注意事项
 
-1. **后端：** 在 `@RequestBody` 参数上务必使用 `@Valid` 注解进行校验。
+1. **后端：** 在 `@RequestBody` 参数上优先使用 `@Valid` 注解进行校验。
 2. **前端：** 别忘了在组件中导入对应的 CSS 文件。
-3. **Docker：** 确保 PostgreSQL 服务完全启动健康后，再启动 Spring Boot 应用。
-4. **API：** 流式接口返回的内容类型为 `text/event-stream`。
+3. **Docker：** 确保 PostgreSQL 服务健康后，再启动 Spring Boot 应用。
+4. **API：** 流式接口返回类型为 `text/event-stream`。
+5. **鉴权：** `/api/conversations/**` 与 `/api/auth/me` 需要 `Authorization: Bearer <JWT>`。
 
 #### Advisor 执行顺序
 
-Advisors 按 order 值从小到大执行：
+当前默认链路配置顺序（`ChatClientConfig`）：
 
-| Advisor | Order | 功能 |
+| Advisor | 顺序/位置 | 功能 |
 | :--- | :--- | :--- |
-| SecurityAdvisor | 10 | 敏感词过滤、Prompt Injection 防护 |
-| ReReadingAdvisor | 50 | 强制模型核对答案准确性 |
-| MessageChatMemoryAdvisor | 100 | 多轮对话上下文管理 |
-| QuestionAnswerAdvisor | - | RAG 检索增强 |
-| LoggingAdvisor | 90 | Token 消耗、响应延迟、引用来源记录 |
+| SecurityAdvisor | order=10 | 敏感词过滤、Prompt Injection 防护 |
+| MessageChatMemoryAdvisor | 默认链路第2位 | 多轮对话上下文管理 |
+| ReReadingAdvisor | order=50 | 强制模型核对答案准确性 |
+| QuestionAnswerAdvisor | 默认链路第4位 | RAG 检索增强 |
+| LoggingAdvisor | order=90 | Token 消耗、响应延迟、引用来源记录 |
 
 #### 可用工具 (Tools)
 
 | 工具名 | 功能 |
 | :--- | :--- |
-| calculateSubsidy | 计算山东省以旧换新补贴金额，支持家电/手机/平板/智能手表 |
+| `calculateSubsidy` | 计算山东省以旧换新补贴金额 |
+| `parseFile` | 解析发票/旧机参数文件并提取结构化字段 |
+| `webSearch` | 联网查询实时价格、新闻与政策动态 |

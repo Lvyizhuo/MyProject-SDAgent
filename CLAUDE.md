@@ -4,40 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-山东省智能政策咨询助手是一个基于AI的大语言模型驱动的智能问答系统，专为山东省以旧换新补贴政策提供咨询服务，采用RAG（检索增强生成）技术实现精准政策解答。
+山东省智能政策咨询助手是一个基于 AI 的大语言模型驱动问答系统，面向山东省以旧换新补贴政策咨询，采用 RAG（检索增强生成）实现政策知识检索与回答。
 
 ## 技术栈
 
 - **前端**: React 19 + Vite 7 (JavaScript/JSX)
-- **后端**: Spring Boot 3.4 + Spring AI 1.0.0-M5 (Java 21)
-- **AI模型**: 阿里云DashScope（通义千问qwen3-max用于聊天，text-embedding-v3用于嵌入）
+- **后端**: Spring Boot 3.4 + Spring AI 1.0.3 (Java 21)
+- **AI 模型**: 阿里云 DashScope（`qwen3-max` 聊天模型，`text-embedding-v3` 嵌入）
 - **向量数据库**: PostgreSQL 16 + pgvector
 - **会话存储**: Redis 7
-- **身份验证**: JWT-based 安全认证
+- **身份验证**: Spring Security + JWT
 
 ## 项目结构
 
-```
-├── backend/                    # 后端服务
+```text
+├── backend/
 │   ├── src/main/java/com/shandong/policyagent/
-│   │   ├── advisor/            # Spring AI Advisors (安全、内存、日志)
-│   │   ├── config/             # Spring 配置
-│   │   ├── controller/         # REST API 控制器
+│   │   ├── advisor/            # Security / ReReading / Logging / RedisChatMemory
+│   │   ├── config/             # ChatClient, Security 等配置
+│   │   ├── controller/         # Chat/Auth/Conversation/Document/MultiModal API
 │   │   ├── entity/             # JPA 实体
 │   │   ├── exception/          # 全局异常处理器
-│   │   ├── model/              # DTOs 和领域模型
-│   │   ├── multimodal/         # ASR 和视觉服务
-│   │   ├── rag/                # RAG 服务（文档加载、分块、检索）
+│   │   ├── model/              # DTO 和领域模型
+│   │   ├── multimodal/         # ASR 与视觉能力
+│   │   ├── rag/                # 文档加载、切片、检索
 │   │   ├── repository/         # 数据访问层
-│   │   ├── security/           # JWT 认证
-│   │   ├── service/            # 业务逻辑服务
-│   │   └── tool/               # LLM可调用工具
-│   ├── src/main/resources/     # 配置文件
-│   ├── docker-compose.yml      # 基础设施编排
-│   └── pom.xml                 # Maven 依赖
-├── frontend/                   # 前端应用
-│   └── src/                    # React 源文件
-└── data/                       # 政策文档数据
+│   │   ├── security/           # JWT 相关
+│   │   ├── service/            # 业务服务
+│   │   └── tool/               # calculateSubsidy / parseFile / webSearch
+│   ├── src/main/resources/     # application.yml 等配置
+│   ├── docker-compose.yml      # PostgreSQL + Redis
+│   └── pom.xml
+├── frontend/
+│   └── src/
+└── data/
 ```
 
 ## 开发命令
@@ -47,22 +47,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 cd backend
 
-# 启动基础设施 (PostgreSQL + Redis)
-docker-compose up -d
+# 启动基础设施
+# 推荐：docker compose up -d
+# 兼容：docker-compose up -d
 
 # 构建项目
 ./mvnw clean package
 
-# 运行应用 (需要 DASHSCOPE_API_KEY 环境变量)
+# 运行应用
 ./mvnw spring-boot:run
+
+# mcp profile
+./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
 
 # 运行测试
 ./mvnw test
-
-# 运行特定测试类
 ./mvnw test -Dtest=ChatServiceTest
-
-# 运行特定测试方法
 ./mvnw test -Dtest=ChatServiceTest#testChatResponse
 ```
 
@@ -71,97 +71,64 @@ docker-compose up -d
 ```bash
 cd frontend
 
-# 安装依赖
 npm install
-
-# 启动开发服务器
 npm run dev
-
-# 构建生产版本
 npm run build
-
-# 代码检查
 npm run lint
-
-# 预览生产构建
 npm run preview
-```
-
-### 基础设施 (Docker)
-
-```bash
-cd backend
-
-# 启动 PostgreSQL (pgvector) + Redis
-docker-compose up -d
-
-# 停止服务
-docker-compose down
-
-# 停止并删除数据卷
-docker-compose down -v
 ```
 
 ## 环境变量
 
-- `DASHSCOPE_API_KEY` - 阿里云DashScope API密钥，用于通义千问模型
+- `DASHSCOPE_API_KEY` - 必需，DashScope API 密钥
+- `TAVILY_API_KEY` - 可选，联网搜索工具密钥
 
 ## API 端点
 
-- `POST /api/chat` - 标准对话（完整响应）
+- `POST /api/chat` - 标准对话
 - `POST /api/chat/stream` - 流式对话（SSE）
 - `GET /api/chat/health` - 健康检查
-- `POST /api/documents/load-directory?path=xxx` - 从目录加载文档
-- `POST /api/auth/login` - 认证端点
+- `POST /api/documents/load` - 加载默认文档目录
+- `POST /api/documents/load-directory?path=xxx` - 加载指定目录文档
+- `DELETE /api/documents?ids=...` - 删除文档向量
 - `POST /api/auth/register` - 用户注册
+- `POST /api/auth/login` - 用户登录
+- `GET /api/auth/me` - 当前用户信息（需 JWT）
+- `GET /api/conversations` - 会话列表（需 JWT）
+- `GET /api/conversations/{sessionId}` - 获取会话（需 JWT）
+- `DELETE /api/conversations/{sessionId}` - 删除会话（需 JWT）
+- `POST /api/multimodal/transcribe` - 语音识别
+- `POST /api/multimodal/analyze-image` - 图像分析
+- `POST /api/multimodal/analyze-invoice` - 发票识别
+- `POST /api/multimodal/analyze-device` - 设备识别
 
 ## Advisor 执行顺序
 
-Advisors按优先级值顺序执行：
+`ChatClientConfig` 默认链路：
 
-| Advisor | 顺序 | 功能 |
-|---------|------|------|
-| SecurityAdvisor | 10 | 敏感词过滤，防止提示注入 |
-| ReReadingAdvisor | 50 | 强制模型验证答案准确性 |
-| RedisChatMemory | 100 | 多轮对话上下文 |
-| QuestionAnswerAdvisor | - | RAG检索增强 |
-| LoggingAdvisor | 90 | 令牌使用情况、响应延迟、来源引用 |
+1. `SecurityAdvisor`（order=10）
+2. `MessageChatMemoryAdvisor`
+3. `ReReadingAdvisor`（order=50）
+4. `QuestionAnswerAdvisor`
+5. `LoggingAdvisor`（order=90）
 
 ## 可用工具
 
-- `calculateSubsidy` - 计算山东省以旧换新补贴金额（家电/手机/平板/智能手表等）
-- `webSearchTool` - 网络搜索功能
-- `fileParserTool` - 解析各种文档格式
+- `calculateSubsidy` - 补贴金额计算
+- `parseFile` - 发票/旧机参数文件解析
+- `webSearch` - 联网搜索（价格/新闻/政策动态）
 
 ## 配置文件
 
-- `backend/src/main/resources/application.yml` - 主Spring Boot配置
-- `backend/pom.xml` - Maven依赖和构建配置
-- `backend/docker-compose.yml` - PostgreSQL + Redis编排
-- `frontend/package.json` - 前端依赖和脚本
-- `frontend/vite.config.js` - Vite构建配置
-
-## 代码风格指南
-
-### Java (后端)
-- 类名: PascalCase (`ChatController`, `ChatService`)
-- 方法/变量: camelCase (`chatStream`, `conversationId`)
-- 常量: UPPER_SNAKE_CASE (`MAX_RETRIES`)
-- 使用构造函数注入和`@RequiredArgsConstructor`配合`final`字段
-- Lombok注解减少样板代码（`@Data`, `@Builder`, `@Slf4j`）
-- 使用`@Valid`注解验证请求参数
-- 使用Slf4j进行日志记录
-
-### JavaScript/React (前端)
-- 组件名称: PascalCase (`ChatWindow.jsx`)
-- Hook/函数: camelCase (`useState`, `handleSend`)
-- CSS类: kebab-case (`message-row`, `input-field`)
-- 事件处理程序以`handle`为前缀 (`handleSend`, `handleSubmit`)
-- 在`variables.css`中使用HSL格式的设计标记: `--color-primary: 215 90% 35%`
+- `backend/src/main/resources/application.yml` - 主配置
+- `backend/pom.xml` - Maven 依赖与构建
+- `backend/docker-compose.yml` - 基础设施编排
+- `frontend/package.json` - 前端依赖与脚本
+- `frontend/vite.config.js` - 前端构建配置
 
 ## 端口分配
 
-- 前端开发服务器: 5173
-- 后端API: 8080
-- PostgreSQL: 5432
-- Redis: 6379
+- 前端开发服务器: `5173`
+- 后端 API: `8080`
+- PostgreSQL: `5432`
+- Redis: `6379`

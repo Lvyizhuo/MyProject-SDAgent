@@ -1,32 +1,39 @@
 # 山东省智能政策咨询助手
 
-基于 AI/LLM 的山东省以旧换新政策智能咨询系统，采用 RAG (检索增强生成) 技术提供准确的政策解答服务。
+基于 AI/LLM 的山东省以旧换新政策智能咨询系统，采用 RAG（检索增强生成）技术提供政策问答、补贴计算与多模态识别能力。
 
 ## 技术架构
 
 | 层级 | 技术栈 |
 |------|--------|
 | 前端 | React 19 + Vite 7 |
-| 后端 | Spring Boot 3.4 + Spring AI 1.0.0-M5 |
-| 大模型 | 阿里云 DashScope (通义千问 qwen-plus) |
+| 后端 | Spring Boot 3.4 + Spring AI 1.0.3 |
+| 大模型 | 阿里云 DashScope（通义千问 `qwen3-max`） |
 | 向量数据库 | PostgreSQL 16 + pgvector |
 | 会话存储 | Redis 7 |
+| 鉴权 | Spring Security + JWT |
 
 ## 项目结构
 
-```
+```text
 ├── backend/                    # 后端服务
-│   ├── src/main/java/          # Java 源码
+│   ├── src/main/java/com/shandong/policyagent/
+│   │   ├── advisor/            # 安全、重读校验、日志、会话记忆
+│   │   ├── config/             # Spring 配置（ChatClient/Security 等）
+│   │   ├── controller/         # REST API 控制器
+│   │   ├── multimodal/         # 语音识别与视觉分析
+│   │   ├── rag/                # 文档切片、检索、向量存储
+│   │   ├── security/           # JWT 相关
+│   │   ├── service/            # 业务服务
+│   │   └── tool/               # LLM 工具（补贴计算/文件解析/联网搜索）
 │   ├── src/main/resources/     # 配置文件
-│   ├── docker-compose.yml      # 基础设施编排
-│   └── pom.xml                 # Maven 依赖
+│   ├── docker-compose.yml      # PostgreSQL + Redis
+│   └── pom.xml
 ├── frontend/                   # 前端应用
-│   ├── src/                    # React 源码
-│   ├── vite.config.js          # Vite 配置
-│   └── package.json            # npm 依赖
-└── data/                       # 政策文档
-    ├── 2025年家电和数码以旧换新政策文件/
-    └── 市级消费活动政策/
+│   ├── src/
+│   ├── vite.config.js
+│   └── package.json
+└── data/                       # 政策文档与增量状态
 ```
 
 ## 快速开始
@@ -40,7 +47,9 @@
 ### 1. 设置环境变量
 
 ```bash
-export DASHSCOPE_API_KEY=your_api_key_here
+export DASHSCOPE_API_KEY=your_dashscope_api_key
+# 可选：启用联网搜索工具
+export TAVILY_API_KEY=your_tavily_api_key
 ```
 
 ### 2. 启动基础设施
@@ -50,23 +59,18 @@ cd backend
 docker compose up -d
 ```
 
-等待服务健康检查通过：
-```bash
-docker ps
-# 确认 policy-agent-postgres 和 policy-agent-redis 状态为 healthy
-```
-
-### 3. 启动后端服务
+### 3. 启动后端
 
 ```bash
 cd backend
+# 默认模式
 ./mvnw spring-boot:run
-# SPRING_PROFILES_ACTIVE=mcp ./mvnw spring-boot:run
-./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
 
+# 启用 mcp profile
+./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
 ```
 
-### 4. 启动前端服务
+### 4. 启动前端
 
 ```bash
 cd frontend
@@ -84,15 +88,38 @@ npm run dev
 
 ## API 接口
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | `/api/chat` | 标准对话 |
-| POST | `/api/chat/stream` | 流式对话 (SSE) |
-| GET | `/api/chat/health` | 健康检查 |
-| POST | `/api/documents/load` | 加载默认文档目录 |
-| POST | `/api/documents/load-directory?path=xxx` | 加载指定目录文档 |
+### 对话与文档
 
-### 对话示例
+| 方法 | 路径 | 描述 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/chat` | 标准对话（完整响应） | 可匿名 |
+| POST | `/api/chat/stream` | 流式对话（SSE） | 可匿名 |
+| GET | `/api/chat/health` | 健康检查 | 可匿名 |
+| POST | `/api/documents/load` | 加载默认文档目录 | 可匿名 |
+| POST | `/api/documents/load-directory?path=xxx` | 加载指定目录文档 | 可匿名 |
+| DELETE | `/api/documents?ids=id1&ids=id2` | 删除向量库文档 | 可匿名 |
+
+### 认证与会话
+
+| 方法 | 路径 | 描述 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/auth/register` | 用户注册 | 可匿名 |
+| POST | `/api/auth/login` | 用户登录 | 可匿名 |
+| GET | `/api/auth/me` | 获取当前用户信息 | 需要 JWT |
+| GET | `/api/conversations` | 获取当前用户会话列表 | 需要 JWT |
+| GET | `/api/conversations/{sessionId}` | 获取/创建指定会话 | 需要 JWT |
+| DELETE | `/api/conversations/{sessionId}` | 删除指定会话 | 需要 JWT |
+
+### 多模态
+
+| 方法 | 路径 | 描述 | 鉴权 |
+|------|------|------|------|
+| POST | `/api/multimodal/transcribe` | 语音转文字 | 可匿名 |
+| POST | `/api/multimodal/analyze-image` | 通用图片理解 | 可匿名 |
+| POST | `/api/multimodal/analyze-invoice` | 发票识别 | 可匿名 |
+| POST | `/api/multimodal/analyze-device` | 家电/设备识别 | 可匿名 |
+
+## 对话示例
 
 ```bash
 # 标准对话
@@ -105,7 +132,7 @@ curl -X POST http://localhost:8080/api/chat/stream \
   -H "Content-Type: application/json" \
   -d '{"message": "空调补贴最多能补几台？"}'
 
-# 加载政策文档
+# 加载文档
 curl -X POST "http://localhost:8080/api/documents/load-directory?path=/path/to/data"
 ```
 
@@ -113,60 +140,12 @@ curl -X POST "http://localhost:8080/api/documents/load-directory?path=/path/to/d
 
 | 文件 | 路径 | 说明 |
 |------|------|------|
-| Spring Boot 配置 | `backend/src/main/resources/application.yml` | 数据库、AI模型、RAG参数配置 |
+| Spring Boot 配置 | `backend/src/main/resources/application.yml` | 数据源、AI 模型、RAG、工具开关 |
 | Maven 依赖 | `backend/pom.xml` | 后端依赖管理 |
-| Docker 编排 | `backend/docker-compose.yml` | PostgreSQL + Redis 服务 |
-| Vite 配置 | `frontend/vite.config.js` | 前端构建配置、API代理 |
-| npm 依赖 | `frontend/package.json` | 前端依赖管理 |
-| ESLint 规则 | `frontend/eslint.config.js` | 代码规范检查 |
-
-## 主要配置项
-
-### 后端 (application.yml)
-
-```yaml
-# AI 模型配置
-spring.ai.openai:
-  base-url: https://dashscope.aliyuncs.com/compatible-mode
-  api-key: ${DASHSCOPE_API_KEY}
-  chat.options.model: qwen-plus
-  embedding.options.model: text-embedding-v3
-
-# 数据库连接
-spring.datasource:
-  url: jdbc:postgresql://localhost:5432/policy_agent
-  username: postgres
-  password: postgres
-
-# Redis 连接
-spring.data.redis:
-  host: localhost
-  port: 6379
-
-# RAG 参数
-app.rag:
-  document-path: data
-  chunking:
-    default-chunk-size: 800
-    chunk-overlap: 100
-  retrieval:
-    top-k: 5
-    similarity-threshold: 0.7
-```
-
-### 前端 (vite.config.js)
-
-```javascript
-server: {
-  port: 5173,
-  proxy: {
-    '/api': {
-      target: 'http://localhost:8080',
-      changeOrigin: true
-    }
-  }
-}
-```
+| Docker 编排 | `backend/docker-compose.yml` | PostgreSQL + Redis |
+| Vite 配置 | `frontend/vite.config.js` | 前端构建与代理 |
+| npm 依赖 | `frontend/package.json` | 前端依赖与脚本 |
+| ESLint 规则 | `frontend/eslint.config.js` | 前端代码检查规则 |
 
 ## 常用命令
 
@@ -175,13 +154,13 @@ server: {
 ```bash
 cd backend
 
-./mvnw spring-boot:run      # 启动服务
-./mvnw clean package        # 构建 JAR
-./mvnw test                 # 运行测试
+./mvnw spring-boot:run
+./mvnw clean package
+./mvnw test
 
-docker-compose up -d        # 启动数据库
-docker-compose down         # 停止数据库
-docker-compose logs -f      # 查看日志
+docker compose up -d
+docker compose down
+docker compose logs -f
 ```
 
 ### 前端
@@ -189,19 +168,11 @@ docker-compose logs -f      # 查看日志
 ```bash
 cd frontend
 
-npm install                 # 安装依赖
-npm run dev                 # 开发模式
-npm run build               # 生产构建
-npm run lint                # 代码检查
-npm run preview             # 预览构建
-```
-
-## 调试
-```bash
-(base) lyz-ubuntu@lyz-ubuntu-OptiPlex-7080:~/Project/MyProject-SDAgent/backend$ lsof -i :8080 | grep LISTEN
-java    1190980 lyz-ubuntu  278u  IPv6 2773070      0t0  TCP *:http-alt (LISTEN)
-(base) lyz-ubuntu@lyz-ubuntu-OptiPlex-7080:~/Project/MyProject-SDAgent/backend$ kill 1190980 && sleep 2 && echo "Process killed"
-Process killed
+npm install
+npm run dev
+npm run build
+npm run lint
+npm run preview
 ```
 
 ## 服务端口
