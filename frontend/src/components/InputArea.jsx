@@ -1,16 +1,19 @@
-import React, { useState, useRef } from 'react';
-import { Send, StopCircle, Plus, Mic, X, FileText, Image } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Send, Plus, X, FileText, Image, Mic } from 'lucide-react';
 import './InputArea.css';
 
 const InputArea = ({ onSend, disabled, isGenerating }) => {
     const [text, setText] = useState('');
     const [showAttachMenu, setShowAttachMenu] = useState(false);
     const [attachedFiles, setAttachedFiles] = useState([]);
+    const [isListening, setIsListening] = useState(false);
     const fileInputRef = useRef(null);
+    const recognitionRef = useRef(null);
+    const attachWrapperRef = useRef(null);
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if ((text.trim() || attachedFiles.length > 0) && !disabled) {
+        if ((text.trim() || attachedFiles.length > 0) && !disabled && !isGenerating) {
             onSend(text, attachedFiles);
             setText('');
             setAttachedFiles([]);
@@ -45,32 +48,106 @@ const InputArea = ({ onSend, disabled, isGenerating }) => {
         });
     };
 
+    const stopListening = () => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+            recognitionRef.current = null;
+        }
+        setIsListening(false);
+    };
+
     const handleVoiceInput = () => {
-        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            alert('您的浏览器不支持语音输入功能');
+        if (disabled || isGenerating) {
+            return;
+        }
+
+        if (isListening) {
+            stopListening();
             return;
         }
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            window.alert('当前浏览器暂不支持语音输入，请使用最新版 Chrome。');
+            return;
+        }
+
         const recognition = new SpeechRecognition();
         recognition.lang = 'zh-CN';
+        recognition.interimResults = true;
         recognition.continuous = false;
-        recognition.interimResults = false;
+        let finalTranscript = '';
 
         recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            setText(prev => prev + transcript);
-        };
-
-        recognition.onerror = (event) => {
-            console.error('语音识别错误:', event.error);
-            if (event.error === 'not-allowed') {
-                alert('请允许麦克风权限以使用语音输入');
+            for (let i = event.resultIndex; i < event.results.length; i += 1) {
+                const transcript = event.results[i][0]?.transcript || '';
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript;
+                }
             }
         };
 
+        recognition.onend = () => {
+            setIsListening(false);
+            recognitionRef.current = null;
+
+            const transcript = finalTranscript.trim();
+            if (!transcript) {
+                return;
+            }
+            setText(prev => {
+                const base = prev.trim();
+                return base ? `${base} ${transcript}` : transcript;
+            });
+        };
+
+        recognition.onerror = () => {
+            setIsListening(false);
+            recognitionRef.current = null;
+        };
+
+        recognitionRef.current = recognition;
+        setIsListening(true);
         recognition.start();
     };
+
+    useEffect(() => () => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+            recognitionRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!showAttachMenu) {
+            return undefined;
+        }
+
+        const handleOutsideClick = (event) => {
+            if (!attachWrapperRef.current) {
+                return;
+            }
+            if (!attachWrapperRef.current.contains(event.target)) {
+                setShowAttachMenu(false);
+            }
+        };
+
+        const handleEscape = (event) => {
+            if (event.key === 'Escape') {
+                setShowAttachMenu(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleOutsideClick);
+        document.addEventListener('touchstart', handleOutsideClick);
+        document.addEventListener('keydown', handleEscape);
+
+        return () => {
+            document.removeEventListener('mousedown', handleOutsideClick);
+            document.removeEventListener('touchstart', handleOutsideClick);
+            document.removeEventListener('keydown', handleEscape);
+        };
+    }, [showAttachMenu]);
 
     return (
         <div className="input-area-wrapper">
@@ -99,7 +176,7 @@ const InputArea = ({ onSend, disabled, isGenerating }) => {
             )}
             
             <form className="input-area-container" onSubmit={handleSubmit}>
-                <div className="attach-wrapper">
+                <div className="attach-wrapper" ref={attachWrapperRef}>
                     <button
                         type="button"
                         className="icon-btn attach-btn"
@@ -149,20 +226,20 @@ const InputArea = ({ onSend, disabled, isGenerating }) => {
 
                 <button
                     type="button"
-                    className="icon-btn voice-btn"
+                    className={`icon-btn voice-btn ${isListening ? 'active' : ''}`}
                     onClick={handleVoiceInput}
                     disabled={disabled || isGenerating}
-                    title="语音输入"
+                    title={isListening ? '停止语音输入' : '语音输入'}
                 >
-                    <Mic size={20} />
+                    <Mic size={18} />
                 </button>
 
                 <button
                     type="submit"
-                    className={`icon-btn send-btn ${(!text.trim() && attachedFiles.length === 0) || disabled ? 'disabled' : ''}`}
-                    disabled={(!text.trim() && attachedFiles.length === 0) || disabled}
+                    className={`icon-btn send-btn ${(!text.trim() && attachedFiles.length === 0) || disabled || isGenerating ? 'disabled' : ''}`}
+                    disabled={(!text.trim() && attachedFiles.length === 0) || disabled || isGenerating}
                 >
-                    {isGenerating ? <StopCircle size={20} /> : <Send size={20} />}
+                    <Send size={18} />
                 </button>
             </form>
         </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, LoaderCircle, MapPinned, User } from 'lucide-react';
 import { marked } from 'marked';
+import ReferencesBlock from './ReferencesBlock';
 import './MessageBubble.css';
 
 marked.setOptions({
@@ -71,7 +72,31 @@ const extractMapCards = (content) => {
     return cards.slice(0, 4);
 };
 
-const MessageBubble = ({ role, content, images, meta }) => {
+const injectReferenceMarker = (content, references) => {
+    if (!content || !Array.isArray(references) || references.length === 0) {
+        return content;
+    }
+    return content.replace(/\[(\d+)](?!\()/g, (match, rawId) => {
+        const index = Number(rawId) - 1;
+        if (Number.isNaN(index) || index < 0 || index >= references.length) {
+            return match;
+        }
+        return `<button type="button" class="ref-chip" data-ref-id="${rawId}" aria-label="查看第${rawId}条参考依据">[${rawId}]</button>`;
+    });
+};
+
+const MessageBubble = ({
+    id,
+    role,
+    content,
+    images,
+    meta,
+    references,
+    activeRefId,
+    expandedRefIds,
+    onRefClick,
+    onToggleRef
+}) => {
     const isAi = role === 'assistant';
     const isStatusOnly = Boolean(meta?.statusOnly);
     const isStreaming = Boolean(meta?.isStreaming);
@@ -80,7 +105,7 @@ const MessageBubble = ({ role, content, images, meta }) => {
     if (isStatusOnly) {
         return (
             <div className="message-row message-ai">
-                <div className="avatar">
+                <div className="message-avatar">
                     <Bot size={20} />
                 </div>
                 <div className="bubble streaming status-bubble">
@@ -94,12 +119,27 @@ const MessageBubble = ({ role, content, images, meta }) => {
     }
 
     const normalizedContent = normalizeContent(content || '');
-    const htmlContent = marked.parse(normalizedContent);
+    const referencesForMessage = references || meta?.references || [];
+    const markdownWithRefs = isAi
+        ? injectReferenceMarker(normalizedContent, referencesForMessage)
+        : normalizedContent;
+    const htmlContent = marked.parse(markdownWithRefs);
     const mapCards = isAi ? extractMapCards(normalizedContent) : [];
+
+    const handleContentClick = (event) => {
+        const target = event.target.closest('.ref-chip');
+        if (!target || !onRefClick) {
+            return;
+        }
+        const refId = target.getAttribute('data-ref-id');
+        if (refId) {
+            onRefClick(refId);
+        }
+    };
 
     return (
         <div className={`message-row ${isAi ? 'message-ai' : 'message-user'}`}>
-            <div className="avatar">
+            <div className="message-avatar">
                 {isAi ? <Bot size={20} /> : <User size={20} />}
             </div>
             <div className={`bubble ${isStreaming ? 'streaming' : ''}`}>
@@ -110,7 +150,11 @@ const MessageBubble = ({ role, content, images, meta }) => {
                         ))}
                     </div>
                 )}
-                <div className="content markdown-body" dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                <div
+                    className="content markdown-body"
+                    dangerouslySetInnerHTML={{ __html: htmlContent }}
+                    onClick={handleContentClick}
+                />
                 {mapCards.length > 0 && (
                     <div className="map-card-grid">
                         {mapCards.map((card) => (
@@ -133,8 +177,18 @@ const MessageBubble = ({ role, content, images, meta }) => {
                         ))}
                     </div>
                 )}
+                {isAi && referencesForMessage.length > 0 && (
+                    <ReferencesBlock
+                        messageId={id}
+                        references={referencesForMessage}
+                        expandedRefIds={expandedRefIds}
+                        activeRefId={activeRefId}
+                        onToggleRef={onToggleRef}
+                    />
+                )}
             </div>
         </div>
     );
 };
+
 export default MessageBubble;

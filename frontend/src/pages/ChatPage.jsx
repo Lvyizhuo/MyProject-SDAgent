@@ -1,14 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Building2, History } from 'lucide-react';
+import { History } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import ChatWindow from '../components/ChatWindow';
 import Sidebar from '../components/Sidebar';
-import { useAuth } from '../context/AuthContext';
+import TopNavbar from '../components/TopNavbar';
 import { conversationApi } from '../services/api';
 import '../App.css';
 
 const ChatPage = () => {
-    const { user } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(() => uuidv4());
@@ -62,16 +61,16 @@ const ChatPage = () => {
 
     const handleSessionUpdate = useCallback((sessionId, messages) => {
         if (messages.length <= 1) return;
-        
+
         setSessions(prev => {
             const firstUserMsg = messages.find(m => m.role === 'user');
-            const title = firstUserMsg 
+            const title = firstUserMsg
                 ? firstUserMsg.content.slice(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '')
                 : '新对话';
-            
+
             const existingIndex = prev.findIndex(s => s.id === sessionId);
             let updated;
-            
+
             if (existingIndex >= 0) {
                 updated = [...prev];
                 updated[existingIndex] = {
@@ -88,7 +87,7 @@ const ChatPage = () => {
                     timestamp: Date.now()
                 }, ...prev];
             }
-            
+
             updated.sort((a, b) => b.timestamp - a.timestamp);
             return updated;
         });
@@ -105,45 +104,50 @@ const ChatPage = () => {
     }
 
     return (
-        <div className="app-container">
-            <Sidebar
-                isOpen={sidebarOpen}
-                onClose={() => setSidebarOpen(false)}
-                sessions={sessions}
-                currentSessionId={currentSessionId}
-                onSelectSession={handleSelectSession}
-                onNewSession={handleNewSession}
-                onDeleteSession={handleDeleteSession}
-                user={user}
-            />
-
-            <header className="app-header">
-                <div className="header-content">
-                    <button 
-                        className="header-menu-btn"
-                        onClick={() => setSidebarOpen(true)}
-                        title="历史会话"
-                    >
-                        <History size={22} />
-                    </button>
-                    <div className="header-logo">
-                        <Building2 size={28} />
-                    </div>
-                    <div className="header-text">
-                        <h1>山东省智能政策咨询助手</h1>
-                        <p>以旧换新补贴政策一站式查询</p>
-                    </div>
-                </div>
-            </header>
-            
-            <main className="app-main">
-                <ChatWindow 
-                    key={currentSessionId}
-                    sessionId={currentSessionId}
-                    initialMessages={currentSession?.messages}
-                    onSessionUpdate={handleSessionUpdate}
+        <div className="chat-shell">
+            <TopNavbar />
+            <div className="app-container">
+                <Sidebar
+                    isOpen={sidebarOpen}
+                    onClose={() => setSidebarOpen(false)}
+                    sessions={sessions}
+                    currentSessionId={currentSessionId}
+                    onSelectSession={handleSelectSession}
+                    onNewSession={handleNewSession}
+                    onDeleteSession={handleDeleteSession}
                 />
-            </main>
+
+                <header className="app-header">
+                    <div className="header-content">
+                        <button
+                            className="header-menu-btn"
+                            onClick={() => setSidebarOpen(true)}
+                            title="历史会话"
+                            aria-label="查看历史会话"
+                        >
+                            <History size={22} />
+                        </button>
+                        <div className="header-assistant-meta">
+                            <div className="header-text">
+                                <h1>AI政策助手</h1>
+                                <p>
+                                    <span className="header-status-dot" />
+                                    在线服务中
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <main className="app-main">
+                    <ChatWindow
+                        key={currentSessionId}
+                        sessionId={currentSessionId}
+                        initialMessages={currentSession?.messages}
+                        onSessionUpdate={handleSessionUpdate}
+                    />
+                </main>
+            </div>
         </div>
     );
 };

@@ -1,6 +1,5 @@
 import React from 'react';
-import { MessageSquare, Plus, X, Trash2, LogOut, User } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { MessageSquare, Plus, X, Trash2 } from 'lucide-react';
 import './Sidebar.css';
 
 const Sidebar = ({ 
@@ -12,8 +11,6 @@ const Sidebar = ({
     onNewSession,
     onDeleteSession 
 }) => {
-    const { user, logout } = useAuth();
-
     const formatDate = (timestamp) => {
         const date = new Date(timestamp);
         const now = new Date();
@@ -23,11 +20,6 @@ const Sidebar = ({
         if (diffDays === 1) return '昨天';
         if (diffDays < 7) return `${diffDays}天前`;
         return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
-    };
-
-    const handleLogout = () => {
-        logout();
-        onClose();
     };
 
     return (
@@ -79,18 +71,6 @@ const Sidebar = ({
                         ))
                     )}
                 </div>
-
-                {user && (
-                    <div className="user-info">
-                        <div className="user-avatar">
-                            <User size={18} />
-                        </div>
-                        <span className="user-name">{user.username}</span>
-                        <button className="logout-btn" onClick={handleLogout} title="退出登录">
-                            <LogOut size={16} />
-                        </button>
-                    </div>
-                )}
             </aside>
         </>
     );

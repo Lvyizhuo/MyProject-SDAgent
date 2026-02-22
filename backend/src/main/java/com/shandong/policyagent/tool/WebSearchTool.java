@@ -2,13 +2,17 @@ package com.shandong.policyagent.tool;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.shandong.policyagent.rag.DocumentIdNormalizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -18,7 +22,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -47,14 +50,37 @@ public class WebSearchTool {
     @Value("${app.websearch.cache-to-vectorstore:true}")
     private boolean cacheToVectorStore;
 
+    @Value("${app.websearch.cache.ttl-minutes:120}")
+    private long cacheTtlMinutes;
+
+    @Value("${app.websearch.cache.revalidate-on-expire:true}")
+    private boolean revalidateOnExpire;
+
+    @Value("${app.websearch.cache.serve-stale-on-error:true}")
+    private boolean serveStaleOnError;
+
     private final WebClient webClient;
     private final VectorStore vectorStore;
+    private final ToolFailurePolicyCenter failurePolicyCenter;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private StringRedisTemplate redisTemplate;
 
     public WebSearchTool(VectorStore vectorStore) {
+        this(vectorStore, new ToolFailurePolicyCenter());
+    }
+
+    @Autowired
+    public WebSearchTool(VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter) {
         this.vectorStore = vectorStore;
+        this.failurePolicyCenter = failurePolicyCenter;
         this.webClient = WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
                 .build();
+    }
+
+    @Autowired(required = false)
+    public void setRedisTemplate(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
     }
 
     public record SearchRequest(String query, Integer maxResults) {}
@@ -67,6 +93,16 @@ public class WebSearchTool {
             int totalResults,
             String summary
     ) {}
+
+    private record SearchCacheEntry(
+            String query,
+            Integer maxResults,
+            List<SearchResult> results,
+            Integer totalResults,
+            String summary,
+            String cachedAt
+    ) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record TavilyResponse(
@@ -113,12 +149,43 @@ public class WebSearchTool {
             int maxResults = request.maxResults() != null ? request.maxResults() : defaultMaxResults;
             log.info("执行 Tavily 联网搜索 | 关键词={} | 最大结果数={}", query, maxResults);
 
+            SearchCacheEntry cachedEntry = getCachedEntry(query, maxResults);
+            if (cachedEntry != null && !isExpired(cachedEntry)) {
+                log.info("命中联网搜索缓存 | 关键词={}", query);
+                return fromCache(cachedEntry, false);
+            }
+
             try {
-                TavilyResponse tavilyResponse = callTavilyApi(query, maxResults);
+                if (cachedEntry != null && isExpired(cachedEntry) && !revalidateOnExpire) {
+                    log.info("缓存已过期但关闭自动重查，直接返回缓存 | 关键词={}", query);
+                    return fromCache(cachedEntry, true);
+                }
+
+                TavilyResponse tavilyResponse = failurePolicyCenter.executeWithRetry(
+                        "webSearch",
+                        () -> callTavilyApi(query, maxResults),
+                        this::isRetryableError,
+                        () -> null
+                );
+                if (tavilyResponse == null) {
+                    if (cachedEntry != null && serveStaleOnError) {
+                        log.warn("联网搜索失败，返回过期缓存 | 关键词={}", query);
+                        return fromCache(cachedEntry, true);
+                    }
+                    return new SearchResponse(
+                            query,
+                            List.of(),
+                            0,
+                            failurePolicyCenter.fallbackMessage("webSearch", "上游服务超时或不可用")
+                    );
+                }
+
                 List<SearchResult> results = convertResults(tavilyResponse);
                 String summary = buildSummary(query, tavilyResponse, results);
 
                 log.info("联网搜索完成 | 关键词={} | 结果数={}", query, results.size());
+
+                cacheSearchResponse(query, maxResults, results, summary);
 
                 // 将搜索结果缓存到向量数据库
                 if (cacheToVectorStore && !results.isEmpty()) {
@@ -129,8 +196,11 @@ public class WebSearchTool {
 
             } catch (Exception e) {
                 log.error("联网搜索失败 | 关键词={}", query, e);
+                if (cachedEntry != null && serveStaleOnError) {
+                    return fromCache(cachedEntry, true);
+                }
                 return new SearchResponse(query, List.of(), 0,
-                        "搜索失败: " + e.getMessage());
+                        failurePolicyCenter.fallbackMessage("webSearch", e.getMessage()));
             }
         };
     }
@@ -164,6 +234,103 @@ public class WebSearchTool {
                         r.content() != null ? truncate(r.content(), 300) : ""
                 ))
                 .collect(Collectors.toList());
+    }
+
+    private SearchCacheEntry getCachedEntry(String query, Integer maxResults) {
+        if (redisTemplate == null) {
+            return null;
+        }
+        try {
+            String raw = redisTemplate.opsForValue().get(buildCacheKey(query, maxResults));
+            if (raw == null || raw.isBlank()) {
+                return null;
+            }
+            return objectMapper.readValue(raw, SearchCacheEntry.class);
+        } catch (Exception exception) {
+            log.debug("读取联网搜索缓存失败 | query={} | error={}", query, exception.getMessage());
+            return null;
+        }
+    }
+
+    private void cacheSearchResponse(String query,
+                                     Integer maxResults,
+                                     List<SearchResult> results,
+                                     String summary) {
+        if (redisTemplate == null) {
+            return;
+        }
+        try {
+            SearchCacheEntry entry = new SearchCacheEntry(
+                    query,
+                    maxResults,
+                    results,
+                    results.size(),
+                    summary,
+                    LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            );
+            String payload = objectMapper.writeValueAsString(entry);
+            redisTemplate.opsForValue().set(
+                    buildCacheKey(query, maxResults),
+                    payload,
+                    Math.max(1L, cacheTtlMinutes),
+                    java.util.concurrent.TimeUnit.MINUTES
+            );
+        } catch (Exception exception) {
+            log.debug("写入联网搜索缓存失败 | query={} | error={}", query, exception.getMessage());
+        }
+    }
+
+    private SearchResponse fromCache(SearchCacheEntry entry, boolean stale) {
+        String summary = entry.summary();
+        if (stale) {
+            summary = summary + "\n\n（说明：该结果来自过期缓存，系统已触发重查或在重试中失败。）";
+        } else {
+            summary = summary + "\n\n（说明：该结果来自会话缓存，减少重复联网调用。）";
+        }
+        return new SearchResponse(
+                entry.query(),
+                entry.results() == null ? List.of() : entry.results(),
+                entry.totalResults() == null ? 0 : entry.totalResults(),
+                summary
+        );
+    }
+
+    private String buildCacheKey(String query, Integer maxResults) {
+        String normalized = (query == null ? "" : query.trim().toLowerCase())
+                + "|" + (maxResults == null ? defaultMaxResults : maxResults);
+        String digest = DocumentIdNormalizer.normalize(
+                normalized,
+                "web-search-cache",
+                normalized
+        );
+        return "tool:websearch:cache:" + digest;
+    }
+
+    private boolean isExpired(SearchCacheEntry entry) {
+        if (entry.cachedAt() == null || entry.cachedAt().isBlank()) {
+            return true;
+        }
+        try {
+            LocalDateTime cachedAt = LocalDateTime.parse(entry.cachedAt(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            return cachedAt.plusMinutes(Math.max(1L, cacheTtlMinutes)).isBefore(LocalDateTime.now());
+        } catch (Exception exception) {
+            return true;
+        }
+    }
+
+    private boolean isRetryableError(Throwable throwable) {
+        if (throwable == null) {
+            return false;
+        }
+        String message = throwable.getMessage();
+        if (message == null) {
+            return true;
+        }
+        return message.contains("timeout")
+                || message.contains("timed out")
+                || message.contains("503")
+                || message.contains("502")
+                || message.contains("connection");
     }
 
     private String buildSummary(String query, TavilyResponse tavilyResponse, List<SearchResult> results) {
@@ -208,6 +375,8 @@ public class WebSearchTool {
             metadata.put("source", "web-search");
             metadata.put("query", query);
             metadata.put("searchedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+            metadata.put("expiresAt", LocalDateTime.now().plusMinutes(Math.max(1L, cacheTtlMinutes))
+                    .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             metadata.put("resultCount", results.size());
 
             String sourceUrls = results.stream()
@@ -216,8 +385,11 @@ public class WebSearchTool {
                     .collect(Collectors.joining(", "));
             metadata.put("sourceUrls", sourceUrls);
 
-            String documentId = UUID.nameUUIDFromBytes(
-                    (query + "|" + sourceUrls).getBytes()).toString();
+            String documentId = DocumentIdNormalizer.normalize(
+                    null,
+                    "web-search",
+                    query + "|" + sourceUrls
+            );
             Document document = new Document(documentId, documentText, metadata);
             vectorStore.add(List.of(document));
 

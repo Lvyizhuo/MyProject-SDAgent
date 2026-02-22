@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Bot } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import InputArea from './InputArea';
 import { chatApi } from '../services/api';
@@ -24,12 +25,30 @@ const STATUS_PHASES = [
 ];
 const AUTO_SCROLL_THRESHOLD = 120;
 
+const consumeSseEvents = (chunk, onData) => {
+    const events = chunk.split('\n\n');
+    const rest = events.pop() || '';
+
+    for (const event of events) {
+        const lines = event.split('\n');
+        const dataLines = lines
+            .filter(line => line.startsWith('data:'))
+            .map(line => line.replace(/^data:\s?/, ''));
+        if (dataLines.length > 0) {
+            onData(dataLines.join('\n'));
+        }
+    }
+    return rest;
+};
+
 const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const [messages, setMessages] = useState(
         initialMessages?.length > 0 ? initialMessages : [WELCOME_MESSAGE]
     );
     const [isGenerating, setIsGenerating] = useState(false);
     const [location, setLocation] = useState(null);
+    const [activeReferenceKey, setActiveReferenceKey] = useState(null);
+    const [expandedReferenceMap, setExpandedReferenceMap] = useState({});
     const messagesEndRef = useRef(null);
     const messagesListRef = useRef(null);
     const statusTimerRef = useRef(null);
@@ -83,13 +102,15 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
 
     useEffect(() => {
         scrollToBottom(isGenerating ? 'auto' : 'smooth');
-    }, [messages]);
+    }, [messages, isGenerating]);
 
     useEffect(() => {
         if (prevSessionIdRef.current !== sessionId) {
             prevSessionIdRef.current = sessionId;
             shouldAutoScrollRef.current = true;
             lastPersistedSignatureRef.current = '';
+            setActiveReferenceKey(null);
+            setExpandedReferenceMap({});
             setMessages(initialMessages?.length > 0 ? initialMessages : [WELCOME_MESSAGE]);
         }
     }, [sessionId, initialMessages]);
@@ -210,23 +231,16 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                 if (done) break;
 
                 buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    const match = line.match(/^data:\s?(.*)$/);
-                    if (match) {
-                        aiContent += match[1];
-                    }
-                }
+                buffer = consumeSseEvents(buffer, (data) => {
+                    aiContent += data;
+                });
             }
 
-            // 处理流结束时未被换行符 flush 的最后一段数据
+            // 处理结束时残留事件
             if (buffer) {
-                const trailingMatch = buffer.match(/^data:\s?(.*)$/);
-                if (trailingMatch) {
-                    aiContent += trailingMatch[1];
-                }
+                consumeSseEvents(`${buffer}\n\n`, (data) => {
+                    aiContent += data;
+                });
             }
 
             const finalContent = aiContent || '抱歉，本次未获取到有效回复，请稍后重试。';
@@ -258,16 +272,56 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
 
     useEffect(() => () => clearStatusTimer(), []);
 
+    const handleToggleReference = (cardKey) => {
+        setExpandedReferenceMap(prev => ({
+            ...prev,
+            [cardKey]: !prev[cardKey]
+        }));
+        setActiveReferenceKey(cardKey);
+    };
+
+    const handleReferenceClick = (messageId, refId) => {
+        const cardKey = `${messageId}-${refId}`;
+        setActiveReferenceKey(cardKey);
+        setExpandedReferenceMap(prev => ({
+            ...prev,
+            [cardKey]: true
+        }));
+        requestAnimationFrame(() => {
+            const element = document.getElementById(`ref-${cardKey}`);
+            if (!element) return;
+            element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+    };
+
     return (
         <div className="chat-window">
+            <header className="chat-panel-header">
+                <div className="chat-panel-bot-icon">
+                    <Bot size={17} />
+                </div>
+                <div className="chat-panel-meta">
+                    <h2>AI政策助手</h2>
+                    <p>
+                        <span className="online-dot" />
+                        在线服务中
+                    </p>
+                </div>
+            </header>
             <div className="messages-list" ref={messagesListRef} onScroll={handleMessagesScroll}>
                 {messages.map(msg => (
                     <MessageBubble
                         key={msg.id}
+                        id={msg.id}
                         role={msg.role}
                         content={msg.content}
                         images={msg.images}
                         meta={msg.meta}
+                        references={msg.references || msg.meta?.references || []}
+                        activeRefId={activeReferenceKey}
+                        expandedRefIds={expandedReferenceMap}
+                        onRefClick={(refId) => handleReferenceClick(msg.id, refId)}
+                        onToggleRef={handleToggleReference}
                     />
                 ))}
                 <div ref={messagesEndRef} />

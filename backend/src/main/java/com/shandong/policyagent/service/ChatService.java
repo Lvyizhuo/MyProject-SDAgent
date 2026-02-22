@@ -2,9 +2,11 @@ package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.agent.AgentExecutionPlan;
 import com.shandong.policyagent.agent.ReActPlanningService;
+import com.shandong.policyagent.agent.ToolIntentClassifier;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.multimodal.service.VisionService;
+import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -32,13 +34,23 @@ public class ChatService {
     private final ChatClient chatClient;
     private final VisionService visionService;
     private final ReActPlanningService planningService;
+    private final ToolIntentClassifier toolIntentClassifier;
+    private final SessionFactCacheService sessionFactCacheService;
+    private final ToolFailurePolicyCenter toolFailurePolicyCenter;
 
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
         String conversationId = getOrCreateConversationId(request.getConversationId());
 
-        String userMessage = buildUserMessage(request);
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.mergeFacts(conversationId, request);
+        String userMessage = buildUserMessage(request, facts);
         AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
+        ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
+        plan = toolIntentClassifier.applyDecision(plan, intentDecision);
+        if (!intentDecision.allowToolCall()) {
+            log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
+                    conversationId, intentDecision.targetTool(), intentDecision.reason());
+        }
         String executionPrompt = buildExecutionPrompt(userMessage, plan);
 
         String response = chatClient.prompt()
@@ -63,8 +75,15 @@ public class ChatService {
         String conversationId = getOrCreateConversationId(request.getConversationId());
         log.info("开始流式对话 | conversationId={}", conversationId);
 
-        String userMessage = buildUserMessage(request);
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.mergeFacts(conversationId, request);
+        String userMessage = buildUserMessage(request, facts);
         AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
+        ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
+        plan = toolIntentClassifier.applyDecision(plan, intentDecision);
+        if (!intentDecision.allowToolCall()) {
+            log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
+                    conversationId, intentDecision.targetTool(), intentDecision.reason());
+        }
         String executionPrompt = buildExecutionPrompt(userMessage, plan);
 
         if (plan.needToolCall()) {
@@ -93,7 +112,7 @@ public class ChatService {
                 });
     }
 
-    private String buildUserMessage(ChatRequest request) {
+    private String buildUserMessage(ChatRequest request, SessionFactCacheService.SessionFacts facts) {
         StringBuilder baseMessage = new StringBuilder(request.getMessage());
         if (request.getCityCode() != null && !request.getCityCode().isBlank()) {
             baseMessage.append("\n\n【用户城市上下文】cityCode=").append(request.getCityCode());
@@ -105,6 +124,7 @@ public class ChatService {
                 baseMessage.append(", accuracy=").append(request.getLocationAccuracy()).append("m");
             }
         }
+        baseMessage.append(sessionFactCacheService.toPromptContext(facts));
 
         if (!request.hasImages()) {
             return baseMessage.toString();
@@ -249,7 +269,7 @@ public class ChatService {
                         conversationId, e.getMessage());
                 return Flux.empty();
             }
-            return Flux.error(e);
+            return Flux.just(toolFailurePolicyCenter.fallbackMessage("chat", e.getMessage()));
         }
     }
 

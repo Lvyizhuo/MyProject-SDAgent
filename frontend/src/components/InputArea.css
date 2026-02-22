@@ -1,20 +1,17 @@
-/* === Input Area - Dark Sci-Fi Theme === */
-
 .input-area-wrapper {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
 }
 
-/* --- Attached Files --- */
 .attached-files {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-sm);
     padding: var(--space-sm);
-    background-color: hsl(var(--color-bg-card));
+    background-color: hsl(var(--color-bg-elevated));
     border-radius: var(--radius-md);
-    border: 1px solid hsl(var(--glow-blue) / 0.15);
+    border: 1px solid hsl(var(--color-border));
 }
 
 .attached-file {
@@ -22,11 +19,11 @@
     align-items: center;
     gap: var(--space-xs);
     padding: var(--space-xs) var(--space-sm);
-    background-color: hsl(var(--color-bg-elevated));
-    border: 1px solid hsl(var(--glow-cyan) / 0.15);
+    background-color: hsl(var(--color-bg-soft));
+    border: 1px solid hsl(var(--color-border));
     border-radius: var(--radius-sm);
-    font-size: 0.85rem;
-    max-width: 200px;
+    font-size: 0.84rem;
+    max-width: 210px;
 }
 
 .file-preview {
@@ -34,7 +31,7 @@
     height: 32px;
     object-fit: cover;
     border-radius: 4px;
-    border: 1px solid hsl(var(--glow-cyan) / 0.2);
+    border: 1px solid hsl(var(--color-border));
 }
 
 .file-icon {
@@ -43,9 +40,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: hsl(var(--color-primary) / 0.12);
+    background-color: hsl(var(--color-primary-light));
     border-radius: 4px;
-    color: hsl(var(--glow-cyan));
+    color: hsl(var(--color-primary));
 }
 
 .file-name {
@@ -60,43 +57,35 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
+    border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     background-color: transparent;
-    color: hsl(var(--color-text-secondary));
-    transition: all 0.2s;
+    color: hsl(var(--color-text-muted));
 }
 
 .remove-file-btn:hover {
-    background-color: rgba(255, 60, 60, 0.15);
-    color: #ff6b6b;
+    background-color: hsl(0 84% 95%);
+    color: hsl(0 70% 45%);
 }
 
-/* --- Main Input Container --- */
 .input-area-container {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
-    background-color: var(--glass-bg);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-xl);
-    padding: var(--space-sm) var(--space-md);
-    box-shadow: var(--shadow-md);
-    backdrop-filter: blur(var(--glass-blur));
-    -webkit-backdrop-filter: blur(var(--glass-blur));
-    transition: all 0.3s ease;
+    gap: 8px;
+    background: hsl(var(--color-bg-elevated));
+    border: 1px solid hsl(var(--color-border));
+    border-radius: 22px;
+    padding: 6px 8px;
+    box-shadow: var(--shadow-sm);
 }
 
 .input-area-container:focus-within {
-    border-color: hsl(var(--glow-cyan) / 0.5);
-    box-shadow:
-        var(--shadow-float),
-        0 0 20px rgba(57, 213, 255, 0.08),
-        inset 0 0 20px rgba(57, 213, 255, 0.03);
+    border-color: hsl(var(--color-primary) / 0.45);
+    box-shadow: 0 0 0 3px hsl(var(--color-primary) / 0.12);
 }
 
-/* --- Attach Menu --- */
 .attach-wrapper {
     position: relative;
 }
@@ -105,143 +94,122 @@
     position: absolute;
     bottom: calc(100% + 8px);
     left: 0;
-    background-color: hsl(var(--color-bg-card));
+    background-color: hsl(var(--color-bg-elevated));
     border-radius: var(--radius-md);
-    box-shadow:
-        var(--shadow-float),
-        0 0 15px rgba(88, 166, 255, 0.08);
-    border: 1px solid hsl(var(--glow-blue) / 0.2);
+    border: 1px solid hsl(var(--color-border));
+    box-shadow: var(--shadow-md);
     overflow: hidden;
-    z-index: 100;
+    z-index: 20;
     min-width: 120px;
-    animation: slideUp 0.15s ease-out;
 }
 
 .attach-option {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
+    padding: 8px 12px;
     cursor: pointer;
-    transition: all 0.15s;
     color: hsl(var(--color-text-main));
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 .attach-option:hover {
-    background-color: hsl(var(--color-primary) / 0.12);
-    color: hsl(var(--glow-cyan));
+    background-color: hsl(var(--color-primary-light));
+    color: hsl(var(--color-primary));
 }
 
-/* --- Text Input --- */
 .input-field {
     flex: 1;
     border: none;
-    font-size: 1rem;
-    padding: var(--space-sm);
+    font-size: 0.98rem;
+    padding: 0 6px;
+    min-height: 40px;
     color: hsl(var(--color-text-main));
     background: transparent;
     min-width: 0;
 }
 
-.input-field:focus {
-    outline: none;
-}
-
 .input-field::placeholder {
-    color: hsl(var(--color-text-secondary));
+    color: hsl(var(--color-text-muted));
 }
 
-/* --- Icon Buttons --- */
 .icon-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s;
-    flex-shrink: 0;
     background-color: transparent;
     color: hsl(var(--color-text-secondary));
 }
 
 .icon-btn:hover:not(:disabled) {
-    background-color: hsl(var(--color-primary) / 0.12);
-    color: hsl(var(--glow-cyan));
+    background-color: hsl(var(--color-primary-light));
+    color: hsl(var(--color-primary));
 }
 
 .icon-btn:disabled {
-    opacity: 0.35;
+    opacity: 0.45;
     cursor: not-allowed;
 }
 
-.attach-btn:hover:not(:disabled) {
-    background-color: hsl(var(--color-primary) / 0.12);
+.voice-btn.active {
+    background: hsl(var(--color-primary-light));
+    color: hsl(var(--color-primary));
+    box-shadow: inset 0 0 0 1px hsl(var(--color-primary) / 0.22);
 }
 
-.voice-btn:hover:not(:disabled) {
-    color: hsl(var(--glow-cyan));
-}
-
-/* --- Send Button - Gradient Glow --- */
+.voice-btn,
 .send-btn {
-    background: linear-gradient(
-        135deg,
-        hsl(var(--glow-blue)),
-        hsl(var(--glow-purple))
-    );
-    color: white;
-    box-shadow: 0 0 12px rgba(88, 166, 255, 0.2);
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+}
+
+.send-btn {
+    background: linear-gradient(135deg, #8b88f8, #7c7af5);
+    color: hsl(var(--color-text-inverse));
+    box-shadow: 0 8px 16px rgba(124, 122, 245, 0.34);
 }
 
 .send-btn:hover:not(.disabled):not(:disabled) {
-    background: linear-gradient(
-        135deg,
-        hsl(var(--glow-cyan)),
-        hsl(var(--glow-blue))
-    );
-    transform: scale(1.08);
-    color: white;
-    box-shadow: 0 0 20px rgba(57, 213, 255, 0.3);
+    background: linear-gradient(135deg, #7f7af3, #6964e9);
+    color: hsl(var(--color-text-inverse));
 }
 
 .send-btn.disabled {
-    background: hsl(var(--color-bg-card));
-    color: hsl(var(--color-text-secondary) / 0.5);
+    background: hsl(var(--color-border-soft));
+    color: hsl(var(--color-text-muted));
     cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
 }
 
-/* --- Mobile Responsive --- */
 @media (max-width: 640px) {
     .input-area-container {
-        padding: var(--space-xs) var(--space-sm);
-        gap: var(--space-xs);
+        padding: 6px;
+        gap: 6px;
+        border-radius: 18px;
     }
 
     .icon-btn {
-        width: 36px;
-        height: 36px;
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
     }
 
     .input-field {
-        font-size: 0.95rem;
-        padding: var(--space-xs);
+        font-size: 0.92rem;
+        padding: 6px;
     }
 
-    .attach-menu {
-        min-width: 100px;
+    .voice-btn,
+    .send-btn {
+        width: 34px;
+        height: 34px;
     }
 
     .attached-file {
         max-width: 150px;
-    }
-
-    .file-preview,
-    .file-icon {
-        width: 28px;
-        height: 28px;
     }
 }

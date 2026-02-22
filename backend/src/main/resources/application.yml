@@ -60,6 +60,7 @@ spring:
 
 # 服务器配置
 server:
+  address: 0.0.0.0
   port: 8080
 
 # Actuator 监控
@@ -151,6 +152,10 @@ app:
     enabled: true
     timeout-seconds: 15
     cache-to-vectorstore: true
+    cache:
+      ttl-minutes: 120
+      revalidate-on-expire: true
+      serve-stale-on-error: true
     tavily:
       api-key: ${TAVILY_API_KEY:}
       base-url: https://api.tavily.com
@@ -161,3 +166,32 @@ app:
   agent:
     planning-enabled: true
     max-planning-steps: 4
+
+  security:
+    cors:
+      allowed-origin-patterns:
+        - "http://localhost:*"
+        - "http://127.0.0.1:*"
+        - "http://192.168.*.*:*"
+        - "http://10.*.*.*:*"
+        - "http://172.16.*.*:*"
+        - "http://172.17.*.*:*"
+        - "http://172.18.*.*:*"
+        - "http://172.19.*.*:*"
+        - "http://172.20.*.*:*"
+        - "http://172.21.*.*:*"
+        - "http://172.22.*.*:*"
+        - "http://172.23.*.*:*"
+        - "http://172.24.*.*:*"
+        - "http://172.25.*.*:*"
+        - "http://172.26.*.*:*"
+        - "http://172.27.*.*:*"
+        - "http://172.28.*.*:*"
+        - "http://172.29.*.*:*"
+        - "http://172.30.*.*:*"
+        - "http://172.31.*.*:*"
+
+  tools:
+    retry:
+      max-attempts: 2
+      backoff-millis: 350

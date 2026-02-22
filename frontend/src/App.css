@@ -1,19 +1,30 @@
-.app-container {
-    display: flex;
+.chat-shell {
     height: 100vh;
     height: 100dvh;
-    background-color: hsl(var(--color-bg-app));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: linear-gradient(180deg, hsl(var(--color-bg-app)) 0%, hsl(var(--color-bg-soft)) 100%);
+}
+
+.app-container {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 var(--space-lg);
+    gap: 12px;
+    box-sizing: border-box;
+    min-height: 0;
     overflow: hidden;
 }
 
 .app-header {
     display: none;
-    background: rgba(13, 17, 23, 0.9);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    color: hsl(var(--color-text-main));
+    background: hsl(var(--color-bg-elevated));
+    border-bottom: 1px solid hsl(var(--color-border));
     padding: var(--space-sm) var(--space-md);
-    border-bottom: 1px solid rgba(88, 166, 255, 0.08);
     position: relative;
     z-index: 10;
     flex-shrink: 0;
@@ -22,70 +33,71 @@
 .header-content {
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    justify-content: center;
+    min-height: 40px;
+    position: relative;
 }
 
 .header-menu-btn {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
     width: 36px;
     height: 36px;
     border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: rgba(88, 166, 255, 0.08);
+    background-color: hsl(var(--color-bg-soft));
     color: hsl(var(--color-text-secondary));
-    transition: all 0.2s;
-    flex-shrink: 0;
+    border: 1px solid hsl(var(--color-border));
 }
 
 .header-menu-btn:hover {
-    background-color: rgba(88, 166, 255, 0.15);
-    color: hsl(var(--glow-cyan));
+    color: hsl(var(--color-primary));
+    border-color: hsl(var(--color-primary) / 0.35);
 }
 
-.header-logo {
-    width: 36px;
-    height: 36px;
-    background: linear-gradient(135deg, hsl(var(--glow-blue) / 0.15), hsl(var(--glow-cyan) / 0.15));
-    border: 1px solid hsl(var(--glow-cyan) / 0.2);
-    border-radius: var(--radius-sm);
-    display: flex;
+.header-assistant-meta {
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
-    color: hsl(var(--glow-cyan));
 }
 
 .header-text {
-    flex: 1;
     min-width: 0;
 }
 
 .header-text h1 {
     font-size: 0.95rem;
-    font-weight: 600;
+    font-weight: 700;
     margin: 0;
-    letter-spacing: 0.3px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    background: linear-gradient(135deg, hsl(var(--glow-blue)), hsl(var(--glow-cyan)));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    line-height: 1.1;
+    color: hsl(var(--color-title));
 }
 
 .header-text p {
-    font-size: 0.7rem;
-    margin: 1px 0 0;
-    color: hsl(var(--color-text-secondary));
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.72rem;
+    margin: 0;
+    line-height: 1.05;
+    color: #16a34a;
+    font-weight: 600;
+}
+
+.header-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #22c55e;
 }
 
 .app-main {
     flex: 1;
+    min-height: 0;
     overflow: hidden;
     position: relative;
     display: flex;
@@ -95,6 +107,8 @@
 @media (max-width: 768px) {
     .app-container {
         flex-direction: column;
+        padding: 0;
+        gap: 0;
     }
 
     .app-header {
@@ -103,7 +117,16 @@
 }
 
 @media (max-width: 380px) {
-    .header-logo {
-        display: none;
+    .app-header {
+        padding: 8px 10px;
+    }
+
+    .header-menu-btn {
+        width: 34px;
+        height: 34px;
+    }
+
+    .header-text h1 {
+        font-size: 0.9rem;
     }
 }

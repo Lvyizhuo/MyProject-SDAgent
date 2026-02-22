@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Building2, User, Lock, ArrowRight, UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import TopNavbar from '../components/TopNavbar';
 import './LoginPage.css';
 
 const LoginPage = () => {
@@ -16,7 +17,9 @@ const LoginPage = () => {
     const navigate = useNavigate();
     const location = useLocation();
     
-    const from = location.state?.from?.pathname || '/';
+    const params = new URLSearchParams(location.search);
+    const redirectPath = params.get('redirect');
+    const from = redirectPath || location.state?.from?.pathname || '/chat';
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -64,82 +67,85 @@ const LoginPage = () => {
     };
 
     return (
-        <div className="login-container">
-            <div className="login-card">
-                <div className="login-header">
-                    <div className="login-logo">
-                        <Building2 size={32} />
-                    </div>
-                    <h1>山东省智能政策咨询助手</h1>
-                    <p>以旧换新补贴政策一站式查询</p>
-                </div>
-
-                <form className="login-form" onSubmit={handleSubmit} autoComplete="on">
-                    <h2>{isLogin ? '账号登录' : '注册账号'}</h2>
-                    
-                    {error && <div className="error-message">{error}</div>}
-
-                    <div className="input-group">
-                        <User size={18} />
-                        <input
-                            type="text"
-                            name="username"
-                            id="username"
-                            placeholder="用户名"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            disabled={loading}
-                            autoComplete="username"
-                        />
+        <div className="login-page">
+            <TopNavbar />
+            <div className="login-container">
+                <div className="login-card">
+                    <div className="login-header">
+                        <div className="login-logo">
+                            <Building2 size={32} />
+                        </div>
+                        <h1>山东省智能政策咨询助手</h1>
+                        <p>以旧换新补贴政策一站式查询</p>
                     </div>
 
-                    <div className="input-group">
-                        <Lock size={18} />
-                        <input
-                            type="password"
-                            name="password"
-                            id="password"
-                            placeholder="密码"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            disabled={loading}
-                            autoComplete={isLogin ? 'current-password' : 'new-password'}
-                        />
-                    </div>
+                    <form className="login-form" onSubmit={handleSubmit} autoComplete="on">
+                        <h2>{isLogin ? '账号登录' : '注册账号'}</h2>
 
-                    {!isLogin && (
+                        {error && <div className="error-message">{error}</div>}
+
+                        <div className="input-group">
+                            <User size={18} />
+                            <input
+                                type="text"
+                                name="username"
+                                id="username"
+                                placeholder="用户名"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                disabled={loading}
+                                autoComplete="username"
+                            />
+                        </div>
+
                         <div className="input-group">
                             <Lock size={18} />
                             <input
                                 type="password"
-                                name="confirmPassword"
-                                id="confirmPassword"
-                                placeholder="确认密码"
-                                value={confirmPassword}
-                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                name="password"
+                                id="password"
+                                placeholder="密码"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
                                 disabled={loading}
-                                autoComplete="new-password"
+                                autoComplete={isLogin ? 'current-password' : 'new-password'}
                             />
                         </div>
-                    )}
 
-                    <button type="submit" className="login-btn" disabled={loading}>
-                        {loading ? (
-                            <span className="btn-loading"></span>
-                        ) : (
-                            <>
-                                {isLogin ? <ArrowRight size={18} /> : <UserPlus size={18} />}
-                                <span>{isLogin ? '登录' : '注册'}</span>
-                            </>
+                        {!isLogin && (
+                            <div className="input-group">
+                                <Lock size={18} />
+                                <input
+                                    type="password"
+                                    name="confirmPassword"
+                                    id="confirmPassword"
+                                    placeholder="确认密码"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    disabled={loading}
+                                    autoComplete="new-password"
+                                />
+                            </div>
                         )}
-                    </button>
-                </form>
 
-                <div className="login-footer">
-                    <span>{isLogin ? '还没有账号？' : '已有账号？'}</span>
-                    <button type="button" className="toggle-btn" onClick={toggleMode}>
-                        {isLogin ? '立即注册' : '立即登录'}
-                    </button>
+                        <button type="submit" className="login-btn" disabled={loading}>
+                            {loading ? (
+                                <span className="btn-loading"></span>
+                            ) : (
+                                <>
+                                    {isLogin ? <ArrowRight size={18} /> : <UserPlus size={18} />}
+                                    <span>{isLogin ? '登录' : '注册'}</span>
+                                </>
+                            )}
+                        </button>
+                    </form>
+
+                    <div className="login-footer">
+                        <span>{isLogin ? '还没有账号？' : '已有账号？'}</span>
+                        <button type="button" className="toggle-btn" onClick={toggleMode}>
+                            {isLogin ? '立即注册' : '立即登录'}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

@@ -1,0 +1,117 @@
+.references-block {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid hsl(var(--color-border));
+}
+
+.references-title {
+    font-size: 0.82rem;
+    color: hsl(var(--color-text-secondary));
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.reference-list {
+    display: grid;
+    gap: 8px;
+}
+
+.reference-card {
+    border: 1px solid hsl(var(--color-border));
+    border-radius: var(--radius-sm);
+    background: hsl(var(--color-bg-soft));
+    padding: 10px;
+}
+
+.reference-card.active {
+    border-color: hsl(var(--color-primary) / 0.55);
+    box-shadow: 0 0 0 2px hsl(var(--color-primary) / 0.14);
+}
+
+.reference-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.reference-id {
+    color: hsl(var(--color-primary));
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.reference-name {
+    margin: 0;
+    font-size: 0.83rem;
+    line-height: 1.35;
+    color: hsl(var(--color-text-main));
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+
+.reference-meta {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.meta-item {
+    font-size: 0.72rem;
+    color: hsl(var(--color-text-secondary));
+    background: hsl(var(--color-bg-elevated));
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: 1px solid hsl(var(--color-border));
+}
+
+.toggle-ref-btn {
+    margin-left: auto;
+    border: 1px solid hsl(var(--color-primary) / 0.45);
+    color: hsl(var(--color-primary));
+    background: transparent;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 0.72rem;
+}
+
+.reference-detail {
+    margin-top: 10px;
+    border-top: 1px dashed hsl(var(--color-border));
+    padding-top: 8px;
+}
+
+.reference-snippet {
+    margin: 0;
+    font-size: 0.78rem;
+    color: hsl(var(--color-text-main));
+    line-height: 1.5;
+}
+
+.reference-snippet mark {
+    background: hsl(var(--color-primary-light));
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+.reference-link {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    color: hsl(var(--color-primary));
+}
+
+@media (max-width: 640px) {
+    .reference-name {
+        font-size: 0.8rem;
+    }
+
+    .toggle-ref-btn {
+        min-height: 28px;
+    }
+}
