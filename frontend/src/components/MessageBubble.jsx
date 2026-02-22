@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, ChevronDown, LoaderCircle, MapPinned, User } from 'lucide-react';
+import { Bot, LoaderCircle, MapPinned, User } from 'lucide-react';
 import { marked } from 'marked';
 import './MessageBubble.css';
 
@@ -73,12 +73,29 @@ const extractMapCards = (content) => {
 
 const MessageBubble = ({ role, content, images, meta }) => {
     const isAi = role === 'assistant';
+    const isStatusOnly = Boolean(meta?.statusOnly);
+    const isStreaming = Boolean(meta?.isStreaming);
+    const statusText = meta?.statusText || 'Thinking';
+
+    if (isStatusOnly) {
+        return (
+            <div className="message-row message-ai">
+                <div className="avatar">
+                    <Bot size={20} />
+                </div>
+                <div className="bubble streaming status-bubble">
+                    <div className="status-line" aria-live="polite" aria-atomic="true">
+                        <LoaderCircle size={16} className="spin" />
+                        <span className="status-text">{statusText}</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     const normalizedContent = normalizeContent(content || '');
     const htmlContent = marked.parse(normalizedContent);
     const mapCards = isAi ? extractMapCards(normalizedContent) : [];
-    const traceSteps = meta?.traceSteps || [];
-    const isStreaming = Boolean(meta?.isStreaming);
-    const traceTitle = meta?.traceTitle || '正在思考';
 
     return (
         <div className={`message-row ${isAi ? 'message-ai' : 'message-user'}`}>
@@ -92,26 +109,6 @@ const MessageBubble = ({ role, content, images, meta }) => {
                             <img key={idx} src={src} alt={`上传图片 ${idx + 1}`} className="message-image-thumb" />
                         ))}
                     </div>
-                )}
-                {isAi && traceSteps.length > 0 && (
-                    <details className={`thinking-panel ${meta?.traceOpen ? 'open' : ''}`} open={meta?.traceOpen}>
-                        <summary>
-                            <span className="thinking-title">
-                                {isStreaming ? <LoaderCircle size={14} className="spin" /> : <ChevronDown size={14} />}
-                                {traceTitle}
-                            </span>
-                            <span className="thinking-subtitle">查看思考与工具过程</span>
-                        </summary>
-                        <div className="thinking-steps">
-                            {traceSteps.map((step) => (
-                                <div key={step.id} className="thinking-step">
-                                    <span className="thinking-time">{step.time}</span>
-                                    <span className="thinking-text">{step.title}</span>
-                                    <span className="thinking-detail">{step.detail}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </details>
                 )}
                 <div className="content markdown-body" dangerouslySetInnerHTML={{ __html: htmlContent }} />
                 {mapCards.length > 0 && (
