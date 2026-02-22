@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentPlanParserTest {
 
@@ -39,6 +40,33 @@ class AgentPlanParserTest {
         assertEquals("根据用户问题直接规划执行", plan.summary());
         assertEquals(2, plan.steps().size());
         assertEquals("识别用户核心意图与关键参数", plan.steps().get(0).action());
+        assertFalse(plan.needToolCall());
+    }
+
+    @Test
+    void shouldNotForceToolCallForGeneralQuestionWhenFallback() {
+        AgentExecutionPlan plan = parser.parse("not-json", "你好，请用一句话回复", 3);
+
+        assertFalse(plan.needToolCall());
+        assertEquals("rag", plan.steps().get(1).toolHint());
+    }
+
+    @Test
+    void shouldNormalizeInvalidToolHintToKnownValue() {
+        String raw = """
+                {
+                  \"summary\": \"test\",
+                  \"needToolCall\": false,
+                  \"steps\": [
+                    {\"id\": 1, \"action\": \"调用地图服务查询路线\", \"toolHint\": \"tool\"}
+                  ]
+                }
+                """;
+
+        AgentExecutionPlan plan = parser.parse(raw, "帮我规划路线", 2);
+
+        assertEquals("amap-mcp", plan.steps().get(0).toolHint());
+        assertTrue(plan.needToolCall());
     }
 
     @Test

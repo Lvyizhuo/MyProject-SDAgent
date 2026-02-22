@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * 解析 LLM 输出的执行计划，并在异常时兜底为可执行计划。
@@ -14,6 +16,11 @@ import java.util.List;
 @Slf4j
 @Component
 public class AgentPlanParser {
+
+    private static final Set<String> ALLOWED_TOOL_HINTS = Set.of(
+            "none", "rag", "calculateSubsidy", "parseFile", "webSearch", "amap-mcp");
+    private static final Set<String> EXTERNAL_TOOL_HINTS = Set.of(
+            "calculateSubsidy", "parseFile", "webSearch", "amap-mcp");
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -27,8 +34,6 @@ public class AgentPlanParser {
             JsonNode root = objectMapper.readTree(normalized);
 
             String summary = root.path("summary").asText("根据用户问题直接规划执行");
-            boolean needToolCall = root.path("needToolCall").asBoolean(false);
-
             List<AgentExecutionPlan.AgentStep> steps = new ArrayList<>();
             JsonNode stepNodes = root.path("steps");
             if (stepNodes.isArray()) {
@@ -37,10 +42,12 @@ public class AgentPlanParser {
                     if (steps.size() >= Math.max(maxSteps, 1)) {
                         break;
                     }
+                    String action = stepNode.path("action").asText("执行任务步骤");
+                    String toolHint = normalizeToolHint(stepNode.path("toolHint").asText("none"), action);
                     steps.add(new AgentExecutionPlan.AgentStep(
                             stepNode.path("id").asInt(index),
-                            stepNode.path("action").asText("执行任务步骤"),
-                            stepNode.path("toolHint").asText("none")
+                            action,
+                            toolHint
                     ));
                     index++;
                 }
@@ -50,6 +57,7 @@ public class AgentPlanParser {
                 return fallback(userMessage);
             }
 
+            boolean needToolCall = shouldUseExternalTools(root.path("needToolCall").asBoolean(false), userMessage, steps);
             return new AgentExecutionPlan(summary, needToolCall, steps);
         } catch (Exception e) {
             log.warn("解析 ReAct 计划失败，使用兜底计划 | rawPlan={}", rawPlan);
@@ -72,11 +80,77 @@ public class AgentPlanParser {
     }
 
     private AgentExecutionPlan fallback(String userMessage) {
-        List<AgentExecutionPlan.AgentStep> steps = List.of(
-                new AgentExecutionPlan.AgentStep(1, "识别用户核心意图与关键参数", "none"),
-                new AgentExecutionPlan.AgentStep(2, "按需调用RAG、补贴计算和地图工具完成回答", "tool")
-        );
+        String message = normalize(userMessage);
+        String toolHint = inferToolHint(message);
+
+        List<AgentExecutionPlan.AgentStep> steps = new ArrayList<>();
+        steps.add(new AgentExecutionPlan.AgentStep(1, "识别用户核心意图与关键参数", "none"));
+        if ("none".equals(toolHint)) {
+            steps.add(new AgentExecutionPlan.AgentStep(2, "优先基于历史对话与检索内容直接回答", "rag"));
+        } else {
+            steps.add(new AgentExecutionPlan.AgentStep(2, "按需调用工具补全事实并生成结论", toolHint));
+        }
+
+        boolean needToolCall = EXTERNAL_TOOL_HINTS.contains(toolHint);
         log.debug("使用兜底计划 | userMessage={}", userMessage);
-        return new AgentExecutionPlan("根据用户问题直接规划执行", true, steps);
+        return new AgentExecutionPlan("根据用户问题直接规划执行", needToolCall, steps);
+    }
+
+    private boolean shouldUseExternalTools(boolean modelNeedToolCall,
+                                           String userMessage,
+                                           List<AgentExecutionPlan.AgentStep> steps) {
+        if (steps.stream().map(AgentExecutionPlan.AgentStep::toolHint).anyMatch(EXTERNAL_TOOL_HINTS::contains)) {
+            return true;
+        }
+        String inferred = inferToolHint(normalize(userMessage));
+        if (EXTERNAL_TOOL_HINTS.contains(inferred)) {
+            return true;
+        }
+        String normalized = normalize(userMessage);
+        return modelNeedToolCall && containsAny(normalized,
+                "调用工具", "工具", "tool", "联网", "搜索", "地图", "导航", "补贴", "计算", "解析文件");
+    }
+
+    private String normalizeToolHint(String rawHint, String action) {
+        String hint = rawHint == null ? "" : rawHint.trim();
+        if (ALLOWED_TOOL_HINTS.contains(hint)) {
+            return hint;
+        }
+        return inferToolHint(normalize(hint + " " + action));
+    }
+
+    private String inferToolHint(String normalizedMessage) {
+        if (containsAny(normalizedMessage, "地图", "导航", "路线", "门店", "附近", "高德", "amap")) {
+            return "amap-mcp";
+        }
+        if (containsAny(normalizedMessage, "补贴", "计算", "到手价", "优惠多少", "补多少钱")) {
+            return "calculateSubsidy";
+        }
+        if (containsAny(normalizedMessage, "发票", "文件", "解析", "识别图片", "附件")) {
+            return "parseFile";
+        }
+        if (containsAny(normalizedMessage, "联网", "搜索", "实时", "最新", "今天", "价格", "股价", "指数", "新闻")) {
+            return "webSearch";
+        }
+        if (containsAny(normalizedMessage, "政策", "依据", "文档", "检索")) {
+            return "rag";
+        }
+        return "none";
+    }
+
+    private String normalize(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        for (String keyword : keywords) {
+            if (text.contains(keyword.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

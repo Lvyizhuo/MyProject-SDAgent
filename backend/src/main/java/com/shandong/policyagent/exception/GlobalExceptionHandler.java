@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -70,6 +71,15 @@ public class GlobalExceptionHandler {
         response.put("message", ex.getMessage());
         
         return ResponseEntity.badRequest().body(response);
+    }
+
+    /**
+     * SSE 客户端主动断开时会抛出该异常。
+     * 此时响应通道已不可用，不应继续尝试写入 JSON 错误体。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException ex) {
+        log.warn("客户端已断开连接，忽略异步响应异常: {}", ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

@@ -22,6 +22,7 @@ const STATUS_PHASES = [
     '正在调用工具获取信息',
     '正在整理最终回复'
 ];
+const AUTO_SCROLL_THRESHOLD = 120;
 
 const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const [messages, setMessages] = useState(
@@ -30,12 +31,28 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [location, setLocation] = useState(null);
     const messagesEndRef = useRef(null);
+    const messagesListRef = useRef(null);
     const statusTimerRef = useRef(null);
     const prevSessionIdRef = useRef(sessionId);
+    const shouldAutoScrollRef = useRef(true);
+    const lastPersistedSignatureRef = useRef('');
     const hasTransientMessage = messages.some(msg => msg.meta?.transient);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const scrollToBottom = (behavior = 'auto') => {
+        if (!shouldAutoScrollRef.current) return;
+        const list = messagesListRef.current;
+        if (list) {
+            list.scrollTo({ top: list.scrollHeight, behavior });
+            return;
+        }
+        messagesEndRef.current?.scrollIntoView({ behavior });
+    };
+
+    const handleMessagesScroll = () => {
+        const list = messagesListRef.current;
+        if (!list) return;
+        const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+        shouldAutoScrollRef.current = distanceToBottom <= AUTO_SCROLL_THRESHOLD;
     };
 
     const clearStatusTimer = () => {
@@ -65,25 +82,17 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     };
 
     useEffect(() => {
-        scrollToBottom();
+        scrollToBottom(isGenerating ? 'auto' : 'smooth');
     }, [messages]);
 
     useEffect(() => {
         if (prevSessionIdRef.current !== sessionId) {
             prevSessionIdRef.current = sessionId;
+            shouldAutoScrollRef.current = true;
+            lastPersistedSignatureRef.current = '';
             setMessages(initialMessages?.length > 0 ? initialMessages : [WELCOME_MESSAGE]);
         }
     }, [sessionId, initialMessages]);
-
-    useEffect(() => {
-        // 仅在非生成状态且没有临时状态气泡时同步外部会话，避免父子状态相互覆盖
-        if (isGenerating || hasTransientMessage) {
-            return;
-        }
-        if (initialMessages) {
-            setMessages(initialMessages.length > 0 ? initialMessages : [WELCOME_MESSAGE]);
-        }
-    }, [initialMessages, isGenerating, hasTransientMessage]);
 
     useEffect(() => {
         if (!navigator.geolocation) {
@@ -115,6 +124,13 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
             return;
         }
         const persistedMessages = messages.filter(msg => !msg.meta?.transient);
+        const signature = persistedMessages
+            .map(msg => `${msg.id}|${msg.role}|${msg.content}`)
+            .join('||');
+        if (signature === lastPersistedSignatureRef.current) {
+            return;
+        }
+        lastPersistedSignatureRef.current = signature;
         if (onSessionUpdate && persistedMessages.length > 1) {
             onSessionUpdate(sessionId, persistedMessages);
         }
@@ -147,6 +163,7 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                 }
             }
         ]);
+        shouldAutoScrollRef.current = true;
 
         setIsGenerating(true);
         startStatusTimer(statusMsgId);
@@ -243,7 +260,7 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
 
     return (
         <div className="chat-window">
-            <div className="messages-list">
+            <div className="messages-list" ref={messagesListRef} onScroll={handleMessagesScroll}>
                 {messages.map(msg => (
                     <MessageBubble
                         key={msg.id}
