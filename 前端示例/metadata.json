@@ -1,7 +1,0 @@
-{
-  "name": "AI政策咨询智能体",
-  "description": "专业的AI政策咨询平台，提供政策查询、智能解读、精准匹配及AI问答服务。",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
-}
