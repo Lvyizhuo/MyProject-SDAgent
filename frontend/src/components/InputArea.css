@@ -169,13 +169,13 @@
 }
 
 .send-btn {
-    background: linear-gradient(135deg, #8b88f8, #7c7af5);
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-secondary)));
     color: hsl(var(--color-text-inverse));
-    box-shadow: 0 8px 16px rgba(124, 122, 245, 0.34);
+    box-shadow: 0 8px 16px hsl(var(--color-primary) / 0.34);
 }
 
 .send-btn:hover:not(.disabled):not(:disabled) {
-    background: linear-gradient(135deg, #7f7af3, #6964e9);
+    background: linear-gradient(135deg, hsl(var(--color-primary-hover)), hsl(var(--color-primary)));
     color: hsl(var(--color-text-inverse));
 }
 
@@ -187,9 +187,10 @@
 
 @media (max-width: 640px) {
     .input-area-container {
-        padding: 6px;
-        gap: 6px;
-        border-radius: 18px;
+        padding: 7px;
+        gap: 7px;
+        border-radius: 20px;
+        box-shadow: 0 8px 18px rgba(20, 41, 84, 0.09);
     }
 
     .icon-btn {
@@ -207,6 +208,7 @@
     .send-btn {
         width: 34px;
         height: 34px;
+        border-radius: 999px;
     }
 
     .attached-file {

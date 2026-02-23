@@ -258,7 +258,8 @@
 
 @media (max-width: 640px) {
     .message-row {
-        gap: 8px;
+        gap: 10px;
+        margin-bottom: 12px;
     }
 
     .message-avatar {
@@ -273,14 +274,25 @@
     }
 
     .bubble {
-        max-width: 86%;
-        padding: 9px 11px;
-        border-radius: 18px;
+        max-width: 88%;
+        padding: 10px 12px;
+        border-radius: 20px;
         font-size: 0.88rem;
+        line-height: 1.65;
+    }
+
+    .message-ai .bubble {
+        border-radius: 20px;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+    }
+
+    .message-user .bubble {
+        border-radius: 20px;
+        box-shadow: 0 8px 16px hsl(var(--color-primary) / 0.2);
     }
 
     .status-bubble {
-        min-width: 160px;
+        min-width: 152px;
     }
 
     .map-card-grid {
