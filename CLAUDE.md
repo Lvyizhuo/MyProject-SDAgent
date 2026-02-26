@@ -21,6 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ├── backend/
 │   ├── src/main/java/com/shandong/policyagent/
 │   │   ├── advisor/            # Security / ReReading / Logging / RedisChatMemory
+│   │   ├── agent/              # ToolIntentClassifier / AgentPlanParser（工具意图分类与计划解析）
 │   │   ├── config/             # ChatClient, Security 等配置
 │   │   ├── controller/         # Chat/Auth/Conversation/Document/MultiModal API
 │   │   ├── entity/             # JPA 实体
@@ -30,8 +31,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   │   ├── rag/                # 文档加载、切片、检索
 │   │   ├── repository/         # 数据访问层
 │   │   ├── security/           # JWT 相关
-│   │   ├── service/            # 业务服务
-│   │   └── tool/               # calculateSubsidy / parseFile / webSearch
+│   │   ├── service/            # 业务服务（包括 SessionFactCacheService 会话事实缓存）
+│   │   └── tool/               # calculateSubsidy / parseFile / webSearch / ToolFailurePolicyCenter
 │   ├── src/main/resources/     # application.yml 等配置
 │   ├── docker-compose.yml      # PostgreSQL + Redis
 │   └── pom.xml
@@ -117,6 +118,13 @@ npm run preview
 - `calculateSubsidy` - 补贴金额计算
 - `parseFile` - 发票/旧机参数文件解析
 - `webSearch` - 联网搜索（价格/新闻/政策动态）
+
+## Agent 相关组件
+
+- **ToolIntentClassifier** - 工具调用前意图分类器，用于降低无效工具调用，在执行工具前进行参数校验
+- **AgentPlanParser** - Agent 计划解析器，解析和执行多步计划
+- **SessionFactCacheService** - 会话事实缓存服务，将关键事实（价格、地区、设备型号等）结构化写入 Redis 供多轮对话复用
+- **ToolFailurePolicyCenter** - 工具失败策略中心，统一管理重试、退避与兜底提示模板
 
 ## 配置文件
 

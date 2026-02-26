@@ -13,6 +13,7 @@
 ├── backend/               # 后端：Spring Boot 3.4 + Spring AI (Java 21)
 │   └── src/main/java/com/shandong/policyagent/
 │       ├── advisor/       # Spring AI Advisors (安全、记忆、日志等)
+│       ├── agent/         # Agent 计划解析与意图分类 (AgentPlanParser/ToolIntentClassifier)
 │       ├── config/        # Spring 配置类
 │       ├── controller/    # REST API 控制器
 │       ├── entity/        # JPA 实体类
@@ -22,8 +23,8 @@
 │       ├── rag/           # RAG 相关服务 (文档加载、切片、检索)
 │       ├── repository/    # 数据访问层
 │       ├── security/      # JWT 认证相关
-│       ├── service/       # 业务逻辑服务
-│       └── tool/          # LLM 可调用工具 (补贴/文件解析/联网搜索)
+│       ├── service/       # 业务逻辑服务 (包括 SessionFactCacheService 会话事实缓存)
+│       └── tool/          # LLM 可调用工具 (补贴/文件解析/联网搜索/ToolFailurePolicyCenter)
 ├── frontend/              # 前端：React 19 + Vite 7 (JavaScript/JSX)
 │   └── src/
 │       ├── components/    # React 组件
@@ -228,6 +229,8 @@ docker compose down
 3. **Docker：** 确保 PostgreSQL 服务健康后，再启动 Spring Boot 应用。
 4. **API：** 流式接口返回类型为 `text/event-stream`。
 5. **鉴权：** `/api/conversations/**` 与 `/api/auth/me` 需要 `Authorization: Bearer <JWT>`。
+6. **工具调用：** 通过 `ToolIntentClassifier` 进行前置校验，参数不足时会先向用户补充必要参数。
+7. **会话事实：** `SessionFactCacheService` 会将关键事实（价格、地区、设备型号等）缓存到 Redis 供多轮对话复用。
 
 #### Advisor 执行顺序
 
@@ -248,3 +251,12 @@ docker compose down
 | `calculateSubsidy` | 计算山东省以旧换新补贴金额 |
 | `parseFile` | 解析发票/旧机参数文件并提取结构化字段 |
 | `webSearch` | 联网查询实时价格、新闻与政策动态 |
+
+#### Agent 相关组件
+
+| 组件名 | 功能 |
+| :--- | :--- |
+| `ToolIntentClassifier` | 工具调用前意图分类器，用于降低无效工具调用，在执行工具前进行参数校验 |
+| `AgentPlanParser` | Agent 计划解析器，解析和执行多步计划 |
+| `SessionFactCacheService` | 会话事实缓存服务，将关键事实（价格、地区、设备型号等）结构化写入 Redis 供多轮对话复用 |
+| `ToolFailurePolicyCenter` | 工具失败策略中心，统一管理重试、退避与兜底提示模板 |
