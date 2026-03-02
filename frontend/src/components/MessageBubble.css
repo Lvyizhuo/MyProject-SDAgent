@@ -13,8 +13,8 @@
 
 .message-avatar {
     flex-shrink: 0;
-    width: 38px;
-    height: 38px;
+    width: 48px;
+    height: 48px;
     border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
@@ -27,8 +27,8 @@
 }
 
 .message-avatar svg {
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
 }
 
 .message-ai .message-avatar {
@@ -324,23 +324,23 @@
 
 @media (max-width: 640px) {
     .message-row {
-        gap: 10px;
-        margin-bottom: 12px;
+        gap: 12px;
+        margin-bottom: var(--space-md);
     }
 
     .message-avatar {
-        width: 26px;
-        height: 26px;
-        border-radius: 8px;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--radius-md);
     }
 
     .message-avatar svg {
-        width: 12px;
-        height: 12px;
+        width: 18px;
+        height: 18px;
     }
 
     .bubble {
-        max-width: 88%;
+        max-width: 85%;
         padding: 10px 12px;
         border-radius: 20px;
         font-size: 0.88rem;

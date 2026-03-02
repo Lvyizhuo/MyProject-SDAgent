@@ -32,14 +32,13 @@
 .chat-panel-bot-icon {
     width: 44px;
     height: 44px;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: hsl(var(--color-text-inverse));
-    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-secondary)));
-    box-shadow: 0 12px 24px -6px hsl(var(--color-primary) / 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.3);
-    animation: float 6s ease-in-out infinite;
+    background: hsl(var(--color-primary));
+    box-shadow: 0 4px 12px hsl(var(--color-primary) / 0.3);
 }
 
 .chat-panel-meta h2 {
