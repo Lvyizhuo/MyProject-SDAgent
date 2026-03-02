@@ -2,6 +2,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
+    position: relative;
+    z-index: 10;
 }
 
 .attached-files {
@@ -9,9 +11,12 @@
     flex-wrap: wrap;
     gap: var(--space-sm);
     padding: var(--space-sm);
-    background-color: hsl(var(--color-bg-elevated));
-    border-radius: var(--radius-md);
-    border: 1px solid hsl(var(--color-border));
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border-glass);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .attached-file {
@@ -19,19 +24,20 @@
     align-items: center;
     gap: var(--space-xs);
     padding: var(--space-xs) var(--space-sm);
-    background-color: hsl(var(--color-bg-soft));
-    border: 1px solid hsl(var(--color-border));
-    border-radius: var(--radius-sm);
+    background-color: hsl(var(--color-bg-elevated));
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--radius-md);
     font-size: 0.84rem;
     max-width: 210px;
+    box-shadow: var(--shadow-sm);
 }
 
 .file-preview {
     width: 32px;
     height: 32px;
     object-fit: cover;
-    border-radius: 4px;
-    border: 1px solid hsl(var(--color-border));
+    border-radius: 6px;
+    border: 1px solid var(--color-border-soft);
 }
 
 .file-icon {
@@ -40,8 +46,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: hsl(var(--color-primary-light));
-    border-radius: 4px;
+    background-color: hsl(var(--color-primary-light) / 0.5);
+    border-radius: 6px;
     color: hsl(var(--color-primary));
 }
 
@@ -51,11 +57,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     color: hsl(var(--color-text-main));
+    font-weight: 500;
 }
 
 .remove-file-btn {
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     border: none;
     display: flex;
@@ -63,27 +70,35 @@
     justify-content: center;
     background-color: transparent;
     color: hsl(var(--color-text-muted));
+    transition: all var(--transition-fast);
+    cursor: pointer;
 }
 
 .remove-file-btn:hover {
     background-color: hsl(0 84% 95%);
-    color: hsl(0 70% 45%);
+    color: hsl(0 84% 50%);
+    transform: scale(1.1);
 }
 
 .input-area-container {
     display: flex;
     align-items: center;
     gap: 8px;
-    background: hsl(var(--color-bg-elevated));
-    border: 1px solid hsl(var(--color-border));
-    border-radius: 22px;
-    padding: 6px 8px;
-    box-shadow: var(--shadow-sm);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--color-border-glass);
+    border-radius: var(--radius-pill);
+    padding: 8px 12px;
+    box-shadow: var(--shadow-md), inset 0 2px 4px rgba(255, 255, 255, 0.8);
+    transition: all var(--transition-med);
 }
 
 .input-area-container:focus-within {
-    border-color: hsl(var(--color-primary) / 0.45);
-    box-shadow: 0 0 0 3px hsl(var(--color-primary) / 0.12);
+    border-color: hsl(var(--color-primary) / 0.5);
+    box-shadow: var(--shadow-focus), 0 12px 24px rgba(0, 0, 0, 0.08);
+    background: rgba(255, 255, 255, 1);
+    transform: translateY(-1px);
 }
 
 .attach-wrapper {
@@ -92,62 +107,75 @@
 
 .attach-menu {
     position: absolute;
-    bottom: calc(100% + 8px);
+    bottom: calc(100% + 12px);
     left: 0;
     background-color: hsl(var(--color-bg-elevated));
     border-radius: var(--radius-md);
-    border: 1px solid hsl(var(--color-border));
-    box-shadow: var(--shadow-md);
+    border: 1px solid var(--color-border-soft);
+    box-shadow: var(--shadow-lg);
     overflow: hidden;
     z-index: 20;
-    min-width: 120px;
+    min-width: 140px;
+    animation: scaleIn var(--transition-fast);
+    transform-origin: bottom left;
 }
 
 .attach-option {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    padding: 8px 12px;
+    padding: 10px 14px;
     cursor: pointer;
     color: hsl(var(--color-text-main));
-    font-size: 0.88rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
 .attach-option:hover {
-    background-color: hsl(var(--color-primary-light));
+    background-color: hsl(var(--color-primary-light) / 0.5);
     color: hsl(var(--color-primary));
 }
 
 .input-field {
     flex: 1;
     border: none;
-    font-size: 0.98rem;
-    padding: 0 6px;
-    min-height: 40px;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    padding: 0 8px;
+    min-height: 44px;
     color: hsl(var(--color-text-main));
     background: transparent;
     min-width: 0;
 }
 
+.input-field:focus {
+    outline: none;
+}
+
 .input-field::placeholder {
     color: hsl(var(--color-text-muted));
+    font-weight: 400;
 }
 
 .icon-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     background-color: transparent;
     color: hsl(var(--color-text-secondary));
+    transition: all var(--transition-fast);
+    cursor: pointer;
 }
 
 .icon-btn:hover:not(:disabled) {
-    background-color: hsl(var(--color-primary-light));
+    background-color: hsl(var(--color-primary-light) / 0.5);
     color: hsl(var(--color-primary));
+    transform: scale(1.05);
 }
 
 .icon-btn:disabled {
@@ -159,45 +187,55 @@
     background: hsl(var(--color-primary-light));
     color: hsl(var(--color-primary));
     box-shadow: inset 0 0 0 1px hsl(var(--color-primary) / 0.22);
+    animation: pulse-glow 2s infinite;
 }
 
 .voice-btn,
 .send-btn {
-    width: 38px;
-    height: 38px;
-    border-radius: 999px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
 }
 
 .send-btn {
-    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-secondary)));
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
     color: hsl(var(--color-text-inverse));
-    box-shadow: 0 8px 16px hsl(var(--color-primary) / 0.34);
+    box-shadow: 0 4px 12px hsl(var(--color-primary) / 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transition: all var(--transition-med);
+    margin-left: 4px;
 }
 
 .send-btn:hover:not(.disabled):not(:disabled) {
-    background: linear-gradient(135deg, hsl(var(--color-primary-hover)), hsl(var(--color-primary)));
-    color: hsl(var(--color-text-inverse));
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 6px 16px hsl(var(--color-primary) / 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
-.send-btn.disabled {
-    background: hsl(var(--color-border-soft));
-    color: hsl(var(--color-text-muted));
+.send-btn.disabled,
+.send-btn:disabled {
+    background: hsl(var(--color-border-strong) / 0.5);
+    color: hsl(var(--color-text-inverse));
+    box-shadow: none;
     cursor: not-allowed;
+    transform: none;
 }
 
 @media (max-width: 640px) {
     .input-area-container {
-        padding: 7px;
-        gap: 7px;
-        border-radius: 20px;
-        box-shadow: 0 8px 18px rgba(20, 41, 84, 0.09);
+        padding: 6px 8px;
+        gap: 6px;
     }
 
     .icon-btn {
-        width: 34px;
-        height: 34px;
-        border-radius: 9px;
+        width: 36px;
+        height: 36px;
     }
+
+    .voice-btn,
+    .send-btn {
+        width: 40px;
+        height: 40px;
+    }
+
 
     .input-field {
         font-size: 0.92rem;

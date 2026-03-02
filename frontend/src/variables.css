@@ -1,85 +1,114 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700;800&family=Noto+Serif+SC:wght@400;600;700;900&display=swap');
 
 :root {
-    --font-body: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-sans: 'Space Grotesk', 'Noto Sans SC', 'PingFang SC', -apple-system, sans-serif;
     --font-display: 'Noto Serif SC', 'STZhongsong', serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-    --color-primary: 220 71% 40%;
-    --color-primary-hover: 220 71% 34%;
-    --color-primary-light: 214 90% 94%;
-    --color-secondary: 215 89% 59%;
-    --color-accent: 24 94% 56%;
-    --color-success: 145 63% 42%;
+    /* A striking, polished color palette: Obsidian Blue & Accents */
+    --color-primary: 216 100% 50%;       /* Vibrant Blue */
+    --color-primary-hover: 216 100% 45%;
+    --color-primary-light: 216 100% 95%;
+    --color-secondary: 260 89% 65%;     /* Rich Purple/Indigo */
+    --color-accent: 12 90% 55%;         /* Sharp Orange/Red accent */
+    --color-success: 142 71% 45%;
     --color-warning: 42 100% 53%;
     --color-warning-soft: 42 100% 95%;
     --color-warning-strong: 31 91% 36%;
-
-    --color-bg-app: 210 38% 97%;
-    --color-bg-soft: 213 35% 95%;
+    
+    /* Backgrounds: organic and slightly off-white for depth */
+    --color-bg-app: 210 20% 98%;
+    --color-bg-soft: 210 16% 96%;
     --color-bg-elevated: 0 0% 100%;
-
-    --color-title: 217 38% 18%;
-    --color-text-main: 217 32% 22%;
+    --color-bg-glass: rgba(255, 255, 255, 0.65);
+    
+    /* Text */
+    --color-title: 222 47% 11%;
+    --color-text-main: 217 32% 17%;
     --color-text-secondary: 215 19% 41%;
     --color-text-muted: 214 14% 53%;
     --color-text-inverse: 0 0% 100%;
 
-    --color-border: 214 26% 88%;
-    --color-border-soft: 214 24% 92%;
+    /* Borders */
+    --color-border: 214 32% 91%;
+    --color-border-soft: 214 32% 95%;
     --color-border-strong: 216 20% 72%;
+    --color-border-glass: rgba(0, 0, 0, 0.05);
 
-    --color-footer-bg: 217 30% 16%;
+    /* Footer */
+    --color-footer-bg: 222 47% 11%;
     --color-footer-text: 218 16% 75%;
     --color-footer-muted: 218 12% 58%;
-    --color-footer-divider: 218 20% 26%;
+    --color-footer-divider: 222 30% 20%;
 
-    --space-xs: 4px;
-    --space-sm: 8px;
-    --space-md: 16px;
-    --space-lg: 24px;
-    --space-xl: 32px;
+    /* Spacing */
+    --space-2xs: 4px;
+    --space-xs: 8px;
+    --space-sm: 12px;
+    --space-md: 20px;
+    --space-lg: 32px;
+    --space-xl: 48px;
+    --space-2xl: 64px;
 
-    --radius-sm: 8px;
+    /* Radii */
+    --radius-sm: 6px;
     --radius-md: 12px;
-    --radius-lg: 16px;
-    --radius-xl: 22px;
+    --radius-lg: 20px;
+    --radius-xl: 28px;
+    --radius-pill: 9999px;
 
-    --shadow-sm: 0 4px 12px rgba(20, 41, 84, 0.08);
-    --shadow-md: 0 12px 28px rgba(20, 41, 84, 0.14);
-    --shadow-lg: 0 20px 36px rgba(20, 41, 84, 0.18);
+    /* Shadows: Deep, editorial layers */
+    --shadow-sm: 0 2px 8px rgba(10, 22, 40, 0.04);
+    --shadow-md: 0 8px 24px rgba(10, 22, 40, 0.06), 0 2px 8px rgba(10, 22, 40, 0.04);
+    --shadow-lg: 0 24px 48px rgba(10, 22, 40, 0.08), 0 8px 16px rgba(10, 22, 40, 0.04);
+    --shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.3);
 
-    --sidebar-width: 300px;
+    --sidebar-width: 320px;
 
+    /* Effects */
+    --glass-blur: 24px;
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-med: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 500ms cubic-bezier(0.22, 1, 0.36, 1);
+    
     /* Legacy aliases for unchanged components */
     --color-chat-user: var(--color-primary);
     --color-chat-ai: 0 0% 100%;
     --color-chat-ai-border: var(--color-border);
     --color-avatar-user: var(--color-primary);
-    --color-avatar-ai: var(--color-secondary);
+    --color-avatar-ai: var(--color-title);
     --glow-blue: var(--color-primary);
-    --glow-cyan: var(--color-secondary);
-    --glow-purple: 253 78% 60%;
-    --glass-bg: rgba(255, 255, 255, 0.92);
-    --glass-border: rgba(111, 142, 194, 0.25);
-    --glass-blur: 16px;
+    --glow-cyan: 190 90% 50%;
+    --glow-purple: var(--color-secondary);
 }
 
-@keyframes slideUp {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+/* Animations */
+@keyframes slideUpFade {
+    0% { opacity: 0; transform: translateY(16px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideDownFade {
+    0% { opacity: 0; transform: translateY(-16px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+    0% { opacity: 0; transform: scale(0.95); }
+    100% { opacity: 1; transform: scale(1); }
 }
 
 @keyframes spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-glow {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
 }

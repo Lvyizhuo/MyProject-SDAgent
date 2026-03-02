@@ -3,101 +3,143 @@
     top: 0;
     z-index: 90;
     width: 100%;
-    background: hsl(var(--color-bg-elevated) / 0.82);
-    border-bottom: 1px solid hsl(var(--color-border));
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    transition: box-shadow 0.25s ease;
+    background: rgba(255, 255, 255, 0.7);
+    border-bottom: 1px solid var(--color-border-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: all var(--transition-med);
+    animation: slideDownFade 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .top-navbar.elevated {
-    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
 }
 
 .top-navbar-inner {
-    max-width: 1240px;
+    max-width: 1320px;
     margin: 0 auto;
-    min-height: 64px;
-    padding: 0 var(--space-lg);
+    min-height: 72px;
+    padding: 0 var(--space-xl);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-lg);
+    gap: var(--space-xl);
 }
 
 .brand {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
-    border: none;
-    background: transparent;
-    color: hsl(var(--color-title));
+    gap: 12px;
+    text-decoration: none;
+    transition: transform var(--transition-fast);
+}
+
+.brand:hover {
+    transform: scale(1.02);
 }
 
 .brand-mark {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
     border-radius: 12px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     color: hsl(var(--color-text-inverse));
-    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-secondary)));
-    box-shadow: 0 12px 20px hsl(var(--color-primary) / 0.2);
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
+    box-shadow: 0 8px 16px -4px hsl(var(--color-primary) / 0.4);
+    position: relative;
+    overflow: hidden;
+}
+
+.brand-mark::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(rgba(255,255,255,0.2), transparent);
+    pointer-events: none;
 }
 
 .brand-text {
-    font-size: 1.15rem;
+    font-family: var(--font-display);
+    font-size: 1.35rem;
     font-weight: 800;
-    letter-spacing: 0.01em;
+    letter-spacing: -0.02em;
     color: hsl(var(--color-title));
+    background: linear-gradient(90deg, hsl(var(--color-title)), hsl(var(--color-primary)));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .top-nav-links {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    padding: 4px;
+    background: var(--color-bg-glass);
+    border: 1px solid var(--color-border-glass);
+    border-radius: var(--radius-pill);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
 }
 
 .nav-link {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     text-decoration: none;
-    font-size: 0.92rem;
-    font-weight: 600;
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    font-weight: 500;
     color: hsl(var(--color-text-secondary));
-    padding: 8px 12px;
-    border-radius: 10px;
-    transition: all 0.2s ease;
+    padding: 8px 16px;
+    border-radius: var(--radius-pill);
+    transition: all var(--transition-med);
+    position: relative;
 }
 
 .nav-link:hover {
     color: hsl(var(--color-primary));
-    background: hsl(var(--color-primary-light));
+    background: transparent;
 }
 
 .nav-link.active {
     color: hsl(var(--color-primary));
-    background: hsl(var(--color-primary-light));
+    background: white;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.02);
+    font-weight: 600;
 }
 
 .top-navbar-actions {
     display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-md);
     margin-left: auto;
 }
 
 .notify-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    border: 1px solid hsl(var(--color-border));
-    background: hsl(var(--color-bg-elevated));
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--color-border-soft);
+    background: transparent;
     color: hsl(var(--color-text-secondary));
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    cursor: pointer;
+}
+
+.notify-btn:hover {
+    background: hsl(var(--color-primary-light) / 0.5);
+    color: hsl(var(--color-primary));
+    transform: scale(1.05);
+}
     justify-content: center;
     position: relative;
 }

@@ -4,17 +4,19 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: linear-gradient(180deg, hsl(var(--color-bg-app)) 0%, hsl(var(--color-bg-soft)) 100%);
+    background: radial-gradient(circle at 50% -20%, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-app)) 60%);
+    font-family: var(--font-sans);
+    color: hsl(var(--color-text-main));
 }
 
 .app-container {
     display: flex;
     flex: 1;
     width: 100%;
-    max-width: 1240px;
+    max-width: 1400px;
     margin: 0 auto;
-    padding: 0 var(--space-lg);
-    gap: 12px;
+    padding: 0 var(--space-xl);
+    gap: var(--space-md);
     box-sizing: border-box;
     min-height: 0;
     overflow: hidden;
@@ -22,19 +24,23 @@
 
 .app-header {
     display: none;
-    background: hsl(var(--color-bg-elevated));
-    border-bottom: 1px solid hsl(var(--color-border));
-    padding: var(--space-sm) var(--space-md);
-    position: relative;
-    z-index: 10;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-bottom: 1px solid var(--color-border-glass);
+    padding: var(--space-md) var(--space-lg);
+    position: sticky;
+    top: 0;
+    z-index: 50;
     flex-shrink: 0;
+    animation: slideDownFade var(--transition-slow) forwards;
 }
 
 .header-content {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 40px;
+    min-height: 44px;
     position: relative;
 }
 
@@ -43,56 +49,68 @@
     left: 0;
     top: 50%;
     transform: translateY(-50%);
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-sm);
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-full);
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: hsl(var(--color-bg-soft));
+    background-color: transparent;
     color: hsl(var(--color-text-secondary));
-    border: 1px solid hsl(var(--color-border));
+    border: none;
+    transition: all var(--transition-med);
+    cursor: pointer;
 }
 
 .header-menu-btn:hover {
     color: hsl(var(--color-primary));
-    border-color: hsl(var(--color-primary) / 0.35);
+    background-color: hsl(var(--color-primary-light) / 0.5);
+    transform: translateY(-50%) scale(1.05);
 }
 
 .header-assistant-meta {
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
 }
 
 .header-text {
     min-width: 0;
+    text-align: center;
 }
 
 .header-text h1 {
-    font-size: 0.95rem;
+    font-family: var(--font-display);
+    font-size: 1.15rem;
     font-weight: 700;
-    margin: 0;
-    line-height: 1.1;
+    margin: 0 0 4px 0;
+    line-height: 1.2;
     color: hsl(var(--color-title));
+    letter-spacing: -0.01em;
 }
 
 .header-text p {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    font-size: 0.72rem;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
     margin: 0;
-    line-height: 1.05;
-    color: #16a34a;
-    font-weight: 600;
+    line-height: 1;
+    color: hsl(var(--color-success));
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 .header-status-dot {
     width: 6px;
     height: 6px;
-    border-radius: 999px;
-    background: #22c55e;
+    border-radius: 50%;
+    background: hsl(var(--color-success));
+    box-shadow: 0 0 8px hsl(var(--color-success) / 0.6);
+    animation: pulse-glow 2s infinite;
 }
 
 .app-main {
@@ -102,6 +120,7 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    animation: slideUpFade var(--transition-slow) forwards;
 }
 
 @media (max-width: 768px) {
@@ -114,19 +133,23 @@
     .app-header {
         display: block;
     }
+    
+    .chat-shell {
+        background: hsl(var(--color-bg-elevated));
+    }
 }
 
 @media (max-width: 380px) {
     .app-header {
-        padding: 8px 10px;
+        padding: var(--space-sm) var(--space-md);
     }
 
     .header-menu-btn {
-        width: 34px;
-        height: 34px;
+        width: 38px;
+        height: 38px;
     }
 
     .header-text h1 {
-        font-size: 0.9rem;
+        font-size: 1rem;
     }
 }

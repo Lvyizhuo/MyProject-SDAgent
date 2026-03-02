@@ -1,10 +1,12 @@
 .sidebar-overlay {
     position: fixed;
     inset: 0;
-    background-color: rgba(25, 36, 63, 0.4);
+    background-color: rgba(10, 22, 40, 0.4);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     opacity: 0;
     visibility: hidden;
-    transition: all 0.25s ease;
+    transition: all 0.3s ease;
     z-index: 99;
 }
 
@@ -20,12 +22,14 @@
     bottom: 0;
     width: var(--sidebar-width);
     max-width: 88vw;
-    background: hsl(var(--color-bg-elevated));
-    border: 1px solid hsl(var(--color-border));
-    border-radius: 22px;
-    box-shadow: var(--shadow-md);
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-right: 1px solid var(--color-border-glass);
+    border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+    box-shadow: var(--shadow-lg);
     transform: translateX(-100%);
-    transition: transform 0.25s ease-out;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     z-index: 100;
     display: flex;
     flex-direction: column;
@@ -40,48 +44,75 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 18px 14px;
-    border-bottom: 1px solid hsl(var(--color-border));
-    background: hsl(var(--color-bg-elevated));
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--color-border-glass);
+    background: transparent;
 }
 
 .sidebar-header h2 {
-    font-size: 1.12rem;
-    font-weight: 800;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
     color: hsl(var(--color-title));
+    letter-spacing: -0.02em;
 }
 
 .sidebar-close-btn {
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
-    border: 1px solid hsl(var(--color-border));
+    border: 1px solid var(--color-border-soft);
     display: flex;
     align-items: center;
     justify-content: center;
-    background: hsl(var(--color-bg-soft));
+    background: hsl(var(--color-bg-elevated));
     color: hsl(var(--color-text-secondary));
+    transition: all var(--transition-fast);
+}
+
+.sidebar-close-btn:hover {
+    background: hsl(var(--color-primary-light) / 0.5);
+    color: hsl(var(--color-primary));
+    transform: scale(1.05);
 }
 
 .new-chat-btn {
-    margin: 14px 14px 10px;
-    border: 1px solid hsl(var(--color-primary) / 0.2);
-    min-height: 44px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, hsl(var(--color-primary)) 0%, hsl(var(--color-secondary)) 100%);
+    margin: var(--space-md) var(--space-lg) var(--space-sm);
+    border: none;
+    min-height: 48px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
     color: hsl(var(--color-text-inverse));
     font-weight: 600;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: var(--space-sm);
+    box-shadow: 0 4px 12px hsl(var(--color-primary) / 0.3);
+    transition: all var(--transition-med);
+}
+
+.new-chat-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px hsl(var(--color-primary) / 0.4);
 }
 
 .sessions-list {
     flex: 1;
     overflow-y: auto;
-    padding: 4px 10px 12px;
-    border-top: 1px solid hsl(var(--color-border));
+    padding: var(--space-sm) var(--space-md) var(--space-lg);
+    border-top: 1px solid var(--color-border-glass);
+}
+
+.sessions-list::-webkit-scrollbar {
+    width: 4px;
+}
+.sessions-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.sessions-list::-webkit-scrollbar-thumb {
+    background: hsl(var(--color-border-strong) / 0.3);
+    border-radius: var(--radius-pill);
 }
 
 .no-sessions {
@@ -89,52 +120,57 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: var(--space-xl);
+    padding: var(--space-xl) var(--space-md);
     color: hsl(var(--color-text-muted));
     text-align: center;
 }
 
 .no-sessions p {
     margin-top: var(--space-sm);
-    font-size: 0.88rem;
+    font-size: 0.9rem;
+    font-family: var(--font-sans);
 }
 
 .session-item {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
-    border-radius: 14px;
+    border-radius: var(--radius-md);
     border: 1px solid transparent;
-    padding: 11px 12px;
+    padding: 12px 14px;
     cursor: pointer;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-xs);
+    transition: all var(--transition-fast);
 }
 
 .session-item:hover {
-    background: hsl(var(--color-bg-soft));
+    background: rgba(255, 255, 255, 0.5);
+    border-color: var(--color-border-soft);
 }
 
 .session-item.active {
-    background: linear-gradient(135deg, hsl(var(--color-primary-light)) 0%, hsl(var(--color-bg-elevated)) 100%);
-    border-color: hsl(var(--color-primary) / 0.35);
-    box-shadow: 0 6px 16px hsl(var(--color-primary) / 0.14);
+    background: hsl(var(--color-primary-light) / 0.4);
+    border-color: hsl(var(--color-primary) / 0.3);
+    box-shadow: inset 0 0 0 1px hsl(var(--color-primary) / 0.1);
 }
 
 .session-icon {
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: hsl(var(--color-bg-soft));
+    background: rgba(255, 255, 255, 0.8);
     color: hsl(var(--color-text-secondary));
     flex-shrink: 0;
+    transition: all var(--transition-fast);
 }
 
 .session-item.active .session-icon {
     background: hsl(var(--color-primary));
     color: hsl(var(--color-text-inverse));
+    box-shadow: 0 4px 8px -2px hsl(var(--color-primary) / 0.3);
 }
 
 .session-info {
@@ -144,27 +180,30 @@
 
 .session-title {
     display: block;
-    font-size: 0.9rem;
-    font-weight: 700;
+    font-size: 0.95rem;
+    font-weight: 600;
     color: hsl(var(--color-text-main));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    letter-spacing: -0.01em;
 }
 
 .session-date {
-    font-size: 0.74rem;
+    font-size: 0.75rem;
     color: hsl(var(--color-text-muted));
+    font-family: var(--font-mono);
 }
 
 .delete-session-btn {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
     border: none;
     background: transparent;
     color: hsl(var(--color-text-muted));
     opacity: 0;
+    transition: all var(--transition-fast);
 }
 
 .session-item:hover .delete-session-btn {
@@ -173,7 +212,8 @@
 
 .delete-session-btn:hover {
     background: hsl(0 84% 95%);
-    color: hsl(0 70% 45%);
+    color: hsl(0 84% 50%);
+    transform: scale(1.1);
 }
 
 @media (min-width: 769px) {
@@ -182,9 +222,13 @@
         transform: translateX(0);
         flex-shrink: 0;
         align-self: stretch;
-        height: calc(100% - 26px);
-        margin: 12px 0 14px;
+        height: auto;
+        margin: var(--space-md) 0 var(--space-md) 0;
         z-index: auto;
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--color-border-glass);
+        box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        animation: slideDownFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
     .sidebar-overlay,
@@ -197,7 +241,7 @@
     .sidebar {
         top: 0;
         bottom: 0;
-        border-radius: 0 18px 18px 0;
+        border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
         width: 90vw;
         max-width: 320px;
         border-left: none;
