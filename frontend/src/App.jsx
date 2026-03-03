@@ -8,6 +8,7 @@ import LoginPage from './pages/LoginPage';
 import PolicyMatchingPage from './pages/PolicyMatchingPage';
 import PolicyQueryPage from './pages/PolicyQueryPage';
 import UserCenterPage from './pages/UserCenterPage';
+import AdminConsolePage from './pages/AdminConsolePage';
 import './variables.css';
 
 function App() {
@@ -26,6 +27,14 @@ function App() {
                         element={(
                             <ProtectedRoute>
                                 <ChatPage />
+                            </ProtectedRoute>
+                        )}
+                    />
+                    <Route
+                        path="/admin-console"
+                        element={(
+                            <ProtectedRoute>
+                                <AdminConsolePage />
                             </ProtectedRoute>
                         )}
                     />

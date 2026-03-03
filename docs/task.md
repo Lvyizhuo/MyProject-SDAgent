@@ -213,178 +213,81 @@
 ### 任务 3.1：创建管理员 API 服务
 
 **优先级**：P0（阻塞）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **3.1.1** 创建 `adminApi.js`
-  - 文件：`frontend/src/services/adminApi.js`
-  - 导出方法：
-    - `adminLogin(username, password)`
-    - `adminChangePassword(oldPassword, newPassword, confirmPassword)`
-    - `getAgentConfig()`
-    - `updateAgentConfig(config)`
-    - `resetAgentConfig()`
-    - `testAgentConfig(message, sessionId)`
-  - 自动注入管理员 JWT Token
-  - 参考现有的 `api.js` 模式
+- [x] **3.1.1** 创建 `adminApi.js`
 
-**验收标准**：
-- ✅ 所有 API 方法都能正确调用后端
-- ✅ 错误处理统一（401、403、404、500）
-- ✅ Loading 状态管理
-
----
+...
 
 ### 任务 3.2：扩展认证 Context
 
 **优先级**：P0（阻塞）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **3.2.1** 扩展 `AuthContext`
-  - 文件：`frontend/src/context/AuthContext.jsx`
-  - 添加管理员状态：`isAdmin`（基于 `user.role === 'ADMIN'`）
-  - 添加管理员登录方法：`adminLogin(username, password)`
-  - 添加管理员密码修改方法：`adminChangePassword(...)`
+- [x] **3.2.1** 扩展 `AuthContext`
+- [x] **3.2.2** 更新 TopNavbar
 
-- [ ] **3.2.2** 更新 TopNavbar
-  - 文件：`frontend/src/components/TopNavbar.jsx`
-  - 在用户下拉菜单中添加"管理员控制台"入口（仅当 `isAdmin` 为 true 时显示）
-
-**验收标准**：
-- ✅ 管理员可以看到"管理员控制台"入口
-- ✅ 普通用户看不到管理员入口
-- ✅ 点击管理员入口导航到 `/admin-console` 路由
-
----
+...
 
 ### 任务 3.3：创建管理员控制台主页面
 
 **优先级**：P0（阻塞）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **3.3.1** 创建 `AdminConsolePage.jsx`
-  - 文件：`frontend/src/pages/AdminConsolePage.jsx`
-  - 布局：左侧配置面板（420px）+ 右侧预览面板（剩余空间）
-  - 参考现有页面布局模式（如 `ChatPage.jsx` 的 Sidebar + ChatWindow）
-  - 状态管理：使用 `useState` 管理配置表单状态
-  - 加载逻辑：页面加载时调用 `getAgentConfig()` 初始化表单
+- [x] **3.3.1** 创建 `AdminConsolePage.jsx`
+- [x] **3.3.2** 创建 `AdminConsolePage.css`
+- [x] **3.3.3** 添加路由
 
-- [ ] **3.3.2** 创建 `AdminConsolePage.css`
-  - 文件：`frontend/src/pages/AdminConsolePage.css`
-  - 复用 `variables.css` 中的设计变量
-  - 实现玻璃拟态风格（`backdrop-filter: blur()`）
-  - 实现响应式布局（移动端支持）
-
-- [ ] **3.3.3** 添加路由
-  - 文件：`frontend/src/App.jsx`
-  - 添加路由：`<Route path="/admin-console" element={<ProtectedRoute><AdminConsolePage /></ProtectedRoute>} />`
-
-**验收标准**：
-- ✅ 页面可以正常访问（仅管理员）
-- ✅ 左右面板布局正确
-- ✅ 样式与现有页面风格一致
-
----
+...
 
 ### 任务 3.4：创建配置面板组件
 
 **优先级**：P0（阻塞）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **3.4.1** 创建 `ConfigPanel.jsx`
-  - 文件：`frontend/src/components/admin/ConfigPanel.jsx`
-  - 组件结构：
-    - 智能体基础信息（名称、描述）
-    - AI 模型配置（提供商、API Key、API URL、模型名称、温度）
-    - 系统提示词（多行文本域）
-    - 技能模块配置（webSearch、subsidyCalculator、fileParser）
-    - 开场白（多行文本域）
-    - 操作按钮（保存、重置）
-  - 实现表单验证（提示词非空、温度范围 0.0-1.0）
+- [x] **3.4.1** 创建 `ConfigPanel.jsx`
+- [x] **3.4.2** 创建 `ConfigPanel.css`
+- [x] **3.4.3** 实现保存和重置逻辑
 
-- [ ] **3.4.2** 创建 `ConfigPanel.css`
-  - 文件：`frontend/src/components/admin/ConfigPanel.css`
-  - 输入框样式：边框、圆角、背景色
-  - 按钮样式：主按钮（渐变）、次按钮
-  - 表单分组：使用折叠面板或分组标题
-
-- [ ] **3.4.3** 实现保存和重置逻辑
-  - 保存按钮：调用 `updateAgentConfig()`，成功后显示提示
-  - 重置按钮：恢复到上次保存的状态（使用独立 state）
-  - 确认提示：重置操作前显示确认对话框
-
-**验收标准**：
-- ✅ 所有配置字段都可以编辑
-- ✅ 保存功能正常，数据提交到后端
-- ✅ 重置功能正常，恢复到保存状态
-- ✅ 表单验证有效
-
----
+...
 
 ### 任务 3.5：创建预览面板组件
 
 **优先级**：P1（功能）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **3.5.1** 创建 `PreviewPanel.jsx`
-  - 文件：`frontend/src/components/admin/PreviewPanel.jsx`
-  - 标签页导航：聊天测试 | 配置 JSON | 效果预览
-  - 通过 props 接收当前配置状态
-  - 实时更新：配置面板修改时，预览区自动更新
+- [x] **3.5.1** 创建 `PreviewPanel.jsx`
+- [x] **3.5.2** 创建 `ChatTestTab.jsx`
+- [x] **3.5.3** 创建 `ConfigJsonTab.jsx`
+- [x] **3.5.4** 创建 `EffectPreviewTab.jsx`
 
-- [ ] **3.5.2** 创建 `ChatTestTab.jsx`
-  - 文件：`frontend/src/components/admin/ChatTestTab.jsx`
-  - 复用现有的 `ChatWindow` 和 `MessageBubble` 组件
-  - 调用 `testAgentConfig()` API
-  - 独立会话管理（不影响主系统）
-
-- [ ] **3.5.3** 创建 `ConfigJsonTab.jsx`
-  - 文件：`frontend/src/components/admin/ConfigJsonTab.jsx`
-  - 以格式化 JSON 展示当前配置
-  - 支持复制到剪贴板功能
-
-- [ ] **3.5.4** 创建 `EffectPreviewTab.jsx`
-  - 文件：`frontend/src/components/admin/EffectPreviewTab.jsx`
-  - 展示配置摘要（名称、模型、提示词长度、启用的技能等）
-  - 预览开场白的显示效果
-
-**验收标准**：
-- ✅ 可以在标签页之间切换
-- ✅ 聊天测试功能正常
-- ✅ 配置 JSON 正确显示和格式化
-- ✅ 效果预览实时更新
-
----
+...
 
 ### 任务 3.6：实现管理员登录页面
 
 **优先级**：P1（功能）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **3.6.1** 修改 `LoginPage.jsx`
-  - 文件：`frontend/src/pages/LoginPage.jsx`
-  - 添加"管理员登录"选项卡
-  - 或创建独立的 `AdminLoginPage.jsx`
-  - 调用 `adminApi.adminLogin()` 而非普通登录
-
-- [ ] **3.6.2** 添加密码修改对话框
+- [x] **3.6.1** 修改 `LoginPage.jsx`
+- [x] **3.6.2** 添加密码修改对话框
   - 在用户中心或管理员控制台添加修改密码入口
   - 显示对话框：旧密码、新密码、确认密码
   - 调用 `adminApi.adminChangePassword()`
@@ -505,9 +408,9 @@
 |------|------|------|
 | 阶段 1：后端基础 | 100% | ✅ 已完成 |
 | 阶段 2：配置同步机制 | 100% | ✅ 已完成 |
-| 阶段 3：前端开发 | 0% | ⏳ 待开始 |
+| 阶段 3：前端开发 | 100% | ✅ 已完成 |
 | 阶段 4：测试与优化 | 0% | ⏳ 待开始 |
-| **总体进度** | **50%** | 🔄 进行中 |
+| **总体进度** | **75%** | 🔄 进行中 |
 
 ---
 
@@ -606,6 +509,7 @@
 |------|----------|
 | 2026-03-03 | 初始版本创建，基于 PRD v1.1 文档 |
 | 2026-03-03 | 阶段2完成：DynamicAgentConfigHolder、AgentConfigSyncService、ToolStateManager、各工具 enabled 检查、AgentConfigTestController |
+| 2026-03-03 | 阶段3完成：前端 adminApi、AdminConsolePage、ConfigPanel、PreviewPanel 及所有附属 Tab 组件，接入 React 路由 |
 
 ---
 

@@ -1,0 +1,21 @@
+.config-json-tab {
+    height: 100%;
+    padding: var(--space-md);
+    background-color: var(--color-bg);
+    border-radius: var(--radius-md);
+    overflow: auto;
+}
+
+.config-json-tab pre {
+    margin: 0;
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: var(--color-text);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.config-json-tab code {
+    background: none;
+    padding: 0;
+}

@@ -1,0 +1,202 @@
+.chat-test-tab {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--color-bg);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.chat-test-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+}
+
+.session-info {
+    font-family: monospace;
+}
+
+.btn-clear {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.btn-clear:hover {
+    background-color: var(--color-bg-hover);
+    color: var(--color-danger);
+}
+
+.chat-test-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.test-message-row {
+    display: flex;
+    gap: var(--space-sm);
+    max-width: 90%;
+}
+
+.test-message-row.user {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+}
+
+.test-message-row.ai {
+    align-self: flex-start;
+}
+
+.test-message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.test-message-row.user .test-message-avatar {
+    background-color: var(--color-primary);
+    color: white;
+}
+
+.test-message-row.ai .test-message-avatar {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    color: var(--color-text);
+}
+
+.test-message-content {
+    background-color: var(--color-surface);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.test-message-row.user .test-message-content {
+    background-color: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+    border-top-right-radius: 0;
+}
+
+.test-message-row.ai .test-message-content {
+    border-top-left-radius: 0;
+}
+
+.test-tools-used {
+    margin-top: var(--space-xs);
+    font-size: 0.8rem;
+    color: var(--color-text-tertiary);
+    padding: var(--space-xs);
+    background-color: var(--color-bg);
+    border-radius: var(--radius-sm);
+    border: 1px dashed var(--color-border);
+}
+
+.loading-row {
+    opacity: 0.7;
+}
+
+.chat-test-input-area {
+    display: flex;
+    padding: var(--space-md);
+    background-color: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    gap: var(--space-sm);
+}
+
+.chat-test-input-area input {
+    flex: 1;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.chat-test-input-area input:focus {
+    border-color: var(--color-primary);
+}
+
+.chat-test-input-area input:disabled {
+    background-color: var(--color-bg);
+    cursor: not-allowed;
+}
+
+.chat-test-input-area button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background-color: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color 0.2s, opacity 0.2s;
+}
+
+.chat-test-input-area button:hover:not(:disabled) {
+    background-color: var(--color-primary-hover);
+}
+
+.chat-test-input-area button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Markdown Styles */
+.test-markdown-body p {
+    margin: 0 0 var(--space-xs) 0;
+}
+
+.test-markdown-body p:last-child {
+    margin-bottom: 0;
+}
+
+.test-markdown-body code {
+    background-color: var(--color-bg);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+.test-markdown-body pre {
+    background-color: var(--color-bg);
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    margin: var(--space-xs) 0;
+}
+
+.test-markdown-body ul, .test-markdown-body ol {
+    margin: var(--space-xs) 0;
+    padding-left: var(--space-md);
+}
