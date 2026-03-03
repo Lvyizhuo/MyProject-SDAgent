@@ -84,6 +84,13 @@
             </exclusions>
         </dependency>
 
+        <!-- MinIO Client for object storage -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.11</version>
+        </dependency>
+
         <!-- Database -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

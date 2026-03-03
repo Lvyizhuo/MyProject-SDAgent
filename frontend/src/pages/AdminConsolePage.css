@@ -1,0 +1,171 @@
+.admin-console-page {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background-color: hsl(var(--color-bg-alt));
+    overflow: hidden;
+}
+
+.admin-main-content {
+    flex: 1;
+    padding: var(--space-md);
+    margin-top: 64px; /* Offset for AdminNavbar */
+    height: calc(100vh - 64px);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.admin-layout {
+    display: flex;
+    gap: var(--space-md);
+    height: 100%;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+.admin-left-panel {
+    flex: 0 0 450px;
+    background: hsl(var(--color-bg));
+    border-radius: var(--radius-lg);
+    border: 1px solid hsl(var(--color-border));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+.admin-right-panel {
+    flex: 1;
+    background: hsl(var(--color-bg));
+    border-radius: var(--radius-lg);
+    border: 1px solid hsl(var(--color-border));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Single panel layout for placeholder tabs */
+.admin-layout.single-panel {
+    justify-content: center;
+}
+
+.admin-full-panel {
+    flex: 1;
+    max-width: 1200px;
+    background: hsl(var(--color-bg));
+    border-radius: var(--radius-lg);
+    border: 1px solid hsl(var(--color-border));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+/* Tab loading and error states */
+.admin-tab-loading,
+.admin-tab-error {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+}
+
+.admin-tab-loading .loading-spinner {
+    font-size: 1rem;
+    color: hsl(var(--color-text-secondary));
+}
+
+.admin-tab-error .error-message {
+    background: hsl(var(--color-bg));
+    padding: var(--space-xl);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    text-align: center;
+}
+
+.admin-tab-error h3 {
+    color: hsl(0 84% 60%);
+    margin-bottom: var(--space-sm);
+}
+
+.admin-tab-error p {
+    color: hsl(var(--color-text-secondary));
+    margin-bottom: var(--space-lg);
+}
+
+.admin-tab-error button {
+    padding: var(--space-sm) var(--space-lg);
+    background: hsl(var(--color-primary));
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.admin-page-loading, .admin-page-error {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: hsl(var(--color-bg-alt));
+}
+
+.loading-spinner {
+    font-size: 1.2rem;
+    color: hsl(var(--color-text-secondary));
+}
+
+.admin-page-error .error-message {
+    background: hsl(var(--color-bg));
+    padding: var(--space-xl);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    text-align: center;
+}
+
+.admin-page-error h3 {
+    color: hsl(0 84% 60%);
+    margin-bottom: var(--space-sm);
+}
+
+.admin-page-error p {
+    color: hsl(var(--color-text-secondary));
+    margin-bottom: var(--space-lg);
+}
+
+.admin-page-error button {
+    padding: var(--space-sm) var(--space-lg);
+    background: hsl(var(--color-primary));
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-weight: 500;
+}
+
+@media (max-width: 1024px) {
+    .admin-layout {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+
+    .admin-main-content {
+        overflow: auto;
+    }
+
+    .admin-left-panel {
+        flex: none;
+    }
+
+    .admin-right-panel {
+        min-height: 600px;
+        flex: none;
+    }
+
+    .admin-full-panel {
+        min-height: 500px;
+    }
+}

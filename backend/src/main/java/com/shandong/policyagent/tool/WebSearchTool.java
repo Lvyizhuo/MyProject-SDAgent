@@ -66,15 +66,11 @@ public class WebSearchTool {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private StringRedisTemplate redisTemplate;
 
-    public WebSearchTool(VectorStore vectorStore) {
-        this(vectorStore, new ToolFailurePolicyCenter(), null);
-    }
-
     @Autowired
     public WebSearchTool(VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter,
                          ToolStateManager toolStateManager) {
         this.vectorStore = vectorStore;
-        this.failurePolicyCenter = failurePolicyCenter;
+        this.failurePolicyCenter = failurePolicyCenter != null ? failurePolicyCenter : new ToolFailurePolicyCenter();
         this.toolStateManager = toolStateManager;
         this.webClient = WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))

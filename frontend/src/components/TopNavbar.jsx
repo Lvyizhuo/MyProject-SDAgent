@@ -102,6 +102,9 @@ const TopNavbar = () => {
                         </button>
                         {userMenuOpen && (
                             <div className="user-dropdown" role="menu">
+                                {isAuthenticated && user?.role === 'ADMIN' && (
+                                    <button onClick={() => navigate('/admin-console')}>管理员控制台</button>
+                                )}
                                 <button onClick={() => navigate('/user')}>个人信息</button>
                                 <button onClick={() => navigate('/user')}>咨询记录</button>
                                 <button onClick={() => navigate('/user')}>我的收藏</button>

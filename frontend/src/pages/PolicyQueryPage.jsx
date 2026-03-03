@@ -9,7 +9,6 @@ import {
     X,
     Zap
 } from 'lucide-react';
-import TopNavbar from '../components/TopNavbar';
 import { INDUSTRIES, MOCK_POLICIES, POLICY_TYPES, REGIONS } from '../constants/mockData';
 import './QueryPage.css';
 
@@ -43,7 +42,6 @@ const PolicyQueryPage = () => {
 
     return (
         <div className="query-page">
-            <TopNavbar />
             <main className="query-wrap">
                 <div className="query-layout">
                     <aside className="query-aside fade-in-up">

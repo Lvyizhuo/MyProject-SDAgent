@@ -1,0 +1,192 @@
+.config-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid hsl(var(--color-border));
+}
+
+.config-header h2 {
+    font-size: 1.25rem;
+    color: hsl(var(--color-text));
+    margin: 0;
+}
+
+.config-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.btn-reset {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid hsl(var(--color-border));
+    background: transparent;
+    color: hsl(var(--color-text-secondary));
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-reset:hover:not(:disabled) {
+    background: hsl(var(--color-bg-alt));
+    color: hsl(var(--color-text));
+}
+
+.btn-save {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-md);
+    height: 36px;
+    border: none;
+    background: hsl(var(--color-primary));
+    color: white;
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-save:hover:not(:disabled) {
+    background: hsl(var(--color-primary-hover, 215 90% 30%));
+}
+
+.btn-save:disabled, .btn-reset:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.status-message {
+    padding: var(--space-sm) var(--space-lg);
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.status-message.success {
+    background: hsla(142, 70%, 50%, 0.1);
+    color: hsl(142, 70%, 40%);
+    border-bottom: 1px solid hsla(142, 70%, 50%, 0.2);
+}
+
+.status-message.error {
+    background: hsla(0, 84%, 60%, 0.1);
+    color: hsl(0, 84%, 60%);
+    border-bottom: 1px solid hsla(0, 84%, 60%, 0.2);
+}
+
+.config-form {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xl);
+}
+
+.form-section h3 {
+    font-size: 1rem;
+    color: hsl(var(--color-text));
+    margin: 0 0 var(--space-md) 0;
+    font-weight: 600;
+}
+
+.form-group {
+    margin-bottom: var(--space-md);
+}
+
+.form-group.row {
+    display: flex;
+    gap: var(--space-md);
+}
+
+.form-group .half {
+    flex: 1;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.875rem;
+    color: hsl(var(--color-text-secondary));
+    margin-bottom: var(--space-xs);
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group textarea {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid hsl(var(--color-border));
+    border-radius: var(--radius-md);
+    background: hsl(var(--color-bg));
+    color: hsl(var(--color-text));
+    font-family: inherit;
+    font-size: 0.9rem;
+    transition: border-color 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: hsl(var(--color-primary));
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+    line-height: 1.5;
+}
+
+.skills-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.skill-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    border: 1px solid hsl(var(--color-border));
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.skill-item:hover {
+    background: hsl(var(--color-bg-alt));
+}
+
+.skill-item input[type="checkbox"] {
+    margin-top: 4px;
+    cursor: pointer;
+}
+
+.skill-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.skill-name {
+    font-weight: 500;
+    color: hsl(var(--color-text));
+    font-size: 0.95rem;
+}
+
+.skill-desc {
+    font-size: 0.8rem;
+    color: hsl(var(--color-text-secondary));
+}

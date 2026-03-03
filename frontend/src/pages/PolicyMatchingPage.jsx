@@ -9,7 +9,6 @@ import {
     Target,
     Users
 } from 'lucide-react';
-import TopNavbar from '../components/TopNavbar';
 import { INDUSTRIES, MOCK_POLICIES, REGIONS } from '../constants/mockData';
 import './MatchPage.css';
 
@@ -43,7 +42,6 @@ const PolicyMatchingPage = () => {
 
     return (
         <div className="match-page">
-            <TopNavbar />
             <main className="match-wrap">
                 <header className="match-header fade-in-up">
                     <h1>政策精准匹配</h1>

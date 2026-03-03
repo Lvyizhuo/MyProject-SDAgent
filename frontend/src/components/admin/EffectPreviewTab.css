@@ -1,43 +1,83 @@
 .effect-preview-tab {
-    padding: var(--space-md);
-    overflow-y: auto;
     height: 100%;
     display: flex;
     flex-direction: column;
-    gap: var(--space-md);
     background-color: var(--color-bg);
+    overflow: hidden;
 }
 
-.preview-card {
+.mock-chat-window {
+    flex: 1;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.mock-messages-list {
+    flex: 1;
+    overflow-y: auto;
+    padding-bottom: var(--space-xl);
+}
+
+.disabled-wrapper {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.mock-system-info {
+    margin: var(--space-xl) var(--space-md) var(--space-md);
+    animation: fadeIn 0.5s ease;
+}
+
+.info-divider {
+    text-align: center;
+    position: relative;
+    margin-bottom: var(--space-md);
+}
+
+.info-divider::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--color-border);
+    z-index: 1;
+}
+
+.info-divider span {
+    position: relative;
+    background: var(--color-bg);
+    padding: 0 var(--space-md);
+    color: var(--color-text-tertiary);
+    font-size: 0.85rem;
+    z-index: 2;
+}
+
+.info-card {
     background-color: var(--color-surface);
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-border);
+    border: 1px dashed var(--color-border);
     padding: var(--space-md);
+    margin-bottom: var(--space-md);
 }
 
-.preview-card h3 {
+.info-card h4 {
     margin: 0 0 var(--space-sm) 0;
-    font-size: 1rem;
+    font-size: 0.95rem;
     color: var(--color-text);
 }
 
-.preview-content-box {
-    background-color: var(--color-bg);
-    padding: var(--space-sm) var(--space-md);
-    border-radius: var(--radius-sm);
-    font-size: 0.9rem;
+.info-card p {
+    margin: 0;
+    font-size: 0.85rem;
     color: var(--color-text-secondary);
-}
-
-.preview-content-box pre {
-    margin: 0;
     white-space: pre-wrap;
-    word-break: break-all;
-    font-family: monospace;
-}
-
-.preview-content-box p {
-    margin: 0;
+    word-break: break-word;
 }
 
 .stat-bar-container {
@@ -77,5 +117,10 @@
 .tool-badge.disabled {
     background-color: var(--color-bg-hover);
     color: var(--color-text-tertiary);
-    border: 1px solid var(--color-border);
+    border: 1px dashed var(--color-border);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }

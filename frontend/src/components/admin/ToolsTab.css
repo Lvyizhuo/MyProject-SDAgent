@@ -1,0 +1,46 @@
+.tools-tab {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xl);
+    text-align: center;
+}
+
+.tools-tab .placeholder-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 24px;
+    background: linear-gradient(135deg, hsl(var(--color-secondary) / 0.1), hsl(var(--color-accent) / 0.1));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: hsl(var(--color-secondary));
+    margin-bottom: var(--space-lg);
+}
+
+.tools-tab h2 {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: hsl(var(--color-title));
+    margin-bottom: var(--space-sm);
+}
+
+.tools-tab p {
+    font-size: 1rem;
+    color: hsl(var(--color-text-secondary));
+    max-width: 400px;
+    line-height: 1.6;
+}
+
+.tools-tab .coming-soon-badge {
+    margin-top: var(--space-md);
+    padding: 6px 16px;
+    background: hsl(var(--color-secondary) / 0.1);
+    color: hsl(var(--color-secondary));
+    font-size: 0.85rem;
+    font-weight: 500;
+    border-radius: var(--radius-pill);
+}

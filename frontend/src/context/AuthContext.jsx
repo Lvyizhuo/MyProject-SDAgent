@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authApi } from '../services/api';
+import { adminApi } from '../services/adminApi';
 
 const AuthContext = createContext(null);
 
@@ -45,6 +46,13 @@ export const AuthProvider = ({ children }) => {
         return response;
     };
 
+    const adminLogin = async (username, password) => {
+        const response = await adminApi.login(username, password);
+        localStorage.setItem('token', response.token);
+        setUser({ username: response.username, role: response.role });
+        return response;
+    };
+
     const register = async (username, password) => {
         const response = await authApi.register(username, password);
         localStorage.setItem('token', response.token);
@@ -57,13 +65,17 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
     }, []);
 
+    const isAdmin = user?.role === 'ADMIN';
+
     const value = {
         user,
         loading,
         login,
+        adminLogin,
         register,
         logout,
-        isAuthenticated: !!user
+        isAuthenticated: !!user,
+        isAdmin
     };
 
     return (

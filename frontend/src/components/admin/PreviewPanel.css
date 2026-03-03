@@ -1,0 +1,50 @@
+.preview-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.preview-header {
+    border-bottom: 1px solid hsl(var(--color-border));
+    background: hsl(var(--color-bg));
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.preview-tabs {
+    display: flex;
+    padding: 0 var(--space-sm);
+}
+
+.preview-tab {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-md) var(--space-lg);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: hsl(var(--color-text-secondary));
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: -1px;
+}
+
+.preview-tab:hover {
+    color: hsl(var(--color-text));
+}
+
+.preview-tab.active {
+    color: hsl(var(--color-primary));
+    border-bottom-color: hsl(var(--color-primary));
+}
+
+.preview-content {
+    flex: 1;
+    overflow: hidden; /* Let inner components handle scrolling */
+    background: hsl(var(--color-bg));
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    display: flex;
+    flex-direction: column;
+}

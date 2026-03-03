@@ -1,0 +1,46 @@
+.knowledge-base-tab {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xl);
+    text-align: center;
+}
+
+.knowledge-base-tab .placeholder-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 24px;
+    background: linear-gradient(135deg, hsl(var(--color-primary) / 0.1), hsl(var(--color-secondary) / 0.1));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: hsl(var(--color-primary));
+    margin-bottom: var(--space-lg);
+}
+
+.knowledge-base-tab h2 {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: hsl(var(--color-title));
+    margin-bottom: var(--space-sm);
+}
+
+.knowledge-base-tab p {
+    font-size: 1rem;
+    color: hsl(var(--color-text-secondary));
+    max-width: 400px;
+    line-height: 1.6;
+}
+
+.knowledge-base-tab .coming-soon-badge {
+    margin-top: var(--space-md);
+    padding: 6px 16px;
+    background: hsl(var(--color-primary-light));
+    color: hsl(var(--color-primary));
+    font-size: 0.85rem;
+    font-weight: 500;
+    border-radius: var(--radius-pill);
+}

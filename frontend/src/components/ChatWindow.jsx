@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bot } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import InputArea from './InputArea';
-import { chatApi } from '../services/api';
+import { chatApi, publicConfigApi } from '../services/api';
 import './ChatWindow.css';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -12,11 +12,7 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
     reader.readAsDataURL(file);
 });
 
-const WELCOME_MESSAGE = {
-    id: 'welcome',
-    role: 'assistant',
-    content: '您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。\n\n**我可以帮您：**\n- 查询各类产品补贴金额\n- 了解申请条件和流程\n- 计算您能获得的补贴\n- 解答政策相关疑问'
-};
+const DEFAULT_WELCOME_CONTENT = '您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。\n\n**我可以帮您：**\n- 查询各类产品补贴金额\n- 了解申请条件和流程\n- 计算您能获得的补贴\n- 解答政策相关疑问';
 
 const STATUS_PHASES = [
     '正在思考您的问题',
@@ -42,9 +38,19 @@ const consumeSseEvents = (chunk, onData) => {
 };
 
 const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
-    const [messages, setMessages] = useState(
-        initialMessages?.length > 0 ? initialMessages : [WELCOME_MESSAGE]
-    );
+    const [greetingContent, setGreetingContent] = useState(DEFAULT_WELCOME_CONTENT);
+    const [messages, setMessages] = useState(() => {
+        if (initialMessages?.length > 0) {
+            return initialMessages;
+        }
+        return [
+            {
+                id: 'welcome',
+                role: 'assistant',
+                content: DEFAULT_WELCOME_CONTENT
+            }
+        ];
+    });
     const [isGenerating, setIsGenerating] = useState(false);
     const [location, setLocation] = useState(null);
     const [activeReferenceKey, setActiveReferenceKey] = useState(null);
@@ -56,6 +62,34 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const shouldAutoScrollRef = useRef(true);
     const lastPersistedSignatureRef = useRef('');
     const hasTransientMessage = messages.some(msg => msg.meta?.transient);
+
+    // 从后端获取动态开场白
+    useEffect(() => {
+        const fetchGreeting = async () => {
+            try {
+                const config = await publicConfigApi.getAgentConfig();
+                if (config.greetingMessage) {
+                    setGreetingContent(config.greetingMessage);
+                    // 更新欢迎消息（如果当前只有欢迎消息）
+                    setMessages(prev => {
+                        if (prev.length === 1 && prev[0].id === 'welcome') {
+                            return [
+                                {
+                                    id: 'welcome',
+                                    role: 'assistant',
+                                    content: config.greetingMessage
+                                }
+                            ];
+                        }
+                        return prev;
+                    });
+                }
+            } catch (err) {
+                console.warn('获取开场白失败，使用默认值:', err.message);
+            }
+        };
+        fetchGreeting();
+    }, []);
 
     const scrollToBottom = (behavior = 'auto') => {
         if (!shouldAutoScrollRef.current) return;
@@ -111,9 +145,15 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
             lastPersistedSignatureRef.current = '';
             setActiveReferenceKey(null);
             setExpandedReferenceMap({});
-            setMessages(initialMessages?.length > 0 ? initialMessages : [WELCOME_MESSAGE]);
+            setMessages(initialMessages?.length > 0 ? initialMessages : [
+                {
+                    id: 'welcome',
+                    role: 'assistant',
+                    content: greetingContent
+                }
+            ]);
         }
-    }, [sessionId, initialMessages]);
+    }, [sessionId, initialMessages, greetingContent]);
 
     useEffect(() => {
         if (!navigator.geolocation) {

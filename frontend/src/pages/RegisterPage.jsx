@@ -1,24 +1,19 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, User, Lock, ArrowRight, UserPlus } from 'lucide-react';
+import { Building2, User, Lock, UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import TopNavbar from '../components/TopNavbar';
 import './LoginPage.css';
 
-const LoginPage = () => {
+const RegisterPage = () => {
     const [username, setUsername] = React.useState('');
     const [password, setPassword] = React.useState('');
+    const [confirmPassword, setConfirmPassword] = React.useState('');
     const [error, setError] = React.useState('');
     const [loading, setLoading] = React.useState(false);
 
-    const { login, isAuthenticated, isAdmin } = useAuth();
+    const { register } = useAuth();
     const navigate = useNavigate();
-
-    useEffect(() => {
-        if (isAuthenticated) {
-            navigate(isAdmin ? '/admin-console' : '/chat', { replace: true });
-        }
-    }, [isAuthenticated, isAdmin, navigate]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -29,12 +24,23 @@ const LoginPage = () => {
             return;
         }
 
+        if (password !== confirmPassword) {
+            setError('两次输入的密码不一致');
+            return;
+        }
+
+        if (password.length < 6) {
+            setError('密码长度至少6位');
+            return;
+        }
+
         setLoading(true);
         try {
-            await login(username, password);
-            // 登录成功后，根据角色自动跳转（由 useEffect 处理）
+            await register(username, password);
+            // 注册成功后跳转到登录页面
+            navigate('/login', { replace: true });
         } catch (err) {
-            setError(err.message || '登录失败');
+            setError(err.message || '注册失败');
         } finally {
             setLoading(false);
         }
@@ -54,7 +60,7 @@ const LoginPage = () => {
                     </div>
 
                     <form className="login-form" onSubmit={handleSubmit} autoComplete="on">
-                        <h2>账号登录</h2>
+                        <h2>注册账号</h2>
 
                         {error && <div className="error-message">{error}</div>}
 
@@ -82,7 +88,21 @@ const LoginPage = () => {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 disabled={loading}
-                                autoComplete="current-password"
+                                autoComplete="new-password"
+                            />
+                        </div>
+
+                        <div className="input-group">
+                            <Lock size={18} />
+                            <input
+                                type="password"
+                                name="confirmPassword"
+                                id="confirmPassword"
+                                placeholder="确认密码"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                disabled={loading}
+                                autoComplete="new-password"
                             />
                         </div>
 
@@ -91,17 +111,17 @@ const LoginPage = () => {
                                 <span className="btn-loading"></span>
                             ) : (
                                 <>
-                                    <ArrowRight size={18} />
-                                    <span>登录</span>
+                                    <UserPlus size={18} />
+                                    <span>注册</span>
                                 </>
                             )}
                         </button>
                     </form>
 
                     <div className="login-footer">
-                        <span>还没有账号？</span>
-                        <button type="button" className="toggle-btn" onClick={() => navigate('/register')}>
-                            立即注册
+                        <span>已有账号？</span>
+                        <button type="button" className="toggle-btn" onClick={() => navigate('/login')}>
+                            立即登录
                         </button>
                     </div>
                 </div>
@@ -110,4 +130,4 @@ const LoginPage = () => {
     );
 };
 
-export default LoginPage;
+export default RegisterPage;

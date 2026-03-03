@@ -75,6 +75,16 @@ export const conversationApi = {
     }
 };
 
+export const publicConfigApi = {
+    async getAgentConfig() {
+        const response = await fetch(`${API_BASE}/public/config/agent`);
+        if (!response.ok) {
+            throw new Error('获取配置失败');
+        }
+        return response.json();
+    }
+};
+
 export const chatApi = {
     async sendMessage(message, conversationId, location = null) {
         const body = { message, conversationId };

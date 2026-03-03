@@ -10,7 +10,6 @@ import {
     Zap
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import TopNavbar from '../components/TopNavbar';
 import { MOCK_POLICIES } from '../constants/mockData';
 import './HomePage.css';
 
@@ -50,7 +49,6 @@ const HomePage = () => {
 
     return (
         <div className="home-page">
-            <TopNavbar />
             <main className="home-wrap">
                 <section className="hero-block">
                     <div className="hero-glow" />

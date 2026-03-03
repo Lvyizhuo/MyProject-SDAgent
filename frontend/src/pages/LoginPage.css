@@ -1,18 +1,24 @@
 .login-page {
-    min-height: 100vh;
+    width: 100%;
+    height: 100vh;
     background: radial-gradient(circle at 50% -20%, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-app)));
-    position: relative;
+    position: fixed;
+    top: 0;
+    left: 0;
     overflow: hidden;
+    z-index: 9999;
 }
 
 .login-container {
-    min-height: 100vh;
+    width: 100%;
+    height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: var(--space-md);
     position: relative;
     z-index: 10;
+    overflow: hidden;
 }
 
 .login-container::before {
@@ -28,14 +34,15 @@
 
 .login-card {
     width: 100%;
-    max-width: 440px;
+    max-width: 420px;
+    max-height: 90vh;
+    overflow-y: auto;
     background: rgba(255, 255, 255, 0.75);
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     border-radius: var(--radius-xl);
     border: 1px solid var(--color-border-glass);
     box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
-    overflow: hidden;
     position: relative;
     z-index: 10;
     animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -43,19 +50,20 @@
 
 .login-header {
     background: transparent;
-    padding: 2.5rem 2rem 1.5rem;
+    padding: 2rem 2rem 1rem;
     text-align: center;
     position: relative;
+    flex-shrink: 0;
 }
 
 .login-logo {
-    width: 72px;
-    height: 72px;
-    border-radius: 20px;
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto var(--space-md);
+    margin: 0 auto var(--space-sm);
     background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
     color: hsl(var(--color-text-inverse));
     box-shadow: 0 12px 24px -6px hsl(var(--color-primary) / 0.4);
@@ -69,30 +77,33 @@
 
 .login-header h1 {
     font-family: var(--font-display);
-    font-size: 1.75rem;
+    font-size: 1.5rem;
     font-weight: 800;
     margin: 0 0 var(--space-xs);
     color: hsl(var(--color-title));
     letter-spacing: -0.02em;
+    line-height: 1.2;
 }
 
 .login-header p {
-    font-size: 0.95rem;
+    font-size: 0.875rem;
     color: hsl(var(--color-text-secondary));
     margin: 0;
     font-family: var(--font-sans);
+    line-height: 1.4;
 }
 
 .login-form {
-    padding: 0 2rem 2rem;
+    padding: 0 2rem 1.5rem;
+    flex-shrink: 0;
 }
 
 .login-form h2 {
     font-family: var(--font-display);
-    font-size: 1.25rem;
+    font-size: 1.1rem;
     font-weight: 600;
     color: hsl(var(--color-title));
-    margin: 0 0 1.5rem;
+    margin: 0 0 1rem;
     text-align: center;
 }
 
@@ -114,7 +125,7 @@
 
 .input-group {
     position: relative;
-    margin-bottom: 1.25rem;
+    margin-bottom: 1rem;
 }
 
 .input-group input {
@@ -161,14 +172,14 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-sm);
-    padding: 14px;
+    padding: 12px;
     background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
     color: hsl(var(--color-text-inverse));
     border-radius: var(--radius-pill);
     font-size: 1rem;
     font-weight: 600;
     border: none;
-    margin-top: var(--space-md);
+    margin-top: var(--space-sm);
     box-shadow: 0 8px 16px -4px hsl(var(--color-primary) / 0.4);
     transition: all var(--transition-med);
     cursor: pointer;
@@ -196,10 +207,11 @@
 }
 
 .login-footer {
-    padding: 0 2rem 2rem;
+    padding: 0 2rem 1.5rem;
     text-align: center;
     color: hsl(var(--color-text-secondary));
     font-size: 0.9rem;
+    flex-shrink: 0;
 }
 
 .toggle-btn {
@@ -237,24 +249,20 @@
 }
 
 @media (max-width: 480px) {
+    .login-card {
+        max-width: 95%;
+        max-height: 95vh;
+    }
+
     .login-header {
-        padding: 2rem 1.5rem 1rem;
-    }
-    
-    .login-form {
-        padding: 0 1.5rem 1.5rem;
-    }
-    
-    .login-footer {
-        padding: 0 1.5rem 2rem;
+        padding: 1.5rem 1.5rem 0.75rem;
     }
 
-
     .login-form {
-        padding: var(--space-lg) var(--space-md);
+        padding: 0 1.5rem 1.25rem;
     }
 
     .login-footer {
-        padding: 0 var(--space-md) var(--space-lg);
+        padding: 0 1.5rem 1.25rem;
     }
 }
