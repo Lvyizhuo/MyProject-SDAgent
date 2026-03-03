@@ -6,8 +6,8 @@
 |------|------|
 | 文档名称 | 管理员控制台 - 智能体配置系统 |
 | 创建日期 | 2026-03-02 |
-| 版本 | v1.0 |
-| 状态 | 待评审 |
+| 版本 | v1.1 |
+| 状态 | 已评审 |
 
 ---
 
@@ -128,6 +128,8 @@
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | model_provider | String | "dashscope" | 模型提供商 |
+| api_key | String | "${DASHSCOPE_API_KEY}" | API 密钥（支持环境变量引用，存储在本地环境变量） |
+| api_url | String | "https://dashscope.aliyuncs.com/compatible-mode" | API 基础 URL |
 | model_name | String | "qwen3.5-plus" | 模型名称 |
 | temperature | Decimal | 0.70 | 模型温度参数（0.0-1.0） |
 
@@ -154,7 +156,18 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| greeting_message | Text | "您好，请问有什么可以帮助您的？" | 智能体的开场问候语 |
+| greeting_message | Text | （见下方） | 智能体的开场问候语 |
+
+**默认开场白**：
+```
+您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。
+
+**我可以帮您：**
+- 查询各类产品补贴金额
+- 了解申请条件和流程
+- 计算您能获得的补贴
+- 解答政策相关疑问
+```
 
 #### FR-11: 技能模块配置
 
@@ -325,6 +338,8 @@ CREATE TABLE agent_config (
 
     -- AI 模型配置
     model_provider VARCHAR(50) NOT NULL DEFAULT 'dashscope',
+    api_key VARCHAR(255) DEFAULT '${DASHSCOPE_API_KEY}',
+    api_url VARCHAR(255) DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode',
     model_name VARCHAR(100) NOT NULL DEFAULT 'qwen3.5-plus',
     temperature DECIMAL(3,2) DEFAULT 0.70,
 
@@ -332,7 +347,13 @@ CREATE TABLE agent_config (
     system_prompt TEXT NOT NULL,
 
     -- 开场白
-    greeting_message TEXT DEFAULT '您好，请问有什么可以帮助您的？',
+    greeting_message TEXT DEFAULT '您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。
+
+**我可以帮您：**
+- 查询各类产品补贴金额
+- 了解申请条件和流程
+- 计算您能获得的补贴
+- 解答政策相关疑问',
 
     -- 技能模块配置
     skills JSONB NOT NULL DEFAULT '{
@@ -374,6 +395,12 @@ public class AgentConfig {
 
     @Column(nullable = false, length = 50)
     private String modelProvider;
+
+    @Column(length = 255)
+    private String apiKey;
+
+    @Column(length = 255)
+    private String apiUrl;
 
     @Column(nullable = false, length = 100)
     private String modelName;
@@ -479,10 +506,12 @@ public class AgentConfig {
   "name": "政策问答智能体",
   "description": "用于山东省以旧换新补贴政策咨询",
   "modelProvider": "dashscope",
+  "apiKey": "${DASHSCOPE_API_KEY}",
+  "apiUrl": "https://dashscope.aliyuncs.com/compatible-mode",
   "modelName": "qwen3.5-plus",
   "temperature": 0.7,
   "systemPrompt": "你是一个专业的...",
-  "greetingMessage": "您好，请问有什么可以帮助您的？",
+  "greetingMessage": "您好！我是山东省以旧换新政策咨询智能助手...",
   "skills": {
     "webSearch": {"enabled": true},
     "subsidyCalculator": {"enabled": true},
@@ -504,10 +533,12 @@ public class AgentConfig {
   "name": "政策问答智能体",
   "description": "用于山东省以旧换新补贴政策咨询",
   "modelProvider": "dashscope",
+  "apiKey": "${DASHSCOPE_API_KEY}",
+  "apiUrl": "https://dashscope.aliyuncs.com/compatible-mode",
   "modelName": "qwen3-max",
   "temperature": 0.8,
   "systemPrompt": "你是一个专业的...",
-  "greetingMessage": "您好，请问有什么可以帮助您的？",
+  "greetingMessage": "您好！我是山东省以旧换新政策咨询智能助手...",
   "skills": {
     "webSearch": {"enabled": true},
     "subsidyCalculator": {"enabled": true},
@@ -825,6 +856,7 @@ frontend/src/
 
 | 版本 | 日期 | 变更内容 | 作者 |
 |------|------|----------|------|
+| v1.1 | 2026-03-02 | 新增 api_key、api api_url 字段；更新默认开场白内容 | Claude |
 | v1.0 | 2026-03-02 | 初始版本 | Claude |
 
 ---
