@@ -1,5 +1,6 @@
 package com.shandong.policyagent.tool;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,6 +13,7 @@ import java.util.function.Function;
 
 @Slf4j
 @Configuration
+@RequiredArgsConstructor
 public class SubsidyCalculatorTool {
 
     private static final BigDecimal HOME_APPLIANCE_SUBSIDY_RATE = new BigDecimal("0.15");
@@ -34,6 +36,8 @@ public class SubsidyCalculatorTool {
             "净水器", new BigDecimal("500")
     );
 
+    private final ToolStateManager toolStateManager;
+
     public record SubsidyRequest(String type, double price) {}
     
     public record SubsidyResponse(
@@ -50,6 +54,17 @@ public class SubsidyCalculatorTool {
     @Description("计算山东省以旧换新补贴金额。输入商品类型(type)和购买价格(price)，返回可获得的补贴金额。支持的商品类型包括：空调、冰箱、洗衣机、电视、热水器、微波炉、油烟机、洗碗机、燃气灶、净水器、手机、平板、智能手表、手环。补贴比例为15%，不同品类有不同的补贴上限。")
     public Function<SubsidyRequest, SubsidyResponse> calculateSubsidy() {
         return request -> {
+            // 检查技能是否启用
+            if (!toolStateManager.isSubsidyCalculatorEnabled()) {
+                log.warn("补贴计算工具已被管理员禁用");
+                return new SubsidyResponse(
+                        request != null ? request.type() : "",
+                        request != null ? request.price() : 0,
+                        0, 0, 0, 0,
+                        "补贴计算功能当前已禁用，请联系管理员启用"
+                );
+            }
+
             log.info("计算补贴 | 类型={} | 价格={}", request.type(), request.price());
             
             if (request.price() <= 0) {

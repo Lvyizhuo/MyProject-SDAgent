@@ -62,17 +62,20 @@ public class WebSearchTool {
     private final WebClient webClient;
     private final VectorStore vectorStore;
     private final ToolFailurePolicyCenter failurePolicyCenter;
+    private final ToolStateManager toolStateManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private StringRedisTemplate redisTemplate;
 
     public WebSearchTool(VectorStore vectorStore) {
-        this(vectorStore, new ToolFailurePolicyCenter());
+        this(vectorStore, new ToolFailurePolicyCenter(), null);
     }
 
     @Autowired
-    public WebSearchTool(VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter) {
+    public WebSearchTool(VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter,
+                         ToolStateManager toolStateManager) {
         this.vectorStore = vectorStore;
         this.failurePolicyCenter = failurePolicyCenter;
+        this.toolStateManager = toolStateManager;
         this.webClient = WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
                 .build();
@@ -125,6 +128,12 @@ public class WebSearchTool {
             "输入搜索关键词(query)和最大结果数(maxResults，默认5条)，返回搜索结果摘要和详细列表。")
     public Function<SearchRequest, SearchResponse> webSearch() {
         return request -> {
+            // 检查工具是否被管理员禁用
+            if (toolStateManager != null && !toolStateManager.isWebSearchEnabled()) {
+                log.warn("联网搜索工具已被管理员禁用");
+                return new SearchResponse("", List.of(), 0, "联网搜索功能当前已被管理员禁用，如需使用请联系管理员开启。");
+            }
+
             String query = request != null && request.query() != null ? request.query().trim() : "";
             if (query.isBlank()) {
                 return new SearchResponse(

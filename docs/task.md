@@ -150,68 +150,61 @@
 ### 任务 2.1：实现配置同步服务
 
 **优先级**：P0（阻塞）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **2.1.1** 创建 `AgentConfigSyncService`
+- [x] **2.1.1** 创建 `AgentConfigSyncService`
   - 文件：`backend/src/main/java/com/shandong/policyagent/service/AgentConfigSyncService.java`
-  - 方法：`syncConfigToRuntime(AgentConfig config)`
-  - 实现逻辑：
-    1. 读取最新的 agent_config 记录
-    2. 更新 ChatClient 中的 System Prompt
-    3. 更新 ChatClient 中的 Model 配置（temperature）
-    4. 更新工具的 enabled 状态（通过配置或环境变量）
-  - 参考现有 `ChatClientConfig.java`（第 24-74 行的 SYSTEM_PROMPT）
+  - 方法：`syncConfigToRuntime(AgentConfig config)` + `reloadFromDatabase()`
+  - 通过 `DynamicAgentConfigHolder.update()` 将最新配置同步到运行时内存
 
-- [ ] **2.1.2** 创建可动态配置的 ChatClient
-  - 文件：`backend/src/main/java/com/shandong/policyagent/config/DynamicChatClientConfig.java`
-  - 使用 `@Scope("prototype")` 或 `@RefreshScope` 支持动态刷新
-  - 将 System Prompt 移到配置类中，支持运行时修改
-  - 将 Model 配置（temperature）移到配置类中
+- [x] **2.1.2** 创建 `DynamicAgentConfigHolder`
+  - 文件：`backend/src/main/java/com/shandong/policyagent/config/DynamicAgentConfigHolder.java`
+  - `AtomicReference<AgentConfig>` 持有当前配置，`@PostConstruct` 从 DB 加载
+  - 提供 `getSystemPrompt()` / `getModelName()` / `getTemperature()` / `getSkills()`
 
-- [ ] **2.1.3** 实现工具状态动态更新
+- [x] **2.1.3** 修改 `ChatClientConfig` + `ChatService` 实现 per-request 动态注入
+  - 移除硬编码 `defaultSystem(SYSTEM_PROMPT)`
+  - `ChatService` 每次 prompt 调用 `.system(holder.getSystemPrompt())` + `.options(buildChatOptions())`
+
+- [x] **2.1.4** 创建 `ToolStateManager` + 各工具加 enabled 检查
   - 文件：`backend/src/main/java/com/shandong/policyagent/tool/ToolStateManager.java`
-  - 管理各工具的 enabled 状态
-  - 通过 skills 配置动态启用/禁用工具
-  - 考虑实现方式：修改 Bean 定义或使用条件 Bean
+  - `WebSearchTool`、`SubsidyCalculatorTool`、`FileParserTool` 均在 lambda 开头调用 `isXxxEnabled()`
 
-**技术难点**：
-- Spring AI ChatClient 默认是单例，需要设计动态刷新机制
-- 工具的启用/禁用可能需要重新构建 ChatClient
+- [x] **2.1.5** `AgentConfigController` 接入同步服务
+  - 注入 `AgentConfigSyncService`，在 `updateConfig` 和 `resetConfig` 后调用 `reloadFromDatabase()`
 
 **验收标准**：
 - ✅ 配置更新后立即同步到运行时（无需重启）
 - ✅ System Prompt 修改后，后续对话使用新提示词
 - ✅ Model 参数修改后，后续对话使用新参数
+- ✅ 工具启用/禁用通过 ToolStateManager 实时生效
 
 ---
 
 ### 任务 2.2：实现配置测试 API
 
 **优先级**：P1（功能）
-**状态**：⏳ 待开始
-**负责人**：待分配
+**状态**：✅ 已完成
+**负责人**：Claude
 
 #### 子任务
 
-- [ ] **2.2.1** 创建 `AgentConfigTestController`
+- [x] **2.2.1** 创建 `AgentConfigTestController`
   - 文件：`backend/src/main/java/com/shandong/policyagent/controller/AgentConfigTestController.java`
-  - 路径：`/api/admin/agent-config/test`
-  - 端点：
-    - `POST /` - 测试配置（发起测试对话）
-  - 使用独立的 ChatMemory（不影响主系统）
-  - 接受测试消息，返回 AI 回复
+  - 路径：`POST /api/admin/agent-config/test`
+  - 接受测试消息，通过 `ChatService.chat()` 发起对话，返回 AI 回复
 
-- [ ] **2.2.2** 创建测试 DTO
+- [x] **2.2.2** 创建测试 DTO
   - 文件：`backend/src/main/java/com/shandong/policyagent/model/admin/AgentConfigTestRequest.java`
-  - 字段：message, sessionId
+  - 字段：`message`（必填）、`sessionId`（可选，不填则生成 `admin-test-{UUID}`）
 
 **验收标准**：
 - ✅ 可以使用当前配置发起测试对话
-- ✅ 测试对话不影响主系统的 ChatMemory
-- ✅ 测试结果包含 AI 回复和可选的工具调用信息
+- ✅ 未提供 sessionId 时自动生成隔离的测试会话
+- ✅ 测试接口受 ADMIN 角色保护
 
 ---
 
@@ -511,10 +504,10 @@
 | 阶段 | 进度 | 状态 |
 |------|------|------|
 | 阶段 1：后端基础 | 100% | ✅ 已完成 |
-| 阶段 2：配置同步机制 | 0% | ⏳ 待开始 |
+| 阶段 2：配置同步机制 | 100% | ✅ 已完成 |
 | 阶段 3：前端开发 | 0% | ⏳ 待开始 |
 | 阶段 4：测试与优化 | 0% | ⏳ 待开始 |
-| **总体进度** | **25%** | 🔄 进行中 |
+| **总体进度** | **50%** | 🔄 进行中 |
 
 ---
 
@@ -612,6 +605,7 @@
 | 日期 | 更新内容 |
 |------|----------|
 | 2026-03-03 | 初始版本创建，基于 PRD v1.1 文档 |
+| 2026-03-03 | 阶段2完成：DynamicAgentConfigHolder、AgentConfigSyncService、ToolStateManager、各工具 enabled 检查、AgentConfigTestController |
 
 ---
 

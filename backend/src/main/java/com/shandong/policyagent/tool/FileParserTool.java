@@ -1,5 +1,6 @@
 package com.shandong.policyagent.tool;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
@@ -23,7 +24,10 @@ import java.util.regex.Pattern;
  */
 @Slf4j
 @Configuration
+@RequiredArgsConstructor
 public class FileParserTool {
+
+    private final ToolStateManager toolStateManager;
 
     // 发票关键字段正则匹配
     private static final Pattern INVOICE_NUMBER_PATTERN = Pattern.compile("发票号码[：:](\\s*)(\\d+)");
@@ -65,6 +69,18 @@ public class FileParserTool {
             "返回提取的结构化信息，如发票号码、金额、商品名称，或设备品牌、型号、购买日期等。")
     public Function<FileParseRequest, FileParseResponse> parseFile() {
         return request -> {
+            // 检查工具是否被管理员禁用
+            if (!toolStateManager.isFileParserEnabled()) {
+                log.warn("文件解析工具已被管理员禁用");
+                return new FileParseResponse(
+                        false,
+                        request.parseType(),
+                        "",
+                        Map.of(),
+                        "文件解析功能当前已被管理员禁用，如需使用请联系管理员开启。"
+                );
+            }
+
             log.info("解析文件 | 文件名={} | 解析类型={}", request.fileName(), request.parseType());
 
             try {

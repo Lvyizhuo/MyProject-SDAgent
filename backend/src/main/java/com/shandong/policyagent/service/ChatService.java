@@ -3,6 +3,7 @@ package com.shandong.policyagent.service;
 import com.shandong.policyagent.agent.AgentExecutionPlan;
 import com.shandong.policyagent.agent.ReActPlanningService;
 import com.shandong.policyagent.agent.ToolIntentClassifier;
+import com.shandong.policyagent.config.DynamicAgentConfigHolder;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.multimodal.service.VisionService;
@@ -10,6 +11,7 @@ import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -32,6 +34,7 @@ public class ChatService {
     private static final String CHAT_MEMORY_CONVERSATION_ID = "chat_memory_conversation_id";
 
     private final ChatClient chatClient;
+    private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
     private final VisionService visionService;
     private final ReActPlanningService planningService;
     private final ToolIntentClassifier toolIntentClassifier;
@@ -54,6 +57,8 @@ public class ChatService {
         String executionPrompt = buildExecutionPrompt(userMessage, plan);
 
         String response = chatClient.prompt()
+                .system(dynamicAgentConfigHolder.getSystemPrompt())
+                .options(buildChatOptions())
                 .user(executionPrompt)
                 .advisors(advisorSpec -> advisorSpec
                         .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
@@ -92,6 +97,8 @@ public class ChatService {
         }
 
         return chatClient.prompt()
+                .system(dynamicAgentConfigHolder.getSystemPrompt())
+                .options(buildChatOptions())
                 .user(executionPrompt)
                 .advisors(advisorSpec -> advisorSpec
                         .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
@@ -253,6 +260,8 @@ public class ChatService {
             long startTime = System.currentTimeMillis();
 
             String response = chatClient.prompt()
+                    .system(dynamicAgentConfigHolder.getSystemPrompt())
+                    .options(buildChatOptions())
                     .user(userMessage)
                     .advisors(advisorSpec -> advisorSpec
                             .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
@@ -299,5 +308,18 @@ public class ChatService {
             return UUID.randomUUID().toString();
         }
         return conversationId;
+    }
+
+    /**
+     * 构建当前运行时 ChatOptions（模型名 + temperature），用于 per-request 动态覆盖。
+     * 若 DynamicAgentConfigHolder 中配置不存在，使用 application.yml 中的全局默认值（不传 options）。
+     */
+    private OpenAiChatOptions buildChatOptions() {
+        String modelName = dynamicAgentConfigHolder.getModelName();
+        Double temperature = dynamicAgentConfigHolder.getTemperature();
+        return OpenAiChatOptions.builder()
+                .model(modelName)
+                .temperature(temperature)
+                .build();
     }
 }

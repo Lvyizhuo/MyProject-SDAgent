@@ -4,6 +4,7 @@ import com.shandong.policyagent.entity.User;
 import com.shandong.policyagent.model.admin.AgentConfigRequest;
 import com.shandong.policyagent.model.admin.AgentConfigResponse;
 import com.shandong.policyagent.service.AgentConfigService;
+import com.shandong.policyagent.service.AgentConfigSyncService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 public class AgentConfigController {
 
     private final AgentConfigService agentConfigService;
+    private final AgentConfigSyncService agentConfigSyncService;
 
     /**
      * 获取当前配置（API Key 脱敏）
@@ -32,7 +34,7 @@ public class AgentConfigController {
     }
 
     /**
-     * 更新配置（调用同步服务）
+     * 更新配置并同步到运行时
      */
     @PutMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -42,24 +44,20 @@ public class AgentConfigController {
 
         log.info("管理员更新配置: {}", user.getUsername());
         AgentConfigResponse response = agentConfigService.updateConfig(request);
-
-        // TODO: 调用配置同步服务
-        // agentConfigSyncService.syncConfigToRuntime(config);
+        agentConfigSyncService.reloadFromDatabase();
 
         return ResponseEntity.ok(response);
     }
 
     /**
-     * 重置为默认配置
+     * 重置为默认配置并同步到运行时
      */
     @PostMapping("/reset")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AgentConfigResponse> resetConfig(@AuthenticationPrincipal User user) {
         log.info("管理员重置配置为默认: {}", user.getUsername());
         AgentConfigResponse response = agentConfigService.resetToDefault();
-
-        // TODO: 调用配置同步服务
-        // agentConfigSyncService.syncConfigToRuntime(config);
+        agentConfigSyncService.reloadFromDatabase();
 
         return ResponseEntity.ok(response);
     }
