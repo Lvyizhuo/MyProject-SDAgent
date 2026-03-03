@@ -23,6 +23,7 @@ public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocu
     @Query("SELECT d FROM KnowledgeDocument d WHERE d.embeddingModel = :embeddingModel")
     List<KnowledgeDocument> findByEmbeddingModel(@Param("embeddingModel") String embeddingModel);
 
-    @Query("SELECT d FROM KnowledgeDocument d WHERE :tag MEMBER OF d.tags")
+    @Query(value = "SELECT * FROM knowledge_documents WHERE ?1 = ANY(tags)",
+           nativeQuery = true)
     Page<KnowledgeDocument> findByTag(@Param("tag") String tag, Pageable pageable);
 }
