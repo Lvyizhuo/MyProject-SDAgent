@@ -17,7 +17,8 @@ import {
     X,
     CheckCircle2,
     AlertCircle,
-    Loader2
+    Loader2,
+    Clock
 } from 'lucide-react';
 import './KnowledgeBaseTab.css';
 import adminKnowledgeApi from '../../services/adminKnowledgeApi';
