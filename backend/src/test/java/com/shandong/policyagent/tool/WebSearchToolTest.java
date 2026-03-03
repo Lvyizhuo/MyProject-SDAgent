@@ -38,7 +38,19 @@ class WebSearchToolTest {
                 return List.of();
             }
         };
-        WebSearchTool tool = new WebSearchTool(noopVectorStore);
+
+        // Create mock ToolFailurePolicyCenter with default constructor
+        ToolFailurePolicyCenter failurePolicyCenter = new ToolFailurePolicyCenter();
+
+        // Create mock ToolStateManager that always returns true for enabled checks
+        ToolStateManager toolStateManager = new ToolStateManager(null) {
+            @Override
+            public boolean isEnabled(String skillKey) {
+                return true;
+            }
+        };
+
+        WebSearchTool tool = new WebSearchTool(noopVectorStore, failurePolicyCenter, toolStateManager);
 
         WebSearchTool.SearchResponse response = tool.webSearch()
                 .apply(new WebSearchTool.SearchRequest("   ", 5));

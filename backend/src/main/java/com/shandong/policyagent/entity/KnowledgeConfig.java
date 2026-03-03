@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 public class KnowledgeConfig {
 
     @Id
+    @Builder.Default
     private Long id = 1L;
 
     @Column(name = "chunk_size")

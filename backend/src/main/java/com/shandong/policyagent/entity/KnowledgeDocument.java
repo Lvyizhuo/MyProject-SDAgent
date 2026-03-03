@@ -79,6 +79,7 @@ public class KnowledgeDocument {
     private String errorMessage;
 
     @Column(name = "chunk_count")
+    @Builder.Default
     private Integer chunkCount = 0;
 
     @Column(name = "created_at", nullable = false, updatable = false)

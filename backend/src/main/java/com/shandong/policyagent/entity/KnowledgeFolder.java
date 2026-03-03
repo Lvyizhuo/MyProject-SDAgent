@@ -40,9 +40,11 @@ public class KnowledgeFolder {
     private String path;
 
     @Column(nullable = false)
+    @Builder.Default
     private Integer depth = 1;
 
     @Column(name = "sort_order")
+    @Builder.Default
     private Integer sortOrder = 0;
 
     @Column(name = "created_at", nullable = false, updatable = false)
