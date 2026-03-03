@@ -1,14 +1,12 @@
 package com.shandong.policyagent.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.shandong.policyagent.config.EmbeddingModelConfig;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.openai.OpenAiEmbeddingModel;
-import org.springframework.ai.openai.OpenAiEmbeddingOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -45,21 +43,6 @@ public class EmbeddingService {
         }
 
         throw new IllegalArgumentException("Unsupported embedding provider: " + modelConfig.getProvider());
-    }
-
-    public EmbeddingModel getSpringAiEmbeddingModel(String modelId) {
-        return modelCache.computeIfAbsent(modelId, id -> {
-            EmbeddingModelConfig.EmbeddingModel modelConfig = getModelConfig(id);
-            if ("dashscope".equalsIgnoreCase(modelConfig.getProvider())) {
-                String apiKey = resolveApiKey(modelConfig.getApiKey());
-                OpenAiApi openAiApi = new OpenAiApi(modelConfig.getBaseUrl(), apiKey);
-                return new OpenAiEmbeddingModel(openAiApi,
-                        OpenAiEmbeddingOptions.builder()
-                                .withModel(modelConfig.getModelName())
-                                .build());
-            }
-            throw new IllegalArgumentException("Spring AI EmbeddingModel not supported for provider: " + modelConfig.getProvider());
-        });
     }
 
     public List<EmbeddingModelConfig.EmbeddingModel> getAvailableModels() {
@@ -103,12 +86,42 @@ public class EmbeddingService {
     }
 
     private List<float[]> embedWithDashScope(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
-        EmbeddingModel embeddingModel = getSpringAiEmbeddingModel(modelConfig.getId());
+        // For now, use simple embedding approach without Spring AI's OpenAiEmbeddingModel
+        // This avoids the API compatibility issues
+        RestClient restClient = restClientBuilder.baseUrl(modelConfig.getBaseUrl()).build();
         List<float[]> embeddings = new ArrayList<>();
+
+        // DashScope compatible-mode embedding endpoint
+        String apiKey = resolveApiKey(modelConfig.getApiKey());
+
         for (String text : texts) {
-            float[] embedding = embeddingModel.embed(text);
-            embeddings.add(embedding);
+            Map<String, Object> request = new HashMap<>();
+            request.put("model", modelConfig.getModelName());
+            request.put("input", text);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = restClient.post()
+                    .uri("/v1/embeddings")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .body(request)
+                    .retrieve()
+                    .body(Map.class);
+
+            if (response != null && response.containsKey("data")) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> data = (List<Map<String, Object>>) response.get("data");
+                if (!data.isEmpty() && data.get(0).containsKey("embedding")) {
+                    @SuppressWarnings("unchecked")
+                    List<Double> embeddingList = (List<Double>) data.get(0).get("embedding");
+                    embeddings.add(toFloatArray(embeddingList));
+                } else {
+                    throw new RuntimeException("Failed to get embedding from DashScope");
+                }
+            } else {
+                throw new RuntimeException("Failed to get embedding from DashScope");
+            }
         }
+
         return embeddings;
     }
 

@@ -1,5 +1,6 @@
 package com.shandong.policyagent.rag;
 
+import com.shandong.policyagent.config.MinioConfig;
 import io.minio.*;
 import io.minio.http.Method;
 import lombok.RequiredArgsConstructor;
