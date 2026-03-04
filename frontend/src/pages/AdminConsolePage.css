@@ -2,17 +2,20 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: hsl(var(--color-bg-alt));
     overflow: hidden;
+    background:
+        radial-gradient(1200px 640px at 8% -12%, hsl(var(--color-primary-light) / 0.65), transparent 68%),
+        radial-gradient(1000px 540px at 88% -22%, hsl(var(--color-secondary) / 0.16), transparent 70%),
+        linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-app)) 58%);
 }
 
 .admin-main-content {
     flex: 1;
-    padding: var(--space-md);
-    margin-top: 64px; /* Offset for AdminNavbar */
-    height: calc(100vh - 64px);
+    margin-top: 72px;
+    height: calc(100vh - 72px);
+    min-height: calc(100vh - 72px);
+    padding: var(--space-lg);
     overflow: hidden;
-    box-sizing: border-box;
 }
 
 .admin-layout {
@@ -23,137 +26,140 @@
     margin: 0 auto;
 }
 
-.admin-left-panel {
-    flex: 0 0 450px;
-    background: hsl(var(--color-bg));
+.admin-left-panel,
+.admin-right-panel,
+.admin-full-panel {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid hsl(var(--color-border) / 0.8);
     border-radius: var(--radius-lg);
-    border: 1px solid hsl(var(--color-border));
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated) / 0.92), hsl(var(--color-bg-elevated) / 0.8));
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.admin-left-panel::before,
+.admin-right-panel::before,
+.admin-full-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--color-primary) / 0.4), transparent);
+    pointer-events: none;
+}
+
+.admin-left-panel {
+    flex: 0 0 460px;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    box-shadow: var(--shadow-sm);
+    min-width: 0;
 }
 
 .admin-right-panel {
     flex: 1;
-    background: hsl(var(--color-bg));
-    border-radius: var(--radius-lg);
-    border: 1px solid hsl(var(--color-border));
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    box-shadow: var(--shadow-sm);
+    min-width: 0;
 }
 
-/* Single panel layout for placeholder tabs */
 .admin-layout.single-panel {
     justify-content: center;
 }
 
-.admin-full-panel {
-    flex: 1;
-    max-width: 1200px;
-    background: hsl(var(--color-bg));
-    border-radius: var(--radius-lg);
-    border: 1px solid hsl(var(--color-border));
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    box-shadow: var(--shadow-sm);
+.admin-layout.single-panel .admin-full-panel {
+    max-width: none;
+    width: 100%;
 }
 
-/* Tab loading and error states */
+.admin-full-panel {
+    flex: 1;
+    max-width: 1320px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
 .admin-tab-loading,
 .admin-tab-error {
     flex: 1;
+    min-height: 380px;
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 400px;
 }
 
 .admin-tab-loading .loading-spinner {
-    font-size: 1rem;
     color: hsl(var(--color-text-secondary));
+    font-size: 0.96rem;
+    letter-spacing: 0.02em;
 }
 
 .admin-tab-error .error-message {
-    background: hsl(var(--color-bg));
+    max-width: 460px;
     padding: var(--space-xl);
     border-radius: var(--radius-lg);
+    border: 1px solid hsl(var(--color-border));
+    background: hsl(var(--color-bg-elevated));
     box-shadow: var(--shadow-md);
     text-align: center;
 }
 
 .admin-tab-error h3 {
-    color: hsl(0 84% 60%);
     margin-bottom: var(--space-sm);
+    color: hsl(0 84% 58%);
 }
 
 .admin-tab-error p {
-    color: hsl(var(--color-text-secondary));
     margin-bottom: var(--space-lg);
+    color: hsl(var(--color-text-secondary));
 }
 
 .admin-tab-error button {
-    padding: var(--space-sm) var(--space-lg);
-    background: hsl(var(--color-primary));
-    color: white;
     border: none;
     border-radius: var(--radius-md);
-    cursor: pointer;
-    font-weight: 500;
+    padding: var(--space-sm) var(--space-lg);
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
+    color: hsl(var(--color-text-inverse));
+    font-weight: 600;
+    box-shadow: 0 8px 16px -10px hsl(var(--color-primary) / 0.7);
 }
 
-.admin-page-loading, .admin-page-error {
+.admin-page-loading,
+.admin-page-error {
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: hsl(var(--color-bg-alt));
+    background: hsl(var(--color-bg-app));
 }
 
 .loading-spinner {
-    font-size: 1.2rem;
     color: hsl(var(--color-text-secondary));
+    font-size: 1rem;
 }
 
-.admin-page-error .error-message {
-    background: hsl(var(--color-bg));
-    padding: var(--space-xl);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
-    text-align: center;
-}
+@media (max-width: 1200px) {
+    .admin-main-content {
+        padding: var(--space-md);
+    }
 
-.admin-page-error h3 {
-    color: hsl(0 84% 60%);
-    margin-bottom: var(--space-sm);
-}
-
-.admin-page-error p {
-    color: hsl(var(--color-text-secondary));
-    margin-bottom: var(--space-lg);
-}
-
-.admin-page-error button {
-    padding: var(--space-sm) var(--space-lg);
-    background: hsl(var(--color-primary));
-    color: white;
-    border: none;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    font-weight: 500;
+    .admin-left-panel {
+        flex-basis: 420px;
+    }
 }
 
 @media (max-width: 1024px) {
-    .admin-layout {
-        flex-direction: column;
-        overflow-y: auto;
-    }
-
     .admin-main-content {
         overflow: auto;
+        margin-top: 72px;
+    }
+
+    .admin-layout {
+        height: auto;
+        min-height: 100%;
+        flex-direction: column;
     }
 
     .admin-left-panel {
@@ -161,11 +167,17 @@
     }
 
     .admin-right-panel {
-        min-height: 600px;
+        min-height: 620px;
         flex: none;
     }
 
     .admin-full-panel {
-        min-height: 500px;
+        min-height: 520px;
+    }
+}
+
+@media (max-width: 680px) {
+    .admin-main-content {
+        padding: var(--space-sm);
     }
 }

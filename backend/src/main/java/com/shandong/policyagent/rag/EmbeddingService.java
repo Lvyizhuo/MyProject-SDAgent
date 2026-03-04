@@ -65,18 +65,26 @@ public class EmbeddingService {
         List<float[]> embeddings = new ArrayList<>();
 
         for (String text : texts) {
-            OllamaEmbeddingRequest request = new OllamaEmbeddingRequest();
+            OllamaEmbedRequest request = new OllamaEmbedRequest();
             request.setModel(modelConfig.getModelName());
-            request.setPrompt(text);
+            request.setInput(text);
+            if (modelConfig.getDimensions() != null && modelConfig.getDimensions() > 0) {
+                request.setDimensions(modelConfig.getDimensions());
+            }
 
-            OllamaEmbeddingResponse response = restClient.post()
-                    .uri("/api/embeddings")
+            OllamaEmbedResponse response = restClient.post()
+                    .uri("/api/embed")
                     .body(request)
                     .retrieve()
-                    .body(OllamaEmbeddingResponse.class);
+                    .body(OllamaEmbedResponse.class);
 
-            if (response != null && response.getEmbedding() != null) {
-                embeddings.add(toFloatArray(response.getEmbedding()));
+            if (response != null
+                    && response.getEmbeddings() != null
+                    && !response.getEmbeddings().isEmpty()
+                    && response.getEmbeddings().get(0) != null) {
+                float[] vector = toFloatArray(response.getEmbeddings().get(0));
+                validateEmbeddingDimensions(modelConfig, vector.length);
+                embeddings.add(vector);
             } else {
                 throw new RuntimeException("Failed to get embedding from Ollama");
             }
@@ -86,13 +94,11 @@ public class EmbeddingService {
     }
 
     private List<float[]> embedWithDashScope(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
-        // For now, use simple embedding approach without Spring AI's OpenAiEmbeddingModel
-        // This avoids the API compatibility issues
-        RestClient restClient = restClientBuilder.baseUrl(modelConfig.getBaseUrl()).build();
+        RestClient restClient = restClientBuilder.build();
         List<float[]> embeddings = new ArrayList<>();
-
-        // DashScope compatible-mode embedding endpoint
         String apiKey = resolveApiKey(modelConfig.getApiKey());
+        String embeddingUrl = buildDashScopeEmbeddingUrl(modelConfig.getBaseUrl());
+        log.debug("DashScope embedding request url: {} | model={}", embeddingUrl, modelConfig.getModelName());
 
         for (String text : texts) {
             Map<String, Object> request = new HashMap<>();
@@ -101,7 +107,7 @@ public class EmbeddingService {
 
             @SuppressWarnings("unchecked")
             Map<String, Object> response = restClient.post()
-                    .uri("/v1/embeddings")
+                    .uri(embeddingUrl)
                     .header("Authorization", "Bearer " + apiKey)
                     .body(request)
                     .retrieve()
@@ -113,7 +119,9 @@ public class EmbeddingService {
                 if (!data.isEmpty() && data.get(0).containsKey("embedding")) {
                     @SuppressWarnings("unchecked")
                     List<Double> embeddingList = (List<Double>) data.get(0).get("embedding");
-                    embeddings.add(toFloatArray(embeddingList));
+                    float[] vector = toFloatArray(embeddingList);
+                    validateEmbeddingDimensions(modelConfig, vector.length);
+                    embeddings.add(vector);
                 } else {
                     throw new RuntimeException("Failed to get embedding from DashScope");
                 }
@@ -123,6 +131,17 @@ public class EmbeddingService {
         }
 
         return embeddings;
+    }
+
+    private String buildDashScopeEmbeddingUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings";
+        }
+        String normalized = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        if (normalized.endsWith("/compatible-mode")) {
+            return normalized + "/v1/embeddings";
+        }
+        return normalized + "/compatible-mode/v1/embeddings";
     }
 
     private String resolveApiKey(String apiKey) {
@@ -144,14 +163,25 @@ public class EmbeddingService {
         return result;
     }
 
-    @Data
-    private static class OllamaEmbeddingRequest {
-        private String model;
-        private String prompt;
+    private void validateEmbeddingDimensions(EmbeddingModelConfig.EmbeddingModel modelConfig, int actualDimensions) {
+        Integer expectedDimensions = modelConfig.getDimensions();
+        if (expectedDimensions != null && expectedDimensions > 0 && actualDimensions != expectedDimensions) {
+            throw new IllegalStateException(String.format(
+                    "Embedding dimension mismatch for model %s: expected %d but got %d",
+                    modelConfig.getId(), expectedDimensions, actualDimensions
+            ));
+        }
     }
 
     @Data
-    private static class OllamaEmbeddingResponse {
-        private List<Double> embedding;
+    private static class OllamaEmbedRequest {
+        private String model;
+        private String input;
+        private Integer dimensions;
+    }
+
+    @Data
+    private static class OllamaEmbedResponse {
+        private List<List<Double>> embeddings;
     }
 }

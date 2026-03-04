@@ -3,12 +3,15 @@ package com.shandong.policyagent.rag;
 import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.config.MinioConfig;
 import com.shandong.policyagent.entity.*;
+import com.shandong.policyagent.model.dto.DocumentMetadataExtractResponse;
+import com.shandong.policyagent.model.dto.DocumentChunksPageResponse;
 import com.shandong.policyagent.repository.KnowledgeConfigRepository;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -18,9 +21,16 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -37,6 +47,9 @@ public class KnowledgeService {
     private final EmbeddingService embeddingService;
     private final MultiVectorStoreService multiVectorStoreService;
     private final MinioConfig minioConfig;
+    private static final Pattern SOURCE_LABEL_PATTERN = Pattern.compile("(来源|发布单位|印发单位)[:：]\\s*([^\\n\\r]{2,50})");
+    private static final Pattern REGION_PATTERN = Pattern.compile("(济南|青岛|淄博|枣庄|东营|烟台|潍坊|济宁|泰安|威海|日照|临沂|德州|聊城|滨州|菏泽)");
+    private static final Pattern YEAR_PATTERN = Pattern.compile("20\\d{2}");
 
     @Transactional
     public KnowledgeFolder createFolder(Long parentId, String name, String description, User createdBy) {
@@ -87,7 +100,6 @@ public class KnowledgeService {
         folderRepository.deleteById(id);
     }
 
-    @Transactional
     public KnowledgeDocument uploadDocument(
             MultipartFile file,
             Long folderId,
@@ -137,7 +149,42 @@ public class KnowledgeService {
         return document;
     }
 
-    @Transactional
+    public DocumentMetadataExtractResponse extractDocumentMetadata(MultipartFile file) {
+        String originalName = file.getOriginalFilename() == null ? "未命名文档" : file.getOriginalFilename();
+        String normalizedTitle = removeExtension(originalName).trim();
+        String text = "";
+
+        try {
+            ByteArrayResource resource = new ByteArrayResource(file.getBytes()) {
+                @Override
+                public String getFilename() {
+                    return originalName;
+                }
+            };
+            List<Document> docs = documentLoaderService.loadDocumentFromResource(resource, originalName);
+            text = docs.stream()
+                    .map(Document::getText)
+                    .filter(t -> t != null && !t.isBlank())
+                    .findFirst()
+                    .orElse("");
+        } catch (Exception e) {
+            log.warn("提取文档元数据时读取内容失败，将降级为文件名规则提取: {}", originalName, e);
+        }
+
+        String category = inferCategory(normalizedTitle, text);
+        List<String> tags = inferTags(normalizedTitle, text);
+        String source = inferSource(text);
+        String summary = inferSummary(text);
+
+        return DocumentMetadataExtractResponse.builder()
+                .title(normalizedTitle)
+                .category(category)
+                .tags(tags)
+                .source(source)
+                .summary(summary)
+                .build();
+    }
+
     public void processDocumentAsync(Long documentId) {
         KnowledgeDocument document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
@@ -158,12 +205,18 @@ public class KnowledgeService {
 
             List<Document> splitDocs = textSplitterService.splitDocuments(loadedDocs);
 
-            for (Document doc : splitDocs) {
-                doc.getMetadata().put("knowledgeDocumentId", documentId);
-                doc.getMetadata().put("sourceTitle", document.getTitle());
+            for (int i = 0; i < splitDocs.size(); i++) {
+                Document doc = splitDocs.get(i);
+                Map<String, Object> metadata = doc.getMetadata() == null
+                        ? new HashMap<>()
+                        : new HashMap<>(doc.getMetadata());
+                metadata.put("knowledgeDocumentId", documentId);
+                metadata.put("sourceTitle", document.getTitle());
+                metadata.put("chunkIndex", i + 1);
                 if (document.getFolder() != null) {
-                    doc.getMetadata().put("folderPath", document.getFolder().getPath());
+                    metadata.put("folderPath", document.getFolder().getPath());
                 }
+                splitDocs.set(i, new Document(doc.getId(), doc.getText(), metadata));
             }
 
             multiVectorStoreService.addDocuments(document.getEmbeddingModel(), splitDocs);
@@ -178,7 +231,7 @@ public class KnowledgeService {
             log.error("Failed to process document: {}", documentId, e);
             document.setStatus(DocumentStatus.FAILED);
             document.setErrorMessage(e.getMessage());
-            documentRepository.save(document);
+            documentRepository.saveAndFlush(document);
         }
     }
 
@@ -197,6 +250,20 @@ public class KnowledgeService {
 
     public Optional<KnowledgeDocument> getDocument(Long id) {
         return documentRepository.findById(id);
+    }
+
+    public DocumentChunksPageResponse listDocumentChunks(Long id, int page, int size) {
+        KnowledgeDocument document = documentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+
+        DocumentChunksPageResponse chunksPage = multiVectorStoreService.listDocumentChunks(
+                document.getVectorTableName(), id, page, size
+        );
+        chunksPage.setDocumentId(document.getId());
+        chunksPage.setTitle(document.getTitle());
+        chunksPage.setVectorTableName(document.getVectorTableName());
+        chunksPage.setChunkCount(document.getChunkCount());
+        return chunksPage;
     }
 
     public InputStream downloadDocument(Long id) {
@@ -243,5 +310,99 @@ public class KnowledgeService {
     public KnowledgeConfig updateConfig(KnowledgeConfig config) {
         config.setId(1L);
         return configRepository.save(config);
+    }
+
+    private String removeExtension(String fileName) {
+        int lastDot = fileName.lastIndexOf('.');
+        if (lastDot <= 0) {
+            return fileName;
+        }
+        return fileName.substring(0, lastDot);
+    }
+
+    private String inferCategory(String title, String text) {
+        String haystack = (title + " " + text).toLowerCase();
+        if (containsAny(haystack, "补贴", "以旧换新", "家电", "国补", "消费券")) {
+            return "补贴政策";
+        }
+        if (containsAny(haystack, "实施细则", "细则", "办法", "规程")) {
+            return "实施细则";
+        }
+        if (containsAny(haystack, "通知", "公告", "通告")) {
+            return "通知公告";
+        }
+        if (containsAny(haystack, "解读", "问答", "答疑")) {
+            return "政策解读";
+        }
+        return "";
+    }
+
+    private List<String> inferTags(String title, String text) {
+        Set<String> tags = new LinkedHashSet<>();
+        String haystack = title + " " + text;
+        if (containsAny(haystack, "以旧换新")) {
+            tags.add("以旧换新");
+        }
+        if (containsAny(haystack, "家电")) {
+            tags.add("家电");
+        }
+        if (containsAny(haystack, "汽车")) {
+            tags.add("汽车");
+        }
+        if (containsAny(haystack, "手机", "数码")) {
+            tags.add("数码产品");
+        }
+        Matcher regionMatcher = REGION_PATTERN.matcher(haystack);
+        if (regionMatcher.find()) {
+            tags.add(regionMatcher.group(1) + "市");
+        }
+        Matcher yearMatcher = YEAR_PATTERN.matcher(haystack);
+        if (yearMatcher.find()) {
+            tags.add(yearMatcher.group());
+        }
+        return new ArrayList<>(tags);
+    }
+
+    private String inferSource(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String head = text.substring(0, Math.min(2200, text.length()));
+        Matcher labeledMatcher = SOURCE_LABEL_PATTERN.matcher(head);
+        if (labeledMatcher.find()) {
+            return labeledMatcher.group(2).trim();
+        }
+        return Arrays.stream(head.split("\\R"))
+                .map(String::trim)
+                .filter(line -> line.length() >= 4 && line.length() <= 40)
+                .filter(line -> line.contains("人民政府") || line.contains("发改") || line.contains("委员会")
+                        || line.contains("商务厅") || line.contains("商务局") || line.contains("财政厅")
+                        || line.contains("财政局") || line.contains("工业和信息化"))
+                .findFirst()
+                .orElse("");
+    }
+
+    private String inferSummary(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String condensed = text.replaceAll("\\s+", " ").trim();
+        if (condensed.length() <= 140) {
+            return condensed;
+        }
+        return condensed.substring(0, 140) + "...";
+    }
+
+    private boolean containsAny(String text, String... patterns) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String lower = text.toLowerCase();
+        for (String pattern : patterns) {
+            if (lower.contains(pattern.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

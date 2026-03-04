@@ -1,192 +1,278 @@
 .config-panel {
+    height: 100%;
     display: flex;
     flex-direction: column;
-    height: 100%;
+    color: hsl(var(--color-text-main));
+    background:
+        radial-gradient(640px 280px at 110% -12%, hsl(var(--color-primary-light) / 0.8), transparent 72%),
+        linear-gradient(180deg, hsl(var(--color-bg-elevated) / 0.92), hsl(var(--color-bg-elevated) / 0.82));
 }
 
-.config-header {
+.config-panel .config-header {
+    position: sticky;
+    top: 0;
+    z-index: 4;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: var(--space-sm);
     padding: var(--space-md) var(--space-lg);
-    border-bottom: 1px solid hsl(var(--color-border));
+    border-bottom: 1px solid hsl(var(--color-border) / 0.9);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated) / 0.96), hsl(var(--color-bg-elevated) / 0.84));
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
 }
 
-.config-header h2 {
-    font-size: 1.25rem;
-    color: hsl(var(--color-text));
+.config-panel .config-header h2 {
     margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.18rem;
+    color: hsl(var(--color-title));
+    letter-spacing: 0.01em;
 }
 
-.config-actions {
+.config-panel .config-actions {
     display: flex;
-    gap: var(--space-sm);
-}
-
-.btn-reset {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border: 1px solid hsl(var(--color-border));
-    background: transparent;
-    color: hsl(var(--color-text-secondary));
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.btn-reset:hover:not(:disabled) {
-    background: hsl(var(--color-bg-alt));
-    color: hsl(var(--color-text));
-}
-
-.btn-save {
-    display: flex;
-    align-items: center;
     gap: var(--space-xs);
+}
+
+.config-panel .btn-reset,
+.config-panel .btn-save {
+    border-radius: 10px;
+    min-height: 38px;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+
+.config-panel .btn-reset {
+    width: 38px;
+    border: 1px solid hsl(var(--color-border-strong) / 0.55);
+    background: hsl(var(--color-bg-elevated));
+    color: hsl(var(--color-text-secondary));
+}
+
+.config-panel .btn-reset:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: hsl(var(--color-primary) / 0.45);
+    color: hsl(var(--color-primary));
+    box-shadow: 0 8px 14px -12px hsl(var(--color-primary) / 0.8);
+}
+
+.config-panel .btn-save {
+    border: 1px solid transparent;
     padding: 0 var(--space-md);
-    height: 36px;
-    border: none;
-    background: hsl(var(--color-primary));
-    color: white;
-    font-weight: 500;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
+    color: hsl(var(--color-text-inverse));
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    box-shadow: 0 12px 18px -14px hsl(var(--color-primary) / 0.95);
 }
 
-.btn-save:hover:not(:disabled) {
-    background: hsl(var(--color-primary-hover, 215 90% 30%));
+.config-panel .btn-save:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 20px -14px hsl(var(--color-primary) / 1);
 }
 
-.btn-save:disabled, .btn-reset:disabled {
-    opacity: 0.5;
+.config-panel .btn-save:disabled,
+.config-panel .btn-reset:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
 }
 
-.status-message {
-    padding: var(--space-sm) var(--space-lg);
-    font-size: 0.875rem;
+.config-panel .status-message {
+    margin: 0 var(--space-lg);
+    margin-top: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: 10px;
+    font-size: 0.86rem;
     display: flex;
     align-items: center;
-    gap: var(--space-sm);
+    gap: 8px;
 }
 
-.status-message.success {
-    background: hsla(142, 70%, 50%, 0.1);
-    color: hsl(142, 70%, 40%);
-    border-bottom: 1px solid hsla(142, 70%, 50%, 0.2);
+.config-panel .status-message.success {
+    border: 1px solid hsl(142 67% 44% / 0.2);
+    background: hsl(142 67% 44% / 0.11);
+    color: hsl(142 67% 34%);
 }
 
-.status-message.error {
-    background: hsla(0, 84%, 60%, 0.1);
-    color: hsl(0, 84%, 60%);
-    border-bottom: 1px solid hsla(0, 84%, 60%, 0.2);
+.config-panel .status-message.error {
+    border: 1px solid hsl(0 84% 60% / 0.24);
+    background: hsl(0 84% 60% / 0.11);
+    color: hsl(0 75% 46%);
 }
 
-.config-form {
+.config-panel .config-form {
     flex: 1;
     overflow-y: auto;
     padding: var(--space-lg);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xl);
-}
-
-.form-section h3 {
-    font-size: 1rem;
-    color: hsl(var(--color-text));
-    margin: 0 0 var(--space-md) 0;
-    font-weight: 600;
-}
-
-.form-group {
-    margin-bottom: var(--space-md);
-}
-
-.form-group.row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr;
     gap: var(--space-md);
 }
 
-.form-group .half {
-    flex: 1;
+.config-panel .form-section {
+    border: 1px solid hsl(var(--color-border) / 0.9);
+    border-radius: 14px;
+    padding: var(--space-md) var(--space-md) var(--space-sm);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated) / 0.95), hsl(var(--color-bg-elevated) / 0.88));
+    box-shadow: 0 10px 26px -24px hsl(var(--color-title) / 0.6);
+    animation: panelFadeUp 320ms ease-out both;
 }
 
-.form-group label {
-    display: block;
-    font-size: 0.875rem;
-    color: hsl(var(--color-text-secondary));
-    margin-bottom: var(--space-xs);
+.config-panel .form-section:nth-child(2) {
+    animation-delay: 60ms;
 }
 
-.form-group input[type="text"],
-.form-group input[type="number"],
-.form-group textarea {
-    width: 100%;
-    padding: var(--space-sm) var(--space-md);
-    border: 1px solid hsl(var(--color-border));
-    border-radius: var(--radius-md);
-    background: hsl(var(--color-bg));
-    color: hsl(var(--color-text));
-    font-family: inherit;
-    font-size: 0.9rem;
-    transition: border-color 0.2s ease;
+.config-panel .form-section:nth-child(3) {
+    animation-delay: 110ms;
 }
 
-.form-group input:focus,
-.form-group textarea:focus {
-    outline: none;
-    border-color: hsl(var(--color-primary));
+.config-panel .form-section:nth-child(4) {
+    animation-delay: 160ms;
 }
 
-.form-group textarea {
-    resize: vertical;
-    min-height: 80px;
-    line-height: 1.5;
+.config-panel .form-section h3 {
+    margin: 0 0 var(--space-sm);
+    font-size: 0.98rem;
+    color: hsl(var(--color-title));
+    font-weight: 700;
+    letter-spacing: 0.02em;
 }
 
-.skills-list {
-    display: flex;
-    flex-direction: column;
+.config-panel .form-group {
+    margin-bottom: var(--space-sm);
+}
+
+.config-panel .form-group.row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-sm);
 }
 
-.skill-item {
+.config-panel .form-group .half {
+    min-width: 0;
+}
+
+.config-panel .form-group label {
+    display: block;
+    font-size: 0.82rem;
+    color: hsl(var(--color-text-secondary));
+    margin-bottom: 6px;
+    letter-spacing: 0.01em;
+}
+
+.config-panel .form-group input[type="text"],
+.config-panel .form-group input[type="number"],
+.config-panel .form-group textarea {
+    width: 100%;
+    border: 1px solid hsl(var(--color-border));
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: hsl(var(--color-bg-elevated));
+    color: hsl(var(--color-text-main));
+    font-size: 0.9rem;
+    line-height: 1.5;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.config-panel .form-group input[type="text"]:hover,
+.config-panel .form-group input[type="number"]:hover,
+.config-panel .form-group textarea:hover {
+    border-color: hsl(var(--color-border-strong) / 0.78);
+}
+
+.config-panel .form-group input:focus,
+.config-panel .form-group textarea:focus {
+    border-color: hsl(var(--color-primary) / 0.9);
+    box-shadow: 0 0 0 3px hsl(var(--color-primary) / 0.16);
+    background: hsl(var(--color-bg-elevated));
+}
+
+.config-panel .form-group textarea {
+    resize: vertical;
+    min-height: 86px;
+}
+
+.config-panel .skills-list {
+    display: grid;
+    gap: var(--space-xs);
+}
+
+.config-panel .skill-item {
     display: flex;
     align-items: flex-start;
-    gap: var(--space-sm);
-    padding: var(--space-sm);
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
     border: 1px solid hsl(var(--color-border));
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all 0.2s ease;
+    background: hsl(var(--color-bg-elevated));
+    transition: border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
 }
 
-.skill-item:hover {
-    background: hsl(var(--color-bg-alt));
+.config-panel .skill-item:hover {
+    transform: translateY(-1px);
+    border-color: hsl(var(--color-primary) / 0.28);
+    box-shadow: 0 10px 18px -18px hsl(var(--color-primary) / 0.9);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-primary-light) / 0.32));
 }
 
-.skill-item input[type="checkbox"] {
-    margin-top: 4px;
-    cursor: pointer;
+.config-panel .skill-item input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: hsl(var(--color-primary));
+    margin-top: 2px;
+    flex-shrink: 0;
 }
 
-.skill-info {
-    display: flex;
-    flex-direction: column;
+.config-panel .skill-info {
+    display: grid;
     gap: 2px;
 }
 
-.skill-name {
-    font-weight: 500;
-    color: hsl(var(--color-text));
-    font-size: 0.95rem;
+.config-panel .skill-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: hsl(var(--color-title));
 }
 
-.skill-desc {
-    font-size: 0.8rem;
+.config-panel .skill-desc {
+    font-size: 0.78rem;
     color: hsl(var(--color-text-secondary));
+    line-height: 1.45;
+}
+
+@keyframes panelFadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 1200px) {
+    .config-panel .config-form {
+        padding: var(--space-md);
+    }
+}
+
+@media (max-width: 640px) {
+    .config-panel .config-header {
+        padding: var(--space-sm) var(--space-md);
+    }
+
+    .config-panel .config-header h2 {
+        font-size: 1.04rem;
+    }
+
+    .config-panel .form-group.row {
+        grid-template-columns: 1fr;
+    }
 }

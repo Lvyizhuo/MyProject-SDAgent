@@ -33,6 +33,13 @@ public class KnowledgeConfigInitializer implements CommandLineRunner {
                     .build();
             configRepository.save(config);
             log.info("Initialized default knowledge config");
+        } else {
+            KnowledgeConfig config = configRepository.findById(1L).orElse(null);
+            if (config != null && "dashscope:text-embedding-v3".equals(config.getDefaultEmbeddingModel())) {
+                config.setDefaultEmbeddingModel("ollama:qwen3-embedding");
+                configRepository.save(config);
+                log.info("Updated default embedding model to ollama:qwen3-embedding");
+            }
         }
 
         try {

@@ -83,6 +83,23 @@ const adminKnowledgeApi = {
         return response.json();
     },
 
+    async getDocumentChunks(id, params = {}) {
+        const searchParams = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value != null) {
+                searchParams.append(key, value);
+            }
+        });
+
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/documents/${id}/chunks?${searchParams}`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            throw new Error('获取分段结果失败');
+        }
+        return response.json();
+    },
+
     async uploadDocument(formData, onProgress) {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -97,7 +114,18 @@ const adminKnowledgeApi = {
                 if (xhr.status >= 200 && xhr.status < 300) {
                     resolve(JSON.parse(xhr.responseText));
                 } else {
-                    reject(new Error('上传文档失败'));
+                    let message = '上传文档失败';
+                    try {
+                        const errorBody = JSON.parse(xhr.responseText);
+                        if (errorBody?.message) {
+                            message = errorBody.message;
+                        }
+                    } catch {
+                        if (xhr.responseText) {
+                            message = xhr.responseText;
+                        }
+                    }
+                    reject(new Error(message));
                 }
             });
 
@@ -105,13 +133,33 @@ const adminKnowledgeApi = {
                 reject(new Error('上传文档失败'));
             });
 
+            xhr.addEventListener('timeout', () => {
+                reject(new Error('上传超时，请重试'));
+            });
+
             xhr.open('POST', `${ADMIN_KNOWLEDGE_BASE}/documents`);
+            xhr.timeout = 60000;
             const token = localStorage.getItem('token');
             if (token) {
                 xhr.setRequestHeader('Authorization', `Bearer ${token}`);
             }
             xhr.send(formData);
         });
+    },
+
+    async extractDocumentMetadata(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/documents/extract-metadata`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: formData
+        });
+        if (!response.ok) {
+            throw new Error('智能提取失败');
+        }
+        return response.json();
     },
 
     async downloadDocument(id) {

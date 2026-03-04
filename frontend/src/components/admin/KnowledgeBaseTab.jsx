@@ -18,7 +18,8 @@ import {
     CheckCircle2,
     AlertCircle,
     Loader2,
-    Clock
+    Clock,
+    Sparkles
 } from 'lucide-react';
 import './KnowledgeBaseTab.css';
 import adminKnowledgeApi from '../../services/adminKnowledgeApi';
@@ -34,10 +35,23 @@ const KnowledgeBaseTab = () => {
     const [uploadProgress, setUploadProgress] = useState(0);
     const [embeddingModels, setEmbeddingModels] = useState([]);
     const [config, setConfig] = useState(null);
+    const [showChunkDialog, setShowChunkDialog] = useState(false);
+    const [chunkLoading, setChunkLoading] = useState(false);
+    const [chunkPageData, setChunkPageData] = useState(null);
+    const [chunkDocumentInfo, setChunkDocumentInfo] = useState(null);
+    const [pendingDocuments, setPendingDocuments] = useState([]);
     const [pagination, setPagination] = useState({ page: 0, size: 20, totalElements: 0, totalPages: 0 });
     const [message, setMessage] = useState({ text: '', type: '' });
+    const [toast, setToast] = useState({ text: '', type: '', visible: false });
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState(null);
+
+    const showToast = useCallback((text, type = 'success', duration = 3000) => {
+        setToast({ text, type, visible: true });
+        setTimeout(() => {
+            setToast(prev => ({ ...prev, visible: false }));
+        }, duration);
+    }, []);
 
     const loadFolderTree = useCallback(async () => {
         try {
@@ -159,8 +173,7 @@ const KnowledgeBaseTab = () => {
 
         try {
             await adminKnowledgeApi.deleteDocument(docId);
-            setMessage({ text: '文档删除成功', type: 'success' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+            showToast('文档删除成功', 'success');
             await loadDocuments(selectedFolderId, pagination.page);
         } catch (error) {
             setMessage({ text: '文档删除失败: ' + error.message, type: 'error' });
@@ -192,6 +205,40 @@ const KnowledgeBaseTab = () => {
         } catch (error) {
             setMessage({ text: '下载失败: ' + error.message, type: 'error' });
             setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+        }
+    };
+
+    const handleViewChunks = async (doc) => {
+        setChunkDocumentInfo(doc);
+        setChunkLoading(true);
+        setShowChunkDialog(true);
+        setChunkPageData(null);
+
+        try {
+            const pageSize = 500;
+            const firstPage = await adminKnowledgeApi.getDocumentChunks(doc.id, { page: 0, size: pageSize });
+            const allChunks = [...(firstPage.content || [])];
+            const totalPages = firstPage.totalPages || 1;
+
+            for (let page = 1; page < totalPages; page += 1) {
+                const nextPage = await adminKnowledgeApi.getDocumentChunks(doc.id, { page, size: pageSize });
+                allChunks.push(...(nextPage.content || []));
+            }
+
+            setChunkPageData({
+                ...firstPage,
+                page: 0,
+                size: allChunks.length,
+                totalPages: 1,
+                totalElements: firstPage.totalElements || allChunks.length,
+                content: allChunks
+            });
+        } catch (error) {
+            setMessage({ text: '获取分段失败: ' + error.message, type: 'error' });
+            setShowChunkDialog(false);
+            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+        } finally {
+            setChunkLoading(false);
         }
     };
 
@@ -259,6 +306,14 @@ const KnowledgeBaseTab = () => {
                 return '等待中';
         }
     };
+
+    const getStatusBarClass = (status) => {
+        if (status === 'COMPLETED') return 'completed';
+        if (status === 'FAILED') return 'failed';
+        return 'processing';
+    };
+
+    const mergedDocuments = [...pendingDocuments, ...documents];
 
     if (loading) {
         return (
@@ -350,13 +405,13 @@ const KnowledgeBaseTab = () => {
                     </div>
 
                     <div className="document-list">
-                        {documents.length === 0 ? (
+                        {mergedDocuments.length === 0 ? (
                             <div className="empty-state">
                                 <FileText size={48} />
                                 <p>暂无文档</p>
                             </div>
                         ) : (
-                            documents.map(doc => (
+                            mergedDocuments.map(doc => (
                                 <div key={doc.id} className="document-item">
                                     <div className="doc-icon">
                                         <FileText size={24} />
@@ -365,27 +420,50 @@ const KnowledgeBaseTab = () => {
                                         <div className="doc-title">{doc.title}</div>
                                         <div className="doc-meta">
                                             <span className="doc-folder">{doc.folderPath || '/'}</span>
-                                            <span className="doc-size">{(doc.fileSize / 1024).toFixed(1)} KB</span>
+                                            <span className="doc-size">
+                                                {typeof doc.fileSize === 'number' ? `${(doc.fileSize / 1024).toFixed(1)} KB` : '-'}
+                                            </span>
                                             <span className="doc-status">
                                                 {getStatusIcon(doc.status)}
-                                                {getStatusText(doc.status)}
+                                                {doc.status === 'PROCESSING' || doc.status === 'PENDING'
+                                                    ? '正在解析'
+                                                    : getStatusText(doc.status)}
                                             </span>
                                             {doc.chunkCount > 0 && (
                                                 <span className="doc-chunks">{doc.chunkCount} 个切片</span>
                                             )}
+                                        </div>
+                                        <div className={`doc-status-bar ${getStatusBarClass(doc.status)}`}>
+                                            <div className="doc-status-bar-fill" />
+                                            <span className="doc-status-bar-text">
+                                                {doc.status === 'PROCESSING' || doc.status === 'PENDING'
+                                                    ? '正在解析'
+                                                    : getStatusText(doc.status)}
+                                            </span>
                                         </div>
                                         {doc.errorMessage && (
                                             <div className="doc-error">{doc.errorMessage}</div>
                                         )}
                                     </div>
                                     <div className="doc-actions">
-                                        <button
-                                            className="btn-icon"
-                                            onClick={() => handleDownloadDocument(doc)}
-                                            title="下载"
-                                        >
-                                            <Download size={16} />
-                                        </button>
+                                        {!doc.isTransient && (
+                                            <button
+                                                className="btn-icon"
+                                                onClick={() => handleDownloadDocument(doc)}
+                                                title="下载"
+                                            >
+                                                <Download size={16} />
+                                            </button>
+                                        )}
+                                        {!doc.isTransient && doc.status === 'COMPLETED' && doc.chunkCount > 0 && (
+                                            <button
+                                                className="btn-icon"
+                                                onClick={() => handleViewChunks(doc)}
+                                                title="查看分段"
+                                            >
+                                                <Eye size={16} />
+                                            </button>
+                                        )}
                                         {doc.status === 'FAILED' && (
                                             <button
                                                 className="btn-icon"
@@ -395,13 +473,15 @@ const KnowledgeBaseTab = () => {
                                                 <RefreshCw size={16} />
                                             </button>
                                         )}
-                                        <button
-                                            className="btn-icon danger"
-                                            onClick={() => handleDeleteDocument(doc.id)}
-                                            title="删除"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
+                                        {!doc.isTransient && (
+                                            <button
+                                                className="btn-icon danger"
+                                                onClick={() => handleDeleteDocument(doc.id)}
+                                                title="删除"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             ))
@@ -439,22 +519,51 @@ const KnowledgeBaseTab = () => {
                         setShowUploadDialog(false);
                         setUploadProgress(0);
                     }}
-                    onUpload={async (formData) => {
+                    onUpload={async ({ formData, fileName, title, fileSize }) => {
+                        const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                        setPendingDocuments(prev => [
+                            {
+                                id: tempId,
+                                title: title || fileName,
+                                fileName,
+                                fileSize,
+                                folderPath: selectedFolderId ? folders.find(f => f.id === selectedFolderId)?.path || '/' : '/',
+                                status: 'PROCESSING',
+                                chunkCount: 0,
+                                isTransient: true
+                            },
+                            ...prev
+                        ]);
+                        setShowUploadDialog(false);
+                        setUploadProgress(0);
                         try {
                             await adminKnowledgeApi.uploadDocument(formData, (progress) => {
                                 setUploadProgress(progress);
                             });
-                            setMessage({ text: '文档上传成功', type: 'success' });
-                            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
-                            setShowUploadDialog(false);
+                            setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
+                            showToast('上传成功，文档已进入解析队列', 'success');
                             setUploadProgress(0);
                             await loadDocuments(selectedFolderId, 0);
                         } catch (error) {
-                            setMessage({ text: '上传失败: ' + error.message, type: 'error' });
-                            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+                            setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
+                            showToast('上传失败: ' + error.message, 'error', 5000);
+                            setUploadProgress(0);
                         }
                     }}
                     uploadProgress={uploadProgress}
+                />
+            )}
+
+            {showChunkDialog && (
+                <ChunkPreviewDialog
+                    documentInfo={chunkDocumentInfo}
+                    chunkPageData={chunkPageData}
+                    loading={chunkLoading}
+                    onClose={() => {
+                        setShowChunkDialog(false);
+                        setChunkPageData(null);
+                        setChunkDocumentInfo(null);
+                    }}
                 />
             )}
 
@@ -477,12 +586,91 @@ const KnowledgeBaseTab = () => {
                     }}
                 />
             )}
+
+            {toast.visible && (
+                <div className={`kb-toast ${toast.type}`}>
+                    {toast.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
+                    <span>{toast.text}</span>
+                </div>
+            )}
         </div>
     );
 };
 
+const ChunkPreviewDialog = ({ documentInfo, chunkPageData, loading, onClose }) => {
+    const chunks = chunkPageData?.content || [];
+
+    return (
+        <div className="dialog-overlay" onClick={onClose}>
+            <div className="dialog chunks-dialog" onClick={e => e.stopPropagation()}>
+                <div className="dialog-header">
+                    <h3>分段结果预览</h3>
+                    <button className="btn-close" onClick={onClose}>
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="dialog-body chunks-dialog-body">
+                    <div className="chunks-summary">
+                        <div className="chunks-title">{documentInfo?.title || '-'}</div>
+                        <div className="chunks-meta">
+                            <span>总切片：{chunkPageData?.totalElements ?? documentInfo?.chunkCount ?? 0}</span>
+                            <span>模型：{documentInfo?.embeddingModel || '-'}</span>
+                        </div>
+                    </div>
+
+                    {loading ? (
+                        <div className="chunks-loading">
+                            <Loader2 size={20} className="animate-spin" />
+                            <span>正在加载分段结果...</span>
+                        </div>
+                    ) : chunks.length === 0 ? (
+                        <div className="chunks-empty">暂无分段内容</div>
+                    ) : (
+                        <div className="chunks-list">
+                            {chunks.map((chunk, index) => (
+                                <div key={chunk.chunkId || index} className="chunk-item">
+                                    <div className="chunk-head">
+                                        <span>切片 #{chunk.chunkIndex ?? index + 1}</span>
+                                        <span>{chunk.chunkChars ?? (chunk.content?.length || 0)} 字</span>
+                                        <span>{chunk.splitStrategy || 'UNKNOWN'}</span>
+                                    </div>
+                                    <pre className="chunk-content">{chunk.content}</pre>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="dialog-footer">
+                    <button type="button" className="btn-secondary" onClick={onClose}>
+                        关闭
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const FIELD_CACHE_KEY = 'kb-upload-field-cache-v1';
+
 const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUpload, uploadProgress }) => {
     const [selectedFile, setSelectedFile] = useState(null);
+    const [isExtracting, setIsExtracting] = useState(false);
+    const [extractError, setExtractError] = useState('');
+    const [activeFieldMenu, setActiveFieldMenu] = useState('');
+    const [cache, setCache] = useState(() => {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(FIELD_CACHE_KEY) || '{}');
+            return {
+                categories: Array.isArray(parsed.categories) ? parsed.categories : [],
+                tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+                sources: Array.isArray(parsed.sources) ? parsed.sources : []
+            };
+        } catch {
+            return { categories: [], tags: [], sources: [] };
+        }
+    });
     const [formData, setFormData] = useState({
         folderId: defaultFolderId,
         title: '',
@@ -496,11 +684,68 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
         summary: ''
     });
 
+    const uniquePush = (arr, value, max = 20) => {
+        const normalized = (value || '').trim();
+        if (!normalized) {
+            return arr;
+        }
+        const filtered = [normalized, ...arr.filter(item => item !== normalized)];
+        return filtered.slice(0, max);
+    };
+
+    const mergeCsvTags = (current, nextTags) => {
+        const currentList = current
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(Boolean);
+        const all = new Set([...currentList, ...nextTags.map(tag => tag.trim()).filter(Boolean)]);
+        return Array.from(all).join(', ');
+    };
+
+    const saveCache = useCallback((currentFormData) => {
+        const nextCache = {
+            categories: uniquePush(cache.categories, currentFormData.category),
+            tags: currentFormData.tags
+                .split(',')
+                .map(tag => tag.trim())
+                .filter(Boolean)
+                .reduce((acc, tag) => uniquePush(acc, tag, 40), cache.tags),
+            sources: uniquePush(cache.sources, currentFormData.source)
+        };
+        setCache(nextCache);
+        localStorage.setItem(FIELD_CACHE_KEY, JSON.stringify(nextCache));
+    }, [cache]);
+
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
             setSelectedFile(file);
+            setExtractError('');
             setFormData(prev => ({ ...prev, title: file.name.replace(/\.[^/.]+$/, '') }));
+        }
+    };
+
+    const handleExtract = async () => {
+        if (!selectedFile) {
+            setExtractError('请先选择文件，再进行智能提取');
+            return;
+        }
+        setExtractError('');
+        setIsExtracting(true);
+        try {
+            const metadata = await adminKnowledgeApi.extractDocumentMetadata(selectedFile);
+            setFormData(prev => ({
+                ...prev,
+                title: metadata.title || prev.title,
+                category: metadata.category || prev.category,
+                tags: mergeCsvTags(prev.tags, metadata.tags || []),
+                source: metadata.source || prev.source,
+                summary: metadata.summary || prev.summary
+            }));
+        } catch (error) {
+            setExtractError(error.message || '智能提取失败');
+        } finally {
+            setIsExtracting(false);
         }
     };
 
@@ -525,7 +770,13 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
         if (formData.validTo) submitFormData.append('validTo', formData.validTo);
         if (formData.summary) submitFormData.append('summary', formData.summary);
 
-        onUpload(submitFormData);
+        saveCache(formData);
+        onUpload({
+            formData: submitFormData,
+            fileName: selectedFile.name,
+            title: formData.title,
+            fileSize: selectedFile.size
+        });
     };
 
     const flattenFolders = (folderList, depth = 0) => {
@@ -537,6 +788,60 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
             }
         }
         return result;
+    };
+
+    const formatFolderOptionLabel = (folder) => {
+        if (!folder.depth) {
+            return folder.name;
+        }
+        return `${'— '.repeat(folder.depth)}${folder.name}`;
+    };
+
+    const renderInputWithDropdown = (field, options, placeholder) => {
+        const value = formData[field] || '';
+        const hasOptions = Array.isArray(options) && options.length > 0;
+        const isOpen = activeFieldMenu === field;
+
+        return (
+            <div className="input-with-menu">
+                <input
+                    type="text"
+                    value={value}
+                    onChange={e => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                    placeholder={placeholder}
+                />
+                <button
+                    type="button"
+                    className="input-menu-toggle"
+                    title="选择历史值"
+                    disabled={!hasOptions}
+                    onClick={() => setActiveFieldMenu(prev => (prev === field ? '' : field))}
+                >
+                    <ChevronDown size={14} />
+                </button>
+                {isOpen && hasOptions && (
+                    <div className="input-menu-list">
+                        {options.map(option => (
+                            <button
+                                key={option}
+                                type="button"
+                                className="input-menu-item"
+                                onClick={() => {
+                                    if (field === 'tags') {
+                                        setFormData(prev => ({ ...prev, tags: mergeCsvTags(prev.tags, [option]) }));
+                                    } else {
+                                        setFormData(prev => ({ ...prev, [field]: option }));
+                                    }
+                                    setActiveFieldMenu('');
+                                }}
+                            >
+                                {option}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
     };
 
     return (
@@ -571,35 +876,55 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                         )}
                     </div>
 
+                    <div className="extract-toolbar">
+                        <button
+                            type="button"
+                            className="btn-secondary"
+                            onClick={handleExtract}
+                            disabled={!selectedFile || isExtracting}
+                        >
+                            {isExtracting ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                            {isExtracting ? '提取中...' : '智能提取'}
+                        </button>
+                        <span>自动填充分类、标签、来源、摘要，提交前请人工审核</span>
+                    </div>
+                    {extractError && <div className="extract-error">{extractError}</div>}
+
                     <div className="form-grid">
                         <div className="form-group">
                             <label>目标文件夹</label>
-                            <select
-                                value={formData.folderId || ''}
-                                onChange={e => setFormData(prev => ({ ...prev, folderId: e.target.value ? Number(e.target.value) : null }))}
-                            >
-                                <option value="">根目录</option>
-                                {flattenFolders(folders).map(folder => (
-                                    <option key={folder.id} value={folder.id}>
-                                        {' '.repeat(folder.depth * 2)}{folder.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <div className="select-wrapper">
+                                <select
+                                    value={formData.folderId || ''}
+                                    onChange={e => setFormData(prev => ({ ...prev, folderId: e.target.value ? Number(e.target.value) : null }))}
+                                >
+                                    <option value="">根目录</option>
+                                    {flattenFolders(folders).map(folder => (
+                                        <option key={folder.id} value={folder.id}>
+                                            {formatFolderOptionLabel(folder)}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={14} className="select-arrow" aria-hidden="true" />
+                            </div>
                         </div>
 
                         <div className="form-group">
                             <label>嵌入模型</label>
-                            <select
-                                value={formData.embeddingModel}
-                                onChange={e => setFormData(prev => ({ ...prev, embeddingModel: e.target.value }))}
-                            >
-                                {embeddingModels.map(model => (
-                                    <option key={model.id} value={model.id}>
-                                        {model.name} ({model.dimensions}维)
-                                        {model.isDefault && ' (默认)'}
-                                    </option>
-                                ))}
-                            </select>
+                            <div className="select-wrapper">
+                                <select
+                                    value={formData.embeddingModel}
+                                    onChange={e => setFormData(prev => ({ ...prev, embeddingModel: e.target.value }))}
+                                >
+                                    {embeddingModels.map(model => (
+                                        <option key={model.id} value={model.id}>
+                                            {model.name} ({model.dimensions}维)
+                                            {model.isDefault && ' (默认)'}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={14} className="select-arrow" aria-hidden="true" />
+                            </div>
                         </div>
                     </div>
 
@@ -616,21 +941,11 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                     <div className="form-grid">
                         <div className="form-group">
                             <label>分类</label>
-                            <input
-                                type="text"
-                                value={formData.category}
-                                onChange={e => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                                placeholder="如: 补贴政策"
-                            />
+                            {renderInputWithDropdown('category', cache.categories, '如: 补贴政策')}
                         </div>
                         <div className="form-group">
                             <label>标签 (逗号分隔)</label>
-                            <input
-                                type="text"
-                                value={formData.tags}
-                                onChange={e => setFormData(prev => ({ ...prev, tags: e.target.value }))}
-                                placeholder="如: 济南市, 2024, 以旧换新"
-                            />
+                            {renderInputWithDropdown('tags', cache.tags, '如: 济南市, 2024, 以旧换新')}
                         </div>
                     </div>
 
@@ -645,12 +960,7 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                         </div>
                         <div className="form-group">
                             <label>来源</label>
-                            <input
-                                type="text"
-                                value={formData.source}
-                                onChange={e => setFormData(prev => ({ ...prev, source: e.target.value }))}
-                                placeholder="如: 济南市人民政府"
-                            />
+                            {renderInputWithDropdown('source', cache.sources, '如: 济南市人民政府')}
                         </div>
                     </div>
 
@@ -678,7 +988,7 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                             取消
                         </button>
                         <button type="submit" className="btn-primary" disabled={!selectedFile || uploadProgress > 0}>
-                            {uploadProgress > 0 ? '上传中...' : '上传'}
+                            上传并解析
                         </button>
                     </div>
                 </form>

@@ -1,6 +1,10 @@
 package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.EmbeddingModelConfig;
+import com.shandong.policyagent.model.dto.DocumentChunkResponse;
+import com.shandong.policyagent.model.dto.DocumentChunksPageResponse;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -24,6 +28,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 @RequiredArgsConstructor
 public class MultiVectorStoreService {
+    private static final int HNSW_MAX_DIMENSIONS = 2000;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final DataSource dataSource;
     private final EmbeddingModelConfig embeddingModelConfig;
@@ -60,6 +66,63 @@ public class MultiVectorStoreService {
         return vectorStore.similaritySearch(searchRequest);
     }
 
+    public DocumentChunksPageResponse listDocumentChunks(String tableName, Long documentId, int page, int size) {
+        String safeTableName = sanitizeTableName(tableName);
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.max(1, size);
+        int offset = safePage * safeSize;
+
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+
+        String countSql = String.format("""
+                SELECT COUNT(*)
+                FROM %s
+                WHERE metadata->>'knowledgeDocumentId' = ?
+                """, safeTableName);
+
+        Long totalElements = jdbcTemplate.queryForObject(countSql, Long.class, String.valueOf(documentId));
+        if (totalElements == null) {
+            totalElements = 0L;
+        }
+
+        String querySql = String.format("""
+                SELECT id, content, metadata
+                FROM %s
+                WHERE metadata->>'knowledgeDocumentId' = ?
+                ORDER BY COALESCE((metadata->>'chunkIndex')::int, 2147483647), id
+                LIMIT ? OFFSET ?
+                """, safeTableName);
+
+        List<DocumentChunkResponse> chunks = jdbcTemplate.query(querySql, (rs, rowNum) -> {
+            String metadataJson = rs.getString("metadata");
+            Map<String, Object> metadata = parseMetadata(metadataJson);
+
+            Integer chunkIndex = getIntValue(metadata.get("chunkIndex"));
+            Integer chunkChars = getIntValue(metadata.get("chunkChars"));
+            if (chunkChars == null) {
+                chunkChars = rs.getString("content") == null ? 0 : rs.getString("content").length();
+            }
+
+            return DocumentChunkResponse.builder()
+                    .chunkId(rs.getString("id"))
+                    .chunkIndex(chunkIndex)
+                    .chunkChars(chunkChars)
+                    .splitStrategy(stringValue(metadata.get("splitStrategy")))
+                    .content(rs.getString("content"))
+                    .build();
+        }, String.valueOf(documentId), safeSize, offset);
+
+        int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / safeSize);
+
+        return DocumentChunksPageResponse.builder()
+                .page(safePage)
+                .size(safeSize)
+                .totalElements(totalElements)
+                .totalPages(totalPages)
+                .content(chunks)
+                .build();
+    }
+
     private void initializeVectorTable(String tableName, int dimensions) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 
@@ -78,13 +141,54 @@ public class MultiVectorStoreService {
                 """, tableName, dimensions);
             jdbcTemplate.execute(createTableSql);
 
-            String createIndexSql = String.format("""
-                CREATE INDEX ON %s USING hnsw (embedding vector_cosine_ops)
-                """, tableName);
-            jdbcTemplate.execute(createIndexSql);
+            if (dimensions <= HNSW_MAX_DIMENSIONS) {
+                String createIndexSql = String.format("""
+                    CREATE INDEX ON %s USING hnsw (embedding vector_cosine_ops)
+                    """, tableName);
+                jdbcTemplate.execute(createIndexSql);
+            } else {
+                log.warn("Skip HNSW index for table {}: dimensions {} exceed pgvector HNSW limit {}",
+                        tableName, dimensions, HNSW_MAX_DIMENSIONS);
+            }
 
             log.info("Vector table created: {}", tableName);
+            return;
         }
+
+        Integer existingDimensions = getExistingVectorDimensions(jdbcTemplate, tableName);
+        if (existingDimensions == null) {
+            throw new IllegalStateException("Vector table exists but embedding column is missing: " + tableName);
+        }
+        if (!existingDimensions.equals(dimensions)) {
+            throw new IllegalStateException(String.format(
+                    "Vector table dimension mismatch: table=%s, expected=%d, actual=%d",
+                    tableName, dimensions, existingDimensions
+            ));
+        }
+    }
+
+    private Integer getExistingVectorDimensions(JdbcTemplate jdbcTemplate, String tableName) {
+        String sql = """
+                SELECT CAST(
+                    NULLIF(
+                        REGEXP_REPLACE(format_type(a.atttypid, a.atttypmod), '^vector\\((\\d+)\\)$', '\\1'),
+                        format_type(a.atttypid, a.atttypmod)
+                    ) AS INTEGER
+                )
+                FROM pg_attribute a
+                JOIN pg_class c ON c.oid = a.attrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'public'
+                  AND c.relname = ?
+                  AND a.attname = 'embedding'
+                  AND a.attnum > 0
+                  AND NOT a.attisdropped
+                """;
+        List<Integer> rows = jdbcTemplate.query(sql, (rs, rowNum) -> (Integer) rs.getObject(1), tableName);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        return rows.get(0);
     }
 
     private VectorStore createVectorStore(EmbeddingModelConfig.EmbeddingModel modelConfig) {
@@ -119,6 +223,42 @@ public class MultiVectorStoreService {
         return new SimplePgVectorStore(dataSource, springAiModel, modelConfig.getVectorTable(), modelConfig.getDimensions());
     }
 
+    private String sanitizeTableName(String tableName) {
+        if (tableName == null || !tableName.matches("^[a-zA-Z0-9_]+$")) {
+            throw new IllegalArgumentException("Invalid vector table name");
+        }
+        return tableName;
+    }
+
+    private Map<String, Object> parseMetadata(String metadataJson) {
+        if (metadataJson == null || metadataJson.isBlank()) {
+            return new java.util.HashMap<>();
+        }
+        try {
+            return OBJECT_MAPPER.readValue(metadataJson, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            return new java.util.HashMap<>();
+        }
+    }
+
+    private Integer getIntValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
     private static class SimplePgVectorStore implements VectorStore {
         private final DataSource dataSource;
         private final EmbeddingModel embeddingModel;
@@ -140,6 +280,12 @@ public class MultiVectorStoreService {
             JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
             for (Document doc : documents) {
                 float[] embedding = embeddingModel.embed(doc);
+                if (embedding.length != dimensions) {
+                    throw new IllegalStateException(String.format(
+                            "Embedding dimension mismatch before insert: table=%s, expected=%d, actual=%d",
+                            tableName, dimensions, embedding.length
+                    ));
+                }
                 String embeddingStr = "[" + arrayToString(embedding) + "]";
 
                 String metadataJson;

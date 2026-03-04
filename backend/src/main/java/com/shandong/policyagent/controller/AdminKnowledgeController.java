@@ -110,6 +110,12 @@ public class AdminKnowledgeController {
         return ResponseEntity.ok(toDocumentResponse(document));
     }
 
+    @PostMapping(value = "/documents/extract-metadata", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<DocumentMetadataExtractResponse> extractDocumentMetadata(
+            @RequestParam("file") MultipartFile file) {
+        return ResponseEntity.ok(knowledgeService.extractDocumentMetadata(file));
+    }
+
     @GetMapping("/documents")
     public ResponseEntity<Map<String, Object>> listDocuments(
             @RequestParam(value = "folderId", required = false) Long folderId,
@@ -141,6 +147,14 @@ public class AdminKnowledgeController {
         return knowledgeService.getDocument(id)
                 .map(doc -> ResponseEntity.ok(toDocumentResponse(doc)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/documents/{id}/chunks")
+    public ResponseEntity<DocumentChunksPageResponse> listDocumentChunks(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(knowledgeService.listDocumentChunks(id, page, size));
     }
 
     @GetMapping("/documents/{id}/download")
