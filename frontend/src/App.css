@@ -1,6 +1,6 @@
 .chat-shell {
-    height: 100vh;
-    height: 100dvh;
+    height: calc(100vh - 72px);
+    height: calc(100dvh - 72px);
     display: flex;
     flex-direction: column;
     overflow: hidden;

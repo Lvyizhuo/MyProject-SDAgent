@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import './KnowledgeBaseTab.css';
 import adminKnowledgeApi from '../../services/adminKnowledgeApi';
+import { addNotification } from '../../utils/notificationCenter';
 
 const KnowledgeBaseTab = () => {
     const [loading, setLoading] = useState(true);
@@ -52,6 +53,24 @@ const KnowledgeBaseTab = () => {
             setToast(prev => ({ ...prev, visible: false }));
         }, duration);
     }, []);
+
+    const showBanner = useCallback((text, type = 'success', duration = 3000) => {
+        setMessage({ text, type });
+        setTimeout(() => setMessage({ text: '', type: '' }), duration);
+    }, []);
+
+    const notify = useCallback((text, type = 'success', mode = 'toast', duration = 3000) => {
+        addNotification({
+            text,
+            type,
+            source: '管理员-知识库'
+        });
+        if (mode === 'banner') {
+            showBanner(text, type, duration);
+            return;
+        }
+        showToast(text, type, duration);
+    }, [showBanner, showToast]);
 
     const loadFolderTree = useCallback(async () => {
         try {
@@ -141,12 +160,10 @@ const KnowledgeBaseTab = () => {
                 name: name.trim(),
                 description: ''
             });
-            setMessage({ text: '文件夹创建成功', type: 'success' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+            notify('文件夹创建成功', 'success', 'banner');
             await loadFolderTree();
         } catch (error) {
-            setMessage({ text: '文件夹创建失败: ' + error.message, type: 'error' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+            notify('文件夹创建失败: ' + error.message, 'error', 'banner', 5000);
         }
     };
 
@@ -156,15 +173,13 @@ const KnowledgeBaseTab = () => {
 
         try {
             await adminKnowledgeApi.deleteFolder(folderId);
-            setMessage({ text: '文件夹删除成功', type: 'success' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+            notify('文件夹删除成功', 'success', 'banner');
             if (selectedFolderId === folderId) {
                 setSelectedFolderId(null);
             }
             await loadFolderTree();
         } catch (error) {
-            setMessage({ text: '文件夹删除失败: ' + error.message, type: 'error' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+            notify('文件夹删除失败: ' + error.message, 'error', 'banner', 5000);
         }
     };
 
@@ -173,24 +188,20 @@ const KnowledgeBaseTab = () => {
 
         try {
             await adminKnowledgeApi.deleteDocument(docId);
-            setMessage({ text: '文档删除成功', type: 'success' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+            notify('文档删除成功', 'success', 'toast');
             await loadDocuments(selectedFolderId, pagination.page);
         } catch (error) {
-            setMessage({ text: '文档删除失败: ' + error.message, type: 'error' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+            notify('文档删除失败: ' + error.message, 'error', 'banner', 5000);
         }
     };
 
     const handleReingestDocument = async (docId) => {
         try {
             await adminKnowledgeApi.reingestDocument(docId);
-            setMessage({ text: '文档重新处理中...', type: 'success' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+            notify('文档重新处理中...', 'success', 'banner');
             await loadDocuments(selectedFolderId, pagination.page);
         } catch (error) {
-            setMessage({ text: '重新处理失败: ' + error.message, type: 'error' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+            notify('重新处理失败: ' + error.message, 'error', 'banner', 5000);
         }
     };
 
@@ -204,8 +215,7 @@ const KnowledgeBaseTab = () => {
             a.click();
             window.URL.revokeObjectURL(url);
         } catch (error) {
-            setMessage({ text: '下载失败: ' + error.message, type: 'error' });
-            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+            notify('下载失败: ' + error.message, 'error', 'banner', 5000);
         }
     };
 
@@ -235,9 +245,8 @@ const KnowledgeBaseTab = () => {
                 content: allChunks
             });
         } catch (error) {
-            setMessage({ text: '获取分段失败: ' + error.message, type: 'error' });
+            notify('获取分段失败: ' + error.message, 'error', 'banner', 5000);
             setShowChunkDialog(false);
-            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
         } finally {
             setChunkLoading(false);
         }
@@ -542,12 +551,12 @@ const KnowledgeBaseTab = () => {
                                 setUploadProgress(progress);
                             });
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
-                            showToast('上传成功', 'success');
+                            notify('上传成功', 'success', 'toast');
                             setUploadProgress(0);
                             await loadDocuments(selectedFolderId, 0);
                         } catch (error) {
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
-                            showToast('上传失败: ' + error.message, 'error', 5000);
+                            notify('上传失败: ' + error.message, 'error', 'toast', 5000);
                             setUploadProgress(0);
                         }
                     }}
@@ -576,13 +585,11 @@ const KnowledgeBaseTab = () => {
                     onSave={async (newConfig) => {
                         try {
                             await adminKnowledgeApi.updateConfig(newConfig);
-                            setMessage({ text: '配置保存成功', type: 'success' });
-                            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+                            notify('配置保存成功', 'success', 'banner');
                             setShowConfigPanel(false);
                             await loadConfig();
                         } catch (error) {
-                            setMessage({ text: '保存失败: ' + error.message, type: 'error' });
-                            setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+                            notify('保存失败: ' + error.message, 'error', 'banner', 5000);
                         }
                     }}
                 />

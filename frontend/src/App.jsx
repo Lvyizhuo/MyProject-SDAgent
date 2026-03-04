@@ -25,20 +25,20 @@ function App() {
                         <Route path="/home" element={<HomePage />} />
                         <Route path="/policies" element={<PolicyQueryPage />} />
                         <Route path="/matching" element={<PolicyMatchingPage />} />
+                        <Route
+                            path="/chat"
+                            element={(
+                                <ProtectedRoute>
+                                    <ChatPage />
+                                </ProtectedRoute>
+                            )}
+                        />
                         <Route path="/user" element={<UserCenterPage />} />
                     </Route>
 
                     {/* 不需要 TopNavbar 的页面 */}
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/register" element={<RegisterPage />} />
-                    <Route
-                        path="/chat"
-                        element={(
-                            <ProtectedRoute>
-                                <ChatPage />
-                            </ProtectedRoute>
-                        )}
-                    />
                     <Route
                         path="/admin-console"
                         element={(

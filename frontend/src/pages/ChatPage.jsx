@@ -3,7 +3,6 @@ import { History } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import ChatWindow from '../components/ChatWindow';
 import Sidebar from '../components/Sidebar';
-import TopNavbar from '../components/TopNavbar';
 import { conversationApi } from '../services/api';
 import '../App.css';
 
@@ -105,7 +104,6 @@ const ChatPage = () => {
 
     return (
         <div className="chat-shell">
-            <TopNavbar />
             <div className="app-container">
                 <Sidebar
                     isOpen={sidebarOpen}

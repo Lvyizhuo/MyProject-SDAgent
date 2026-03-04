@@ -14,7 +14,6 @@
     -webkit-backdrop-filter: blur(12px);
     box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.6);
     overflow: hidden;
-    animation: scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .chat-panel-header {

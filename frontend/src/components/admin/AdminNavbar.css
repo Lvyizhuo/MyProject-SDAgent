@@ -10,7 +10,6 @@
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     transition: all var(--transition-med);
-    animation: slideDownFade 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .admin-navbar.elevated {
@@ -154,21 +153,36 @@
     flex-shrink: 0;
 }
 
-.admin-navbar-actions .back-link {
+.notify-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid hsl(var(--color-border));
+    background: transparent;
+    color: hsl(var(--color-text-secondary));
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: 0.85rem;
-    color: hsl(var(--color-text-secondary));
-    text-decoration: none;
-    padding: 6px 12px;
-    border-radius: var(--radius-md);
+    justify-content: center;
     transition: all var(--transition-fast);
+    cursor: pointer;
+    position: relative;
 }
 
-.admin-navbar-actions .back-link:hover {
-    color: hsl(var(--color-primary));
+.notify-btn:hover {
     background: hsl(var(--color-primary-light) / 0.5);
+    color: hsl(var(--color-primary));
+    transform: scale(1.05);
+}
+
+.notify-btn .dot {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: #ef4444;
+    border: 2px solid white;
 }
 
 .admin-user-btn {
@@ -242,17 +256,6 @@
     }
 }
 
-@keyframes slideDownFade {
-    from {
-        opacity: 0;
-        transform: translateY(-12px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
 @media (max-width: 980px) {
     .admin-navbar-inner {
         padding: 0 var(--space-md);
@@ -267,10 +270,6 @@
     }
 
     .admin-nav-links {
-        display: none;
-    }
-
-    .admin-navbar-actions .back-link span {
         display: none;
     }
 

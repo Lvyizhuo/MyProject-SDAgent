@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, BookOpen, Wrench, ChevronDown, Menu, X, ArrowLeft, Target, User } from 'lucide-react';
+import { Bot, BookOpen, Wrench, ChevronDown, Menu, X, Target, User, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import './AdminNavbar.css';
@@ -80,12 +80,12 @@ const AdminNavbar = ({ activeTab, onTabChange }) => {
                 {/* Actions */}
                 <div className="admin-navbar-actions">
                     <button
-                        className="back-link"
-                        onClick={() => navigate('/home')}
-                        title="返回主站"
+                        className="notify-btn"
+                        title="消息通知"
+                        onClick={() => navigate('/user?tab=notifications')}
                     >
-                        <ArrowLeft size={16} />
-                        <span>返回主站</span>
+                        <Bell size={18} />
+                        <span className="dot" />
                     </button>
 
                     <div ref={userMenuRef} className="user-entry">
@@ -131,13 +131,6 @@ const AdminNavbar = ({ activeTab, onTabChange }) => {
                                     );
                                 })}
                                 <hr style={{ margin: '4px 0', border: 'none', borderTop: `1px solid hsl(var(--color-border))` }} />
-                                <button
-                                    className="mobile-admin-nav-link"
-                                    onClick={() => navigate('/home')}
-                                >
-                                    <ArrowLeft size={18} />
-                                    <span>返回主站</span>
-                                </button>
                                 <button
                                     className="mobile-admin-nav-link"
                                     onClick={handleLogout}

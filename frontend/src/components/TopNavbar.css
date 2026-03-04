@@ -132,20 +132,14 @@
     justify-content: center;
     transition: all var(--transition-fast);
     cursor: pointer;
+    position: relative;
 }
 
 .notify-btn:hover {
     background: hsl(var(--color-primary-light) / 0.5);
     color: hsl(var(--color-primary));
-    transform: scale(1.05);
-}
-    justify-content: center;
-    position: relative;
-}
-
-.notify-btn:hover {
-    color: hsl(var(--color-primary));
     border-color: hsl(var(--color-primary) / 0.4);
+    transform: scale(1.05);
 }
 
 .notify-btn .dot {

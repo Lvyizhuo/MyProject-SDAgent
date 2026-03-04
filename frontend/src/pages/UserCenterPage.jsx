@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Bell,
     Building2,
@@ -14,6 +14,12 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './UserCenterPage.css';
+import {
+    clearNotifications,
+    getNotifications,
+    markAllNotificationsRead,
+    notificationUpdateEvent
+} from '../utils/notificationCenter';
 
 const MENU_ITEMS = [
     { id: 'profile', label: '个人资料', icon: User },
@@ -28,6 +34,28 @@ const UserCenterPage = () => {
     const navigate = useNavigate();
     const { user, isAuthenticated } = useAuth();
     const [activeMenu, setActiveMenu] = useState('profile');
+    const [notifications, setNotifications] = useState([]);
+
+    useEffect(() => {
+        const query = new URLSearchParams(window.location.search);
+        const tab = query.get('tab');
+        if (tab && MENU_ITEMS.some(item => item.id === tab)) {
+            setActiveMenu(tab);
+        }
+    }, []);
+
+    useEffect(() => {
+        const sync = () => setNotifications(getNotifications());
+        sync();
+        window.addEventListener(notificationUpdateEvent, sync);
+        window.addEventListener('storage', sync);
+        return () => {
+            window.removeEventListener(notificationUpdateEvent, sync);
+            window.removeEventListener('storage', sync);
+        };
+    }, []);
+
+    const unreadCount = useMemo(() => notifications.filter(item => !item.read).length, [notifications]);
 
     if (!isAuthenticated) {
         return (
@@ -145,7 +173,46 @@ const UserCenterPage = () => {
                         </div>
                     )}
 
-                    {['security', 'notifications', 'settings'].includes(activeMenu) && (
+                    {activeMenu === 'notifications' && (
+                        <div className="panel">
+                            <div className="panel-header-row">
+                                <h2>
+                                    消息通知
+                                    {unreadCount > 0 && <span className="notice-badge">{unreadCount}</span>}
+                                </h2>
+                                <div className="panel-action-inline">
+                                    <button type="button" onClick={() => markAllNotificationsRead()}>
+                                        全部标记已读
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="danger"
+                                        onClick={() => clearNotifications()}
+                                    >
+                                        清空通知
+                                    </button>
+                                </div>
+                            </div>
+
+                            {notifications.length === 0 ? (
+                                <div className="notice-empty">暂无通知</div>
+                            ) : (
+                                <div className="notice-list">
+                                    {notifications.map((item) => (
+                                        <article key={item.id} className={`notice-item ${item.type} ${item.read ? 'read' : 'unread'}`}>
+                                            <div className="notice-item-head">
+                                                <span className="notice-source">{item.source || '系统'}</span>
+                                                <time>{new Date(item.createdAt).toLocaleString()}</time>
+                                            </div>
+                                            <p>{item.text}</p>
+                                        </article>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {['security', 'settings'].includes(activeMenu) && (
                         <div className="panel developing">
                             <Settings size={52} />
                             <h2>功能开发中</h2>

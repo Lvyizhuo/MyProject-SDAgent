@@ -22,7 +22,7 @@
     display: flex;
     gap: var(--space-md);
     height: 100%;
-    max-width: 1600px;
+    max-width: 1400px;
     margin: 0 auto;
 }
 
@@ -51,7 +51,7 @@
 }
 
 .admin-left-panel {
-    flex: 0 0 460px;
+    flex: 0 0 420px;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -75,7 +75,7 @@
 
 .admin-full-panel {
     flex: 1;
-    max-width: 1320px;
+    max-width: 1200px;
     display: flex;
     flex-direction: column;
     min-width: 0;
