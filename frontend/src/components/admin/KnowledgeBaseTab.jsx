@@ -173,7 +173,8 @@ const KnowledgeBaseTab = () => {
 
         try {
             await adminKnowledgeApi.deleteDocument(docId);
-            showToast('文档删除成功', 'success');
+            setMessage({ text: '文档删除成功', type: 'success' });
+            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
             await loadDocuments(selectedFolderId, pagination.page);
         } catch (error) {
             setMessage({ text: '文档删除失败: ' + error.message, type: 'error' });
@@ -541,7 +542,7 @@ const KnowledgeBaseTab = () => {
                                 setUploadProgress(progress);
                             });
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
-                            showToast('上传成功，文档已进入解析队列', 'success');
+                            showToast('上传成功', 'success');
                             setUploadProgress(0);
                             await loadDocuments(selectedFolderId, 0);
                         } catch (error) {
@@ -790,13 +791,6 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
         return result;
     };
 
-    const formatFolderOptionLabel = (folder) => {
-        if (!folder.depth) {
-            return folder.name;
-        }
-        return `${'— '.repeat(folder.depth)}${folder.name}`;
-    };
-
     const renderInputWithDropdown = (field, options, placeholder) => {
         const value = formData[field] || '';
         const hasOptions = Array.isArray(options) && options.length > 0;
@@ -893,38 +887,32 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                     <div className="form-grid">
                         <div className="form-group">
                             <label>目标文件夹</label>
-                            <div className="select-wrapper">
-                                <select
-                                    value={formData.folderId || ''}
-                                    onChange={e => setFormData(prev => ({ ...prev, folderId: e.target.value ? Number(e.target.value) : null }))}
-                                >
-                                    <option value="">根目录</option>
-                                    {flattenFolders(folders).map(folder => (
-                                        <option key={folder.id} value={folder.id}>
-                                            {formatFolderOptionLabel(folder)}
-                                        </option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={14} className="select-arrow" aria-hidden="true" />
-                            </div>
+                            <select
+                                value={formData.folderId || ''}
+                                onChange={e => setFormData(prev => ({ ...prev, folderId: e.target.value ? Number(e.target.value) : null }))}
+                            >
+                                <option value="">根目录</option>
+                                {flattenFolders(folders).map(folder => (
+                                    <option key={folder.id} value={folder.id}>
+                                        {' '.repeat(folder.depth * 2)}{folder.name}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
 
                         <div className="form-group">
                             <label>嵌入模型</label>
-                            <div className="select-wrapper">
-                                <select
-                                    value={formData.embeddingModel}
-                                    onChange={e => setFormData(prev => ({ ...prev, embeddingModel: e.target.value }))}
-                                >
-                                    {embeddingModels.map(model => (
-                                        <option key={model.id} value={model.id}>
-                                            {model.name} ({model.dimensions}维)
-                                            {model.isDefault && ' (默认)'}
-                                        </option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={14} className="select-arrow" aria-hidden="true" />
-                            </div>
+                            <select
+                                value={formData.embeddingModel}
+                                onChange={e => setFormData(prev => ({ ...prev, embeddingModel: e.target.value }))}
+                            >
+                                {embeddingModels.map(model => (
+                                    <option key={model.id} value={model.id}>
+                                        {model.name} ({model.dimensions}维)
+                                        {model.isDefault && ' (默认)'}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                     </div>
 
