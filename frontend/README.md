@@ -1,16 +1,53 @@
-# React + Vite
+# 山东省智能政策咨询助手 - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+前端基于 React 19 + Vite 7，提供用户政策咨询页面与管理员控制台页面。
 
-Currently, two official plugins are available:
+## 启动命令
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## React Compiler
+其他命令：
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm run build
+npm run lint
+npm run preview
+```
 
-## Expanding the ESLint configuration
+## 路由
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `/home` 首页
+- `/policies` 政策查询
+- `/matching` 政策匹配
+- `/chat` 智能问答（登录后）
+- `/user` 用户中心
+- `/login` 登录
+- `/register` 注册
+- `/admin-console` 管理员控制台（管理员登录后）
+
+## 主要目录
+
+- `src/pages/` 页面组件（含 `AdminConsolePage.jsx`）
+- `src/components/` 通用组件
+- `src/components/admin/` 管理员控制台子模块
+- `src/services/api.js` 用户侧 API 请求封装
+- `src/services/adminApi.js` 管理员配置 API
+- `src/services/adminKnowledgeApi.js` 管理员知识库 API
+
+## 鉴权说明
+
+- 用户登录与管理员登录均使用 JWT，并写入 `localStorage`。
+- 管理员接口使用 `/api/admin/**`，普通用户 token 无法访问。
+- `ProtectedRoute` 负责前端路由级访问控制。
+
+## 依赖摘要
+
+- `react` / `react-dom` 19.2
+- `react-router-dom` 7.13
+- `lucide-react`
+- `marked`
+- `uuid`

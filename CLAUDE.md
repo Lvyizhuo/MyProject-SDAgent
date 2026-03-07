@@ -9,10 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 技术栈
 
 - **前端**: React 19 + Vite 7 (JavaScript/JSX)
-- **后端**: Spring Boot 3.4 + Spring AI 1.0.3 (Java 21)
-- **AI 模型**: 阿里云 DashScope（`qwen3-max` 聊天模型，`text-embedding-v3` 嵌入）
+- **后端**: Spring Boot 3.4.1 + Spring AI 1.0.3 (Java 21)
+- **AI 模型**: 阿里云 DashScope（默认 `qwen3.5-plus`，支持可配置嵌入模型）
 - **向量数据库**: PostgreSQL 16 + pgvector
 - **会话存储**: Redis 7
+- **对象存储**: MinIO
 - **身份验证**: Spring Security + JWT
 
 ## 项目结构
@@ -22,8 +23,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   ├── src/main/java/com/shandong/policyagent/
 │   │   ├── advisor/            # Security / ReReading / Logging / RedisChatMemory
 │   │   ├── agent/              # ToolIntentClassifier / AgentPlanParser（工具意图分类与计划解析）
-│   │   ├── config/             # ChatClient, Security 等配置
-│   │   ├── controller/         # Chat/Auth/Conversation/Document/MultiModal API
+│   │   ├── config/             # ChatClient, Security, Embedding, Minio 等配置
+│   │   ├── controller/         # Chat/Auth/Conversation/Admin/Knowledge/MultiModal API
 │   │   ├── entity/             # JPA 实体
 │   │   ├── exception/          # 全局异常处理器
 │   │   ├── model/              # DTO 和领域模型
@@ -34,7 +35,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   │   ├── service/            # 业务服务（包括 SessionFactCacheService 会话事实缓存）
 │   │   └── tool/               # calculateSubsidy / parseFile / webSearch / ToolFailurePolicyCenter
 │   ├── src/main/resources/     # application.yml 等配置
-│   ├── docker-compose.yml      # PostgreSQL + Redis
+│   ├── docker-compose.yml      # PostgreSQL + Redis + MinIO
 │   └── pom.xml
 ├── frontend/
 │   └── src/
@@ -98,6 +99,16 @@ npm run preview
 - `GET /api/conversations` - 会话列表（需 JWT）
 - `GET /api/conversations/{sessionId}` - 获取会话（需 JWT）
 - `DELETE /api/conversations/{sessionId}` - 删除会话（需 JWT）
+- `POST /api/admin/auth/login` - 管理员登录
+- `POST /api/admin/auth/change-password` - 管理员修改密码（需管理员 JWT）
+- `GET /api/admin/agent-config` - 获取智能体配置（需管理员 JWT）
+- `PUT /api/admin/agent-config` - 更新智能体配置（需管理员 JWT）
+- `POST /api/admin/agent-config/reset` - 重置智能体配置（需管理员 JWT）
+- `POST /api/admin/agent-config/test` - 配置测试对话（需管理员 JWT）
+- `GET /api/admin/knowledge/folders` - 获取知识库目录树（需管理员 JWT）
+- `POST /api/admin/knowledge/documents` - 上传知识库文档（需管理员 JWT）
+- `GET /api/admin/knowledge/documents/{id}/chunks` - 查询文档切片（需管理员 JWT）
+- `POST /api/admin/knowledge/documents/{id}/reingest` - 重新入库文档（需管理员 JWT）
 - `POST /api/multimodal/transcribe` - 语音识别
 - `POST /api/multimodal/analyze-image` - 图像分析
 - `POST /api/multimodal/analyze-invoice` - 发票识别
@@ -130,7 +141,7 @@ npm run preview
 
 - `backend/src/main/resources/application.yml` - 主配置
 - `backend/pom.xml` - Maven 依赖与构建
-- `backend/docker-compose.yml` - 基础设施编排
+- `backend/docker-compose.yml` - 基础设施编排（PostgreSQL/Redis/MinIO）
 - `frontend/package.json` - 前端依赖与脚本
 - `frontend/vite.config.js` - 前端构建配置
 
@@ -140,3 +151,5 @@ npm run preview
 - 后端 API: `8080`
 - PostgreSQL: `5432`
 - Redis: `6379`
+- MinIO API: `9000`
+- MinIO Console: `9001`

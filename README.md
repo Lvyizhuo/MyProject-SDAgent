@@ -1,39 +1,44 @@
 # 山东省智能政策咨询助手
 
-基于 AI/LLM 的山东省以旧换新政策智能咨询系统，采用 RAG（检索增强生成）技术提供政策问答、补贴计算与多模态识别能力。
+基于 AI/LLM 的山东省以旧换新政策咨询系统，支持政策问答、补贴计算、多模态识别，以及管理员控制台知识库管理。
 
 ## 技术架构
 
 | 层级 | 技术栈 |
 |------|--------|
 | 前端 | React 19 + Vite 7 |
-| 后端 | Spring Boot 3.4 + Spring AI 1.0.3 |
-| 大模型 | 阿里云 DashScope（通义千问 `qwen3-max`） |
+| 后端 | Spring Boot 3.4.1 + Spring AI 1.0.3 |
+| 大模型 | 阿里云 DashScope（聊天默认 `qwen3.5-plus`） |
 | 向量数据库 | PostgreSQL 16 + pgvector |
-| 会话存储 | Redis 7 |
+| 缓存/会话 | Redis 7 |
+| 对象存储 | MinIO |
 | 鉴权 | Spring Security + JWT |
 
 ## 项目结构
 
 ```text
-├── backend/                    # 后端服务
+├── backend/
 │   ├── src/main/java/com/shandong/policyagent/
-│   │   ├── advisor/            # 安全、重读校验、日志、会话记忆
-│   │   ├── config/             # Spring 配置（ChatClient/Security 等）
-│   │   ├── controller/         # REST API 控制器
-│   │   ├── multimodal/         # 语音识别与视觉分析
-│   │   ├── rag/                # 文档切片、检索、向量存储
-│   │   ├── security/           # JWT 相关
-│   │   ├── service/            # 业务服务
-│   │   └── tool/               # LLM 工具（补贴计算/文件解析/联网搜索）
-│   ├── src/main/resources/     # 配置文件
-│   ├── docker-compose.yml      # PostgreSQL + Redis
+│   │   ├── advisor/       # 安全、记忆、日志、重读校验
+│   │   ├── agent/         # ToolIntentClassifier / AgentPlanParser
+│   │   ├── config/        # ChatClient/Security/Embedding/Minio 配置
+│   │   ├── controller/    # Chat/Auth/Admin/Knowledge API
+│   │   ├── entity/        # JPA 实体
+│   │   ├── multimodal/    # ASR 与视觉
+│   │   ├── rag/           # 知识库切片、检索、向量写入
+│   │   ├── service/       # 业务逻辑
+│   │   └── tool/          # calculateSubsidy / parseFile / webSearch
+│   ├── src/main/resources/
+│   ├── docker-compose.yml # PostgreSQL + Redis + MinIO
 │   └── pom.xml
-├── frontend/                   # 前端应用
+├── frontend/
 │   ├── src/
-│   ├── vite.config.js
+│   │   ├── pages/         # 含 AdminConsolePage
+│   │   ├── components/    # 含 admin/ 子模块
+│   │   └── services/      # api / adminApi / adminKnowledgeApi
 │   └── package.json
-└── data/                       # 政策文档与增量状态
+├── data/
+└── docs/
 ```
 
 ## 快速开始
@@ -48,8 +53,7 @@
 
 ```bash
 export DASHSCOPE_API_KEY=your_dashscope_api_key
-# 可选：启用联网搜索工具
-export TAVILY_API_KEY=your_tavily_api_key
+export TAVILY_API_KEY=your_tavily_api_key   # 可选，联网搜索工具
 ```
 
 ### 2. 启动基础设施
@@ -63,10 +67,9 @@ docker compose up -d
 
 ```bash
 cd backend
-# 默认模式
 ./mvnw spring-boot:run
 
-# 启用 mcp profile
+# mcp profile
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
 ```
 
@@ -82,104 +85,84 @@ npm run dev
 
 | 服务 | 地址 |
 |------|------|
-| 前端界面 | http://localhost:5173 |
+| 前端 | http://localhost:5173 |
 | 后端 API | http://localhost:8080 |
 | 健康检查 | http://localhost:8080/api/chat/health |
+| MinIO API | http://localhost:9000 |
+| MinIO Console | http://localhost:9001 |
 
-## API 接口
+## API 概览
 
 ### 对话与文档
 
-| 方法 | 路径 | 描述 | 鉴权 |
-|------|------|------|------|
-| POST | `/api/chat` | 标准对话（完整响应） | 可匿名 |
-| POST | `/api/chat/stream` | 流式对话（SSE） | 可匿名 |
-| GET | `/api/chat/health` | 健康检查 | 可匿名 |
-| POST | `/api/documents/load` | 加载默认文档目录 | 可匿名 |
-| POST | `/api/documents/load-directory?path=xxx` | 加载指定目录文档 | 可匿名 |
-| DELETE | `/api/documents?ids=id1&ids=id2` | 删除向量库文档 | 可匿名 |
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/chat` | 标准对话 |
+| POST | `/api/chat/stream` | 流式对话（SSE） |
+| GET | `/api/chat/health` | 健康检查 |
+| POST | `/api/documents/load` | 加载默认文档 |
+| POST | `/api/documents/load-directory` | 加载指定目录文档 |
+| DELETE | `/api/documents` | 删除文档 |
 
-### 认证与会话
+### 用户认证与会话
 
-| 方法 | 路径 | 描述 | 鉴权 |
-|------|------|------|------|
-| POST | `/api/auth/register` | 用户注册 | 可匿名 |
-| POST | `/api/auth/login` | 用户登录 | 可匿名 |
-| GET | `/api/auth/me` | 获取当前用户信息 | 需要 JWT |
-| GET | `/api/conversations` | 获取当前用户会话列表 | 需要 JWT |
-| GET | `/api/conversations/{sessionId}` | 获取/创建指定会话 | 需要 JWT |
-| DELETE | `/api/conversations/{sessionId}` | 删除指定会话 | 需要 JWT |
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/auth/register` | 用户注册 |
+| POST | `/api/auth/login` | 用户登录 |
+| GET | `/api/auth/me` | 当前用户信息 |
+| GET | `/api/conversations` | 当前用户会话列表 |
+| GET | `/api/conversations/{sessionId}` | 获取/创建指定会话 |
+| DELETE | `/api/conversations/{sessionId}` | 删除会话 |
+
+### 管理员配置与知识库
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/admin/auth/login` | 管理员登录 |
+| POST | `/api/admin/auth/change-password` | 修改管理员密码 |
+| GET | `/api/admin/agent-config` | 获取智能体配置 |
+| PUT | `/api/admin/agent-config` | 更新智能体配置 |
+| POST | `/api/admin/agent-config/reset` | 重置智能体配置 |
+| POST | `/api/admin/agent-config/test` | 管理员测试对话 |
+| GET | `/api/admin/knowledge/folders` | 获取知识库目录树 |
+| POST | `/api/admin/knowledge/documents` | 上传知识文档 |
+| GET | `/api/admin/knowledge/documents` | 分页查询文档 |
+| POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
+| GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
 
 ### 多模态
 
-| 方法 | 路径 | 描述 | 鉴权 |
-|------|------|------|------|
-| POST | `/api/multimodal/transcribe` | 语音转文字 | 可匿名 |
-| POST | `/api/multimodal/analyze-image` | 通用图片理解 | 可匿名 |
-| POST | `/api/multimodal/analyze-invoice` | 发票识别 | 可匿名 |
-| POST | `/api/multimodal/analyze-device` | 家电/设备识别 | 可匿名 |
-
-## 对话示例
-
-```bash
-# 标准对话
-curl -X POST http://localhost:8080/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "山东省家电以旧换新补贴政策是什么？"}'
-
-# 流式对话
-curl -X POST http://localhost:8080/api/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{"message": "空调补贴最多能补几台？"}'
-
-# 加载文档
-curl -X POST "http://localhost:8080/api/documents/load-directory?path=/path/to/data"
-```
-
-## 配置文件
-
-| 文件 | 路径 | 说明 |
+| 方法 | 路径 | 描述 |
 |------|------|------|
-| Spring Boot 配置 | `backend/src/main/resources/application.yml` | 数据源、AI 模型、RAG、工具开关 |
-| Maven 依赖 | `backend/pom.xml` | 后端依赖管理 |
-| Docker 编排 | `backend/docker-compose.yml` | PostgreSQL + Redis |
-| Vite 配置 | `frontend/vite.config.js` | 前端构建与代理 |
-| npm 依赖 | `frontend/package.json` | 前端依赖与脚本 |
-| ESLint 规则 | `frontend/eslint.config.js` | 前端代码检查规则 |
+| POST | `/api/multimodal/transcribe` | 语音识别 |
+| POST | `/api/multimodal/analyze-image` | 图像分析 |
+| POST | `/api/multimodal/analyze-invoice` | 发票识别 |
+| POST | `/api/multimodal/analyze-device` | 设备识别 |
 
 ## 常用命令
 
-### 后端
-
 ```bash
+# backend
 cd backend
-
-./mvnw spring-boot:run
 ./mvnw clean package
 ./mvnw test
+./mvnw spring-boot:run
 
-docker compose up -d
-docker compose down
-docker compose logs -f
-```
-
-### 前端
-
-```bash
+# frontend
 cd frontend
-
-npm install
 npm run dev
 npm run build
 npm run lint
-npm run preview
 ```
 
-## 服务端口
+## 默认端口
 
 | 服务 | 端口 |
 |------|------|
-| 前端开发服务器 | 5173 |
-| 后端 API | 8080 |
+| 前端 | 5173 |
+| 后端 | 8080 |
 | PostgreSQL | 5432 |
 | Redis | 6379 |
+| MinIO API | 9000 |
+| MinIO Console | 9001 |

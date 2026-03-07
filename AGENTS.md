@@ -15,7 +15,7 @@
 │       ├── advisor/       # Spring AI Advisors (安全、记忆、日志等)
 │       ├── agent/         # Agent 计划解析与意图分类 (AgentPlanParser/ToolIntentClassifier)
 │       ├── config/        # Spring 配置类
-│       ├── controller/    # REST API 控制器
+│       ├── controller/    # REST API 控制器 (含 admin 配置与知识库接口)
 │       ├── entity/        # JPA 实体类
 │       ├── exception/     # 全局异常处理器
 │       ├── model/         # 数据传输对象和领域模型
@@ -27,7 +27,7 @@
 │       └── tool/          # LLM 可调用工具 (补贴/文件解析/联网搜索/ToolFailurePolicyCenter)
 ├── frontend/              # 前端：React 19 + Vite 7 (JavaScript/JSX)
 │   └── src/
-│       ├── components/    # React 组件
+│       ├── components/    # React 组件 (含 components/admin)
 │       └── *.css          # CSS 模块 (variables.css 用于设计标记)
 └── data/                  # 政策文档数据
 ```
@@ -42,7 +42,7 @@ cd backend
 # 构建项目
 ./mvnw clean package
 
-# 运行 (需要先启动 PostgreSQL + Redis)
+# 运行 (需要先启动 PostgreSQL + Redis + MinIO)
 ./mvnw spring-boot:run
 
 # mcp profile
@@ -84,7 +84,7 @@ npm run preview
 ```bash
 cd backend
 
-# 启动 PostgreSQL (pgvector) + Redis
+# 启动 PostgreSQL (pgvector) + Redis + MinIO
 docker compose up -d
 
 # 停止服务
@@ -167,7 +167,7 @@ docker compose down
 | :--- | :--- |
 | `backend/pom.xml` | Maven 构建配置，依赖管理 |
 | `backend/src/main/resources/application.yml` | Spring Boot 配置文件 |
-| `backend/docker-compose.yml` | PostgreSQL (pgvector) + Redis 服务编排 |
+| `backend/docker-compose.yml` | PostgreSQL (pgvector) + Redis + MinIO 服务编排 |
 | `frontend/package.json` | npm 依赖包和脚本 |
 | `frontend/vite.config.js` | Vite 构建配置 |
 | `frontend/eslint.config.js` | ESLint 代码检查规则 |
@@ -179,6 +179,7 @@ docker compose down
 - Spring AI 1.0.3 (兼容 OpenAI，使用阿里云 DashScope/通义千问)
 - PostgreSQL 16 配合 pgvector 扩展 (用于 RAG 向量存储)
 - Redis 7 (用于聊天记忆/会话存储)
+- MinIO (用于知识库原始文档对象存储)
 - Spring Security + JWT (认证鉴权)
 - Lombok + Jakarta Validation
 
@@ -206,6 +207,18 @@ docker compose down
 | GET | `/api/conversations` | 当前用户会话列表 |
 | GET | `/api/conversations/{sessionId}` | 获取/创建指定会话 |
 | DELETE | `/api/conversations/{sessionId}` | 删除会话 |
+| POST | `/api/admin/auth/login` | 管理员登录 |
+| POST | `/api/admin/auth/change-password` | 修改管理员密码 |
+| GET | `/api/admin/agent-config` | 获取管理员智能体配置 |
+| PUT | `/api/admin/agent-config` | 更新管理员智能体配置 |
+| POST | `/api/admin/agent-config/reset` | 重置管理员智能体配置 |
+| POST | `/api/admin/agent-config/test` | 管理员配置测试对话 |
+| GET | `/api/admin/knowledge/folders` | 知识库目录树 |
+| POST | `/api/admin/knowledge/documents` | 上传知识库文档 |
+| GET | `/api/admin/knowledge/documents` | 分页查询知识库文档 |
+| GET | `/api/admin/knowledge/documents/{id}/chunks` | 查询文档切片结果 |
+| POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
+| GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
 | POST | `/api/multimodal/transcribe` | 语音识别 |
 | POST | `/api/multimodal/analyze-image` | 图像分析 |
 | POST | `/api/multimodal/analyze-invoice` | 发票识别 |
@@ -226,11 +239,12 @@ docker compose down
 
 1. **后端：** 在 `@RequestBody` 参数上优先使用 `@Valid` 注解进行校验。
 2. **前端：** 别忘了在组件中导入对应的 CSS 文件。
-3. **Docker：** 确保 PostgreSQL 服务健康后，再启动 Spring Boot 应用。
+3. **Docker：** 确保 PostgreSQL、Redis、MinIO 均健康后，再启动 Spring Boot 应用。
 4. **API：** 流式接口返回类型为 `text/event-stream`。
 5. **鉴权：** `/api/conversations/**` 与 `/api/auth/me` 需要 `Authorization: Bearer <JWT>`。
-6. **工具调用：** 通过 `ToolIntentClassifier` 进行前置校验，参数不足时会先向用户补充必要参数。
-7. **会话事实：** `SessionFactCacheService` 会将关键事实（价格、地区、设备型号等）缓存到 Redis 供多轮对话复用。
+6. **管理员鉴权：** `/api/admin/**` 需要管理员角色 JWT；默认管理员账号在首次启动时由 `AdminInitializer` 初始化为 `admin/admin`（建议立即修改密码）。
+7. **工具调用：** 通过 `ToolIntentClassifier` 进行前置校验，参数不足时会先向用户补充必要参数。
+8. **会话事实：** `SessionFactCacheService` 会将关键事实（价格、地区、设备型号等）缓存到 Redis 供多轮对话复用。
 
 #### Advisor 执行顺序
 
