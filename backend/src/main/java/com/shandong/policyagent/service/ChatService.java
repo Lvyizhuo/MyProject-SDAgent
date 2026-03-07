@@ -50,6 +50,7 @@ public class ChatService {
         AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
         ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
+        plan = enforceRealtimeWebSearch(userMessage, plan, intentDecision, conversationId);
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
@@ -85,6 +86,7 @@ public class ChatService {
         AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
         ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
+        plan = enforceRealtimeWebSearch(userMessage, plan, intentDecision, conversationId);
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
@@ -186,7 +188,71 @@ public class ChatService {
                 3. 需要计算补贴时必须调用 calculateSubsidy。
                 4. 用户询问线下购买、门店、回收点、路线、导航时，优先调用高德地图MCP工具；若MCP暂不可用再给出人工兜底建议。
                 5. 不要暴露内部思维链路，只输出对用户可读的结论、步骤和建议。
+                6. 若问题包含最新/实时/价格/新闻/政策动态等时效性信息，必须调用 webSearch 并给出来源链接。
                 """, userMessage, plan.summary(), plan.needToolCall(), stepsBuilder);
+    }
+
+    private AgentExecutionPlan enforceRealtimeWebSearch(String userMessage,
+                                                        AgentExecutionPlan plan,
+                                                        ToolIntentClassifier.IntentDecision intentDecision,
+                                                        String conversationId) {
+        if (plan == null || !requiresRealtimeSearch(userMessage)) {
+            return plan;
+        }
+        if (plan.steps() != null && plan.steps().stream().anyMatch(step -> "webSearch".equals(step.toolHint()))) {
+            return plan;
+        }
+        if (!intentDecision.allowToolCall() && "webSearch".equals(intentDecision.targetTool())) {
+            return plan;
+        }
+
+        String conciseQuery = extractQueryForWebSearch(userMessage);
+        log.info("检测到实时查询意图，强制修正为 webSearch 计划 | conversationId={} | query={}",
+                conversationId, conciseQuery);
+
+        return new AgentExecutionPlan(
+                "问题需要实时信息，先联网检索后回答",
+                true,
+                List.of(
+                        new AgentExecutionPlan.AgentStep(1,
+                                "调用 webSearch 查询实时信息，关键词：" + conciseQuery,
+                                "webSearch"),
+                        new AgentExecutionPlan.AgentStep(2,
+                                "结合检索结果给出结论并附来源链接",
+                                "none")
+                )
+        );
+    }
+
+    private boolean requiresRealtimeSearch(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return false;
+        }
+        String normalized = userMessage.toLowerCase();
+        return normalized.contains("最新")
+                || normalized.contains("实时")
+                || normalized.contains("今日")
+                || normalized.contains("当前")
+                || normalized.contains("新闻")
+                || normalized.contains("动态")
+                || normalized.contains("价格")
+                || normalized.contains("市场价")
+                || normalized.contains("报价")
+                || normalized.contains("电商")
+                || normalized.contains("官网")
+                || normalized.contains("search")
+                || normalized.contains("websearch");
+    }
+
+    private String extractQueryForWebSearch(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return "山东以旧换新最新政策";
+        }
+        String condensed = userMessage
+                .replace("\n", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return condensed.length() > 120 ? condensed.substring(0, 120) : condensed;
     }
 
     private String analyzeImages(List<String> imageBase64List, String imageFormat) {

@@ -47,7 +47,7 @@ spring:
           temperature: 0.7
       embedding:
         options:
-          model: qwen3-vl-embedding
+          model: text-embedding-v3
     
     # PgVector 向量存储配置
     vectorstore:
@@ -138,7 +138,7 @@ app:
         - id: ollama:qwen3-embedding
           provider: ollama
           base-url: http://localhost:11434
-          model-name: qwen3-embedding:latest
+          model-name: qwen3-embedding:0.6b
           dimensions: 1024
           vector-table: vector_store_ollama_qwen3_1024
         - id: dashscope:text-embedding-v3

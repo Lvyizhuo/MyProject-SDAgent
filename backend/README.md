@@ -31,6 +31,10 @@ cd backend
 # 运行
 ./mvnw spring-boot:run
 
+# 若使用 .env 文件，推荐先导出环境变量再运行
+set -a; source .env; set +a
+./mvnw spring-boot:run
+
 # mcp profile
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
 

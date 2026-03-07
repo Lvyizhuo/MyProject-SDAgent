@@ -1,6 +1,5 @@
 # ===========================================
-# 山东省智能政策咨询助手 - Docker Compose
-# 后端依赖 + 后端服务
+# 完整 Docker Compose (宝塔反向代理 + Docker 容器)
 # ===========================================
 
 services:
@@ -16,7 +15,7 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      - ../backend/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -89,7 +88,7 @@ services:
 
   backend:
     build:
-      context: .
+      context: ../backend
       dockerfile: Dockerfile
     container_name: policy-agent-backend
     restart: unless-stopped
@@ -99,7 +98,7 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       APP_JWT_SECRET: ${APP_JWT_SECRET}
-      APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:5173,http://127.0.0.1:5173}
+      APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS:-http://mmgg.dpdns.org,https://mmgg.dpdns.org}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/policy_agent
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -108,7 +107,7 @@ services:
       APP_KNOWLEDGE_MINIO_ENDPOINT: http://minio:9000
       APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
-      APP_KNOWLEDGE_EMBEDDING_MODELS: '[{"id":"ollama:qwen3-embedding","provider":"ollama","base-url":"http://ollama:11434","model-name":"qwen3-embedding:0.6b","dimensions":1024,"vector-table":"vector_store_ollama_qwen3_1024"}]'
+      APP_KNOWLEDGE_EMBEDDING_MODELS: '[{"id":"ollama:qwen3-embedding","provider":"ollama","base-url":"http://ollama:11434","model-name":"qwen3-embedding:0.6b","dimensions":1024,"vector-table":"vector_store_ollama_qwen3_1024"},{"id":"dashscope:text-embedding-v3","provider":"dashscope","base-url":"https://dashscope.aliyuncs.com/compatible-mode","api-key":"${DASHSCOPE_API_KEY}","model-name":"text-embedding-v3","dimensions":1024,"vector-table":"vector_store_dashscope_v3"}]'
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,7 +122,24 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: policy-agent-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      backend:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
 volumes:
   postgres_data:

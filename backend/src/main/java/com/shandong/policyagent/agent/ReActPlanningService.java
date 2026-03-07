@@ -35,6 +35,9 @@ public class ReActPlanningService {
             2. 涉及线下门店、回收点、路线、导航时，toolHint 必须包含 amap-mcp。
             3. 涉及补贴金额计算时，toolHint 必须包含 calculateSubsidy。
             4. 涉及政策依据时，优先使用 rag。
+            5. 涉及“最新/实时/今日/当前/新闻/价格/市场价/电商报价/官网报价/政策动态”的问题时，
+               必须将关键步骤的 toolHint 设为 webSearch，并将 needToolCall 设为 true。
+            6. 不要声称“没有 webSearch 工具”或“无法联网搜索”；若属于实时信息查询，必须规划 webSearch。
             """;
 
     private final ChatModel chatModel;
