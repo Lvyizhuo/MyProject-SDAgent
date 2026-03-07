@@ -108,7 +108,7 @@ services:
       APP_KNOWLEDGE_MINIO_ENDPOINT: http://minio:9000
       APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
-      APP_KNOWLEDGE_EMBEDDING_MODELS: '[{"id":"ollama:qwen3-embedding","provider":"ollama","base-url":"http://ollama:11434","model-name":"qwen3-embedding:0.6b","dimensions":1024,"vector-table":"vector_store_ollama_qwen3_1024"}]'
+      APP_KNOWLEDGE_EMBEDDING_MODELS_0_BASE_URL: http://ollama:11434
     depends_on:
       postgres:
         condition: service_healthy
