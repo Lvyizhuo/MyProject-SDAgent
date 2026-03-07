@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -46,7 +47,18 @@ public class EmbeddingService {
     }
 
     public List<EmbeddingModelConfig.EmbeddingModel> getAvailableModels() {
-        return embeddingModelConfig.getModels();
+        List<EmbeddingModelConfig.EmbeddingModel> models = embeddingModelConfig.getModels();
+        long invalidCount = models.stream()
+                .filter(Objects::nonNull)
+                .filter(m -> m.getId() == null || m.getId().isBlank())
+                .count();
+        if (invalidCount > 0) {
+            log.warn("Detected {} embedding model entries without id. They will be ignored.", invalidCount);
+        }
+        return models.stream()
+                .filter(Objects::nonNull)
+                .filter(m -> m.getId() != null && !m.getId().isBlank())
+                .toList();
     }
 
     public EmbeddingModelConfig.EmbeddingModel getDefaultModel() {
@@ -54,8 +66,11 @@ public class EmbeddingService {
     }
 
     public EmbeddingModelConfig.EmbeddingModel getModelConfig(String modelId) {
-        return embeddingModelConfig.getModels().stream()
-                .filter(m -> m.getId().equals(modelId))
+        if (modelId == null || modelId.isBlank()) {
+            throw new IllegalArgumentException("Embedding model id is required");
+        }
+        return getAvailableModels().stream()
+                .filter(m -> modelId.equals(m.getId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Embedding model not found: " + modelId));
     }
