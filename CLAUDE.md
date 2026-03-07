@@ -84,6 +84,43 @@ npm run preview
 
 - `DASHSCOPE_API_KEY` - 必需，DashScope API 密钥
 - `TAVILY_API_KEY` - 可选，联网搜索工具密钥
+- `APP_JWT_SECRET` - 必需（生产），JWT 签名密钥（Base64）
+- `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` - 生产域名 CORS 放行
+- `APP_EMBEDDING_OLLAMA_BASE_URL` - 可选，Ollama 嵌入地址（容器内默认 `http://ollama:11434`）
+
+## 服务器部署（Production）
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+cp deploy/.env.example deploy/.env
+vi deploy/.env
+
+cd deploy
+docker compose --env-file .env up -d --build
+docker compose ps
+```
+
+健康检查：
+
+```bash
+curl -f http://127.0.0.1:8080/actuator/health
+curl -f http://127.0.0.1:8080/api/chat/health
+curl -f http://127.0.0.1:5173/health
+```
+
+常用排障：
+
+```bash
+cd deploy
+docker compose logs -f backend
+docker compose logs --tail=200 backend
+docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
+```
+
+反向代理说明（宝塔 Nginx）：
+- 自定义配置内不要再包 `server {}`。
+- 同一站点只能有一个 `location /`。
+- 路由建议：`/` 到 `127.0.0.1:5173`，`/api/` 到 `127.0.0.1:8080/api/`。
 
 ## API 端点
 

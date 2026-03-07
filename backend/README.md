@@ -20,6 +20,26 @@ docker compose up -d
 - `9000` MinIO API
 - `9001` MinIO Console
 
+## 服务器部署（通过项目根目录 deploy）
+
+生产环境建议使用项目根目录 `deploy/docker-compose.yml` 一次启动前后端与依赖服务：
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+cp deploy/.env.example deploy/.env
+vi deploy/.env
+
+cd deploy
+docker compose --env-file .env up -d --build
+docker compose ps
+```
+
+关键环境变量（生产）：
+- `DASHSCOPE_API_KEY`
+- `APP_JWT_SECRET`
+- `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`
+- `APP_EMBEDDING_OLLAMA_BASE_URL`
+
 ## 运行与测试
 
 ```bash

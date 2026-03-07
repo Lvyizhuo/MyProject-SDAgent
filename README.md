@@ -81,6 +81,85 @@ npm install
 npm run dev
 ```
 
+## 服务器部署（宝塔 + Docker Compose）
+
+推荐在 Linux 服务器使用 `deploy/` 目录一键部署（包含前后端 + PostgreSQL + Redis + MinIO + Ollama）。
+
+### 1. 准备部署配置
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+cp deploy/.env.example deploy/.env
+vi deploy/.env
+```
+
+至少需要正确配置：
+- `DASHSCOPE_API_KEY`
+- `APP_JWT_SECRET`
+- `POSTGRES_PASSWORD`
+- `MINIO_PASSWORD`
+- `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`
+- `APP_EMBEDDING_OLLAMA_BASE_URL`（容器内默认 `http://ollama:11434`）
+
+### 2. 启动容器
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent/deploy
+docker compose --env-file .env up -d --build
+docker compose ps
+```
+
+### 3. 健康检查
+
+```bash
+curl -f http://127.0.0.1:8080/actuator/health
+curl -f http://127.0.0.1:8080/api/chat/health
+curl -f http://127.0.0.1:5173/health
+```
+
+### 4. 宝塔 Nginx 反向代理要点
+
+- 在宝塔“自定义配置”中不要包 `server {}`。
+- 同一个站点只保留一个 `location /`，避免 `duplicate location "/"`。
+- 建议路由：
+  - `/` -> `127.0.0.1:5173`
+  - `/api/` -> `127.0.0.1:8080/api/`
+
+配置后执行：
+
+```bash
+nginx -t && nginx -s reload
+```
+
+## 生产更新与回滚
+
+### 更新
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+git pull
+cd deploy
+docker compose --env-file .env up -d --build
+```
+
+### 快速回滚
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+git log --oneline -n 10
+git checkout <稳定版本commit>
+cd deploy
+docker compose --env-file .env up -d --build
+```
+
+## 常见排障
+
+- 查看后端日志：`docker compose logs -f backend`
+- 查看最近错误：`docker compose logs --tail=200 backend`
+- 查看容器状态：`docker compose ps`
+- 查看后端健康状态：`docker inspect -f '{{.State.Health.Status}}' policy-agent-backend`
+- 若知识库模型列表为空或上传失败，先检查 `backend` 日志是否有 `EmbeddingService` 相关报错，再核对 `APP_EMBEDDING_OLLAMA_BASE_URL`。
+
 ## 访问地址
 
 | 服务 | 地址 |

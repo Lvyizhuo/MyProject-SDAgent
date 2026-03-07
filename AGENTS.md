@@ -91,6 +91,41 @@ docker compose up -d
 docker compose down
 ```
 
+**服务器部署 (宝塔 + Docker Compose)**
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+cp deploy/.env.example deploy/.env
+vi deploy/.env
+
+cd deploy
+docker compose --env-file .env up -d --build
+docker compose ps
+```
+
+健康检查：
+
+```bash
+curl -f http://127.0.0.1:8080/actuator/health
+curl -f http://127.0.0.1:8080/api/chat/health
+curl -f http://127.0.0.1:5173/health
+```
+
+宝塔 Nginx 注意事项：
+- 自定义配置中不要再写 `server {}`。
+- 同一个站点只保留一个 `location /`（避免 `duplicate location "/"`）。
+- 路由建议：`/ -> 127.0.0.1:5173`，`/api/ -> 127.0.0.1:8080/api/`。
+- 配置后执行 `nginx -t && nginx -s reload`。
+
+更新流程：
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+git pull
+cd deploy
+docker compose --env-file .env up -d --build
+```
+
 #### 代码风格规范
 
 **后端 (Java)**
@@ -229,6 +264,9 @@ docker compose down
 后端运行所需环境变量：
 - `DASHSCOPE_API_KEY` - 阿里云 DashScope API 密钥（必需）
 - `TAVILY_API_KEY` - Tavily 搜索 API 密钥（启用联网搜索时需要）
+- `APP_JWT_SECRET` - JWT 签名密钥（生产环境必需）
+- `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` - CORS 放行来源（生产域名）
+- `APP_EMBEDDING_OLLAMA_BASE_URL` - Ollama 嵌入服务地址（容器内默认 `http://ollama:11434`）
 
 #### 类型安全
 
