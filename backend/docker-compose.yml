@@ -85,7 +85,7 @@ services:
         condition: service_healthy
     volumes:
       - ollama_data:/root/.ollama
-    command: ["sh", "-c", "ollama pull qwen3-embedding:0.6b"]
+    command: ["pull", "qwen3-embedding:0.6b"]
 
   backend:
     build:
