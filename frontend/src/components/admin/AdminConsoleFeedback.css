@@ -1,0 +1,286 @@
+.admin-toast-viewport {
+    position: fixed;
+    right: 24px;
+    bottom: max(24px, env(safe-area-inset-bottom));
+    z-index: 1800;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: min(360px, calc(100vw - 24px));
+    pointer-events: none;
+}
+
+.admin-toast {
+    pointer-events: auto;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: start;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid hsl(var(--color-border) / 0.82);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated) / 0.96), hsl(var(--color-bg-elevated) / 0.88));
+    box-shadow: 0 20px 42px -24px hsl(var(--color-title) / 0.42);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    animation: adminToastIn 180ms ease-out both;
+}
+
+.admin-toast.success {
+    border-color: hsl(142 67% 44% / 0.24);
+    background: linear-gradient(180deg, hsl(142 67% 97%), hsl(0 0% 100% / 0.92));
+    color: hsl(142 67% 28%);
+}
+
+.admin-toast.error {
+    border-color: hsl(0 84% 60% / 0.26);
+    background: linear-gradient(180deg, hsl(0 84% 97%), hsl(0 0% 100% / 0.92));
+    color: hsl(0 72% 42%);
+}
+
+.admin-toast.warning {
+    border-color: hsl(42 100% 52% / 0.28);
+    background: linear-gradient(180deg, hsl(42 100% 97%), hsl(0 0% 100% / 0.92));
+    color: hsl(31 91% 32%);
+}
+
+.admin-toast.info {
+    border-color: hsl(var(--color-primary) / 0.22);
+    background: linear-gradient(180deg, hsl(var(--color-primary-light)), hsl(0 0% 100% / 0.92));
+    color: hsl(var(--color-primary-hover));
+}
+
+.admin-toast-icon {
+    margin-top: 1px;
+}
+
+.admin-toast-content {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.admin-toast-content strong {
+    font-size: 0.88rem;
+    color: currentColor;
+    font-weight: 700;
+}
+
+.admin-toast-content span {
+    font-size: 0.84rem;
+    line-height: 1.5;
+    color: hsl(var(--color-text-main));
+}
+
+.admin-toast.success .admin-toast-content span {
+    color: hsl(142 67% 26%);
+}
+
+.admin-toast.error .admin-toast-content span {
+    color: hsl(0 72% 34%);
+}
+
+.admin-toast.warning .admin-toast-content span {
+    color: hsl(31 91% 24%);
+}
+
+.admin-toast.info .admin-toast-content span {
+    color: hsl(var(--color-primary-hover));
+}
+
+.admin-toast-close {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: currentColor;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background var(--transition-fast), opacity var(--transition-fast);
+    opacity: 0.72;
+}
+
+.admin-toast-close:hover {
+    background: hsl(var(--color-title) / 0.08);
+    opacity: 1;
+}
+
+.admin-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(8, 18, 38, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.admin-dialog {
+    width: min(460px, 100%);
+    border-radius: 22px;
+    border: 1px solid hsl(var(--color-border) / 0.9);
+    background:
+        radial-gradient(520px 200px at 100% -18%, hsl(var(--color-primary-light) / 0.85), transparent 72%),
+        linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-soft)));
+    box-shadow: var(--shadow-lg);
+    animation: adminDialogIn 180ms ease-out both;
+}
+
+.admin-dialog-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 20px 22px 12px;
+}
+
+.admin-dialog-header h3 {
+    margin: 0;
+    font-size: 1.06rem;
+    color: hsl(var(--color-title));
+}
+
+.admin-dialog-header p {
+    margin: 6px 0 0;
+    color: hsl(var(--color-text-secondary));
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+.admin-dialog-close {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: hsl(var(--color-text-secondary));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.admin-dialog-close:hover {
+    background: hsl(var(--color-primary-light) / 0.55);
+    color: hsl(var(--color-primary));
+}
+
+.admin-dialog-body {
+    padding: 4px 22px 0;
+}
+
+.admin-dialog-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 0.84rem;
+    color: hsl(var(--color-text-secondary));
+}
+
+.admin-dialog-input {
+    width: 100%;
+    padding: 11px 13px;
+    border: 1px solid hsl(var(--color-border));
+    border-radius: 12px;
+    background: hsl(var(--color-bg-elevated));
+    color: hsl(var(--color-text-main));
+    font-size: 0.92rem;
+}
+
+.admin-dialog-input:focus {
+    outline: none;
+    border-color: hsl(var(--color-primary) / 0.78);
+    box-shadow: 0 0 0 3px hsl(var(--color-primary) / 0.16);
+}
+
+.admin-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 18px 22px 22px;
+}
+
+.admin-btn {
+    min-height: 40px;
+    padding: 0 18px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.admin-btn:hover {
+    transform: translateY(-1px);
+}
+
+.admin-btn-secondary {
+    background: hsl(var(--color-bg-elevated));
+    border-color: hsl(var(--color-border));
+    color: hsl(var(--color-text-main));
+}
+
+.admin-btn-primary {
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
+    color: hsl(var(--color-text-inverse));
+    box-shadow: 0 14px 26px -20px hsl(var(--color-primary) / 0.85);
+}
+
+.admin-btn-danger {
+    background: linear-gradient(135deg, hsl(0 84% 58%), hsl(var(--color-accent)));
+    color: hsl(var(--color-text-inverse));
+    box-shadow: 0 14px 26px -20px hsl(0 84% 58% / 0.82);
+}
+
+@keyframes adminToastIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes adminDialogIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@media (max-width: 640px) {
+    .admin-overlay {
+        padding: 14px;
+    }
+
+    .admin-dialog-footer {
+        flex-direction: column-reverse;
+    }
+
+    .admin-btn {
+        width: 100%;
+    }
+
+    .admin-toast-viewport {
+        right: 12px;
+        left: 12px;
+        width: auto;
+        bottom: max(12px, env(safe-area-inset-bottom));
+    }
+}

@@ -10,6 +10,9 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * ReAct 风格任务规划服务。
@@ -49,12 +52,20 @@ public class ReActPlanningService {
             return planParser.parse("", userMessage, properties.getMaxPlanningSteps());
         }
 
+        AgentExecutionPlan shortcutPlan = tryBuildShortcutPlan(conversationId, userMessage);
+        if (shortcutPlan != null) {
+            return shortcutPlan;
+        }
+
         try {
             Prompt planningPrompt = new Prompt(List.of(
                     new SystemMessage(PLANNER_SYSTEM_PROMPT),
                     new UserMessage(userMessage)
             ));
-            String rawPlan = chatModel.call(planningPrompt).getResult().getOutput().getText();
+            String rawPlan = CompletableFuture.supplyAsync(() ->
+                            chatModel.call(planningPrompt).getResult().getOutput().getText())
+                    .orTimeout(properties.getPlanningTimeoutSeconds(), TimeUnit.SECONDS)
+                    .join();
 
             AgentExecutionPlan plan = planParser.parse(rawPlan, userMessage, properties.getMaxPlanningSteps());
             log.info("ReAct 规划完成 | conversationId={} | summary={} | steps={}",
@@ -65,5 +76,78 @@ public class ReActPlanningService {
                     conversationId, e.getMessage());
             return planParser.parse("", userMessage, properties.getMaxPlanningSteps());
         }
+    }
+
+    private AgentExecutionPlan tryBuildShortcutPlan(String conversationId, String userMessage) {
+        String normalized = normalize(userMessage);
+        if (normalized.isBlank()) {
+            return null;
+        }
+
+        if (isGreeting(normalized)) {
+            log.info("ReAct 规划命中问候快捷路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "用户在进行问候，直接友好回应并说明可提供的帮助",
+                    false,
+                    List.of(
+                            new AgentExecutionPlan.AgentStep(1, "识别为问候语并简洁回应", "none"),
+                            new AgentExecutionPlan.AgentStep(2, "简要说明可咨询的政策范围", "none")
+                    )
+            );
+        }
+
+        if (requiresRealtimeSearch(normalized)) {
+            log.info("ReAct 规划命中实时查询快捷路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "问题需要实时信息，先联网检索后回答",
+                    true,
+                    List.of(
+                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(userMessage), "webSearch"),
+                            new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", "none")
+                    )
+            );
+        }
+
+        return null;
+    }
+
+    private boolean isGreeting(String normalized) {
+        return normalized.equals("你好")
+                || normalized.equals("您好")
+                || normalized.equals("hello")
+                || normalized.equals("hi")
+                || normalized.equals("哈喽")
+                || normalized.equals("在吗")
+                || normalized.equals("早上好")
+                || normalized.equals("下午好")
+                || normalized.equals("晚上好");
+    }
+
+    private boolean requiresRealtimeSearch(String normalized) {
+        return normalized.contains("最新")
+                || normalized.contains("实时")
+                || normalized.contains("今日")
+                || normalized.contains("当前")
+                || normalized.contains("新闻")
+                || normalized.contains("动态")
+                || normalized.contains("价格")
+                || normalized.contains("市场价")
+                || normalized.contains("报价")
+                || normalized.contains("电商")
+                || normalized.contains("官网")
+                || normalized.contains("search")
+                || normalized.contains("websearch");
+    }
+
+    private String summarizeQuery(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return "山东以旧换新最新政策";
+        }
+        String condensed = userMessage.replace("\n", " ").replaceAll("\\s+", " ").trim();
+        return condensed.length() > 120 ? condensed.substring(0, 120) : condensed;
+    }
+
+    private String normalize(String userMessage) {
+        return userMessage == null ? "" : userMessage.trim().toLowerCase(Locale.ROOT);
     }
 }

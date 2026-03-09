@@ -124,9 +124,12 @@ public class ToolIntentClassifier {
 
     private boolean hasSpecificSubject(String normalized) {
         return containsAny(normalized,
-                "iphone", "华为", "小米", "荣耀", "oppo", "vivo", "mate", "pro", "max",
-                "汽车", "家电", "空调", "冰箱", "洗衣机", "电视", "手机", "平板", "手表")
-                || normalized.matches(".*[a-z]{2,}\\s?\\d{1,3}.*");
+                "iphone", "ipad", "macbook", "thinkpad", "surface", "matebook", "xiaomi", "redmi",
+                "华为", "小米", "荣耀", "oppo", "vivo", "mate", "pro", "max", "air", "mini", "ultra",
+                "汽车", "家电", "空调", "冰箱", "洗衣机", "电视", "手机", "平板", "手表", "笔记本", "电脑")
+                || normalized.matches(".*[a-z]{2,}(?:\\s+[a-z0-9+-]{1,12}){0,4}\\s+\\d{1,3}.*")
+                || normalized.matches(".*\\d{1,3}(?:gb|tb|英寸|寸).*\\d{1,3}(?:gb|tb|英寸|寸).*")
+                || normalized.matches(".*\\d{4}款.*");
     }
 
     private String normalize(String text) {

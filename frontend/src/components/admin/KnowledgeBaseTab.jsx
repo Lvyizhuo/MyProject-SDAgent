@@ -23,9 +23,10 @@ import {
 } from 'lucide-react';
 import './KnowledgeBaseTab.css';
 import adminKnowledgeApi from '../../services/adminKnowledgeApi';
-import { addNotification } from '../../utils/notificationCenter';
+import { useAdminConsole } from './useAdminConsole';
 
 const KnowledgeBaseTab = () => {
+    const { notify, confirm, prompt } = useAdminConsole();
     const [loading, setLoading] = useState(true);
     const [folders, setFolders] = useState([]);
     const [documents, setDocuments] = useState([]);
@@ -42,35 +43,8 @@ const KnowledgeBaseTab = () => {
     const [chunkDocumentInfo, setChunkDocumentInfo] = useState(null);
     const [pendingDocuments, setPendingDocuments] = useState([]);
     const [pagination, setPagination] = useState({ page: 0, size: 20, totalElements: 0, totalPages: 0 });
-    const [message, setMessage] = useState({ text: '', type: '' });
-    const [toast, setToast] = useState({ text: '', type: '', visible: false });
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState(null);
-
-    const showToast = useCallback((text, type = 'success', duration = 3000) => {
-        setToast({ text, type, visible: true });
-        setTimeout(() => {
-            setToast(prev => ({ ...prev, visible: false }));
-        }, duration);
-    }, []);
-
-    const showBanner = useCallback((text, type = 'success', duration = 3000) => {
-        setMessage({ text, type });
-        setTimeout(() => setMessage({ text: '', type: '' }), duration);
-    }, []);
-
-    const notify = useCallback((text, type = 'success', mode = 'toast', duration = 3000) => {
-        addNotification({
-            text,
-            type,
-            source: '管理员-知识库'
-        });
-        if (mode === 'banner') {
-            showBanner(text, type, duration);
-            return;
-        }
-        showToast(text, type, duration);
-    }, [showBanner, showToast]);
 
     const loadFolderTree = useCallback(async () => {
         try {
@@ -78,8 +52,9 @@ const KnowledgeBaseTab = () => {
             setFolders(data.folders || []);
         } catch (error) {
             console.error('Failed to load folder tree:', error);
+            notify({ text: '加载文件夹树失败', type: 'error', source: '管理员-知识库' });
         }
-    }, []);
+    }, [notify]);
 
     const loadDocuments = useCallback(async (folderId = null, page = 0) => {
         try {
@@ -99,8 +74,9 @@ const KnowledgeBaseTab = () => {
             });
         } catch (error) {
             console.error('Failed to load documents:', error);
+            notify({ text: '加载文档列表失败', type: 'error', source: '管理员-知识库' });
         }
-    }, [pagination.size, filterStatus]);
+    }, [filterStatus, notify, pagination.size]);
 
     const loadEmbeddingModels = useCallback(async () => {
         try {
@@ -108,8 +84,9 @@ const KnowledgeBaseTab = () => {
             setEmbeddingModels(data.models || []);
         } catch (error) {
             console.error('Failed to load embedding models:', error);
+            notify({ text: '加载嵌入模型列表失败', type: 'error', source: '管理员-知识库' });
         }
-    }, []);
+    }, [notify]);
 
     const loadConfig = useCallback(async () => {
         try {
@@ -117,8 +94,9 @@ const KnowledgeBaseTab = () => {
             setConfig(data);
         } catch (error) {
             console.error('Failed to load config:', error);
+            notify({ text: '加载知识库配置失败', type: 'error', source: '管理员-知识库' });
         }
-    }, []);
+    }, [notify]);
 
     useEffect(() => {
         const initialize = async () => {
@@ -136,7 +114,7 @@ const KnowledgeBaseTab = () => {
 
     useEffect(() => {
         loadDocuments(selectedFolderId, 0);
-    }, [selectedFolderId, filterStatus]);
+    }, [filterStatus, loadDocuments, selectedFolderId]);
 
     const toggleFolder = (folderId) => {
         setExpandedFolders(prev => {
@@ -151,57 +129,83 @@ const KnowledgeBaseTab = () => {
     };
 
     const handleCreateFolder = async () => {
-        const name = prompt('请输入文件夹名称:');
-        if (!name?.trim()) return;
+        const name = await prompt({
+            title: '新建文件夹',
+            message: '请输入知识库文件夹名称，用于分类政策文档。',
+            label: '文件夹名称',
+            placeholder: '例如：2025 家电补贴政策',
+            confirmText: '创建'
+        });
+        if (name === null) {
+            return;
+        }
+
+        const trimmedName = name.trim();
+        if (!trimmedName) {
+            notify({ text: '文件夹名称不能为空', type: 'warning', source: '管理员-知识库' });
+            return;
+        }
 
         try {
             await adminKnowledgeApi.createFolder({
                 parentId: selectedFolderId,
-                name: name.trim(),
+                name: trimmedName,
                 description: ''
             });
-            notify('文件夹创建成功', 'success', 'banner');
+            notify({ text: '文件夹创建成功', type: 'success', source: '管理员-知识库' });
             await loadFolderTree();
         } catch (error) {
-            notify('文件夹创建失败: ' + error.message, 'error', 'banner', 5000);
+            notify({ text: '文件夹创建失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
     const handleDeleteFolder = async (folderId, event) => {
         event.stopPropagation();
-        if (!window.confirm('确定要删除此文件夹及其所有内容吗？')) return;
+        const confirmed = await confirm({
+            title: '删除文件夹',
+            message: '确定要删除此文件夹及其全部内容吗？已关联的文档也会一并移除。',
+            confirmText: '确认删除',
+            tone: 'danger'
+        });
+        if (!confirmed) return;
 
         try {
             await adminKnowledgeApi.deleteFolder(folderId);
-            notify('文件夹删除成功', 'success', 'banner');
+            notify({ text: '文件夹删除成功', type: 'success', source: '管理员-知识库' });
             if (selectedFolderId === folderId) {
                 setSelectedFolderId(null);
             }
             await loadFolderTree();
         } catch (error) {
-            notify('文件夹删除失败: ' + error.message, 'error', 'banner', 5000);
+            notify({ text: '文件夹删除失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
     const handleDeleteDocument = async (docId) => {
-        if (!window.confirm('确定要删除此文档吗？')) return;
+        const confirmed = await confirm({
+            title: '删除文档',
+            message: '确定要删除这份文档吗？删除后无法恢复。',
+            confirmText: '确认删除',
+            tone: 'danger'
+        });
+        if (!confirmed) return;
 
         try {
             await adminKnowledgeApi.deleteDocument(docId);
-            notify('文档删除成功', 'success', 'toast');
+            notify({ text: '文档删除成功', type: 'success', source: '管理员-知识库' });
             await loadDocuments(selectedFolderId, pagination.page);
         } catch (error) {
-            notify('文档删除失败: ' + error.message, 'error', 'banner', 5000);
+            notify({ text: '文档删除失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
     const handleReingestDocument = async (docId) => {
         try {
             await adminKnowledgeApi.reingestDocument(docId);
-            notify('文档重新处理中...', 'success', 'banner');
+            notify({ text: '文档已加入重新处理队列', type: 'info', source: '管理员-知识库' });
             await loadDocuments(selectedFolderId, pagination.page);
         } catch (error) {
-            notify('重新处理失败: ' + error.message, 'error', 'banner', 5000);
+            notify({ text: '重新处理失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
@@ -214,8 +218,9 @@ const KnowledgeBaseTab = () => {
             a.download = doc.fileName;
             a.click();
             window.URL.revokeObjectURL(url);
+            notify({ text: `已开始下载：${doc.fileName}`, type: 'info', source: '管理员-知识库' });
         } catch (error) {
-            notify('下载失败: ' + error.message, 'error', 'banner', 5000);
+            notify({ text: '下载失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
@@ -245,7 +250,7 @@ const KnowledgeBaseTab = () => {
                 content: allChunks
             });
         } catch (error) {
-            notify('获取分段失败: ' + error.message, 'error', 'banner', 5000);
+            notify({ text: '获取分段失败: ' + error.message, type: 'error', source: '管理员-知识库' });
             setShowChunkDialog(false);
         } finally {
             setChunkLoading(false);
@@ -356,14 +361,6 @@ const KnowledgeBaseTab = () => {
                     </button>
                 </div>
             </div>
-
-            {message.text && (
-                <div className={`kb-message ${message.type}`}>
-                    {message.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
-                    {message.text}
-                </div>
-            )}
-
             <div className="kb-content">
                 <div className="kb-sidebar">
                     <div className="sidebar-header">
@@ -551,12 +548,12 @@ const KnowledgeBaseTab = () => {
                                 setUploadProgress(progress);
                             });
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
-                            notify('上传成功', 'success', 'toast');
+                            notify({ text: '上传成功', type: 'success', source: '管理员-知识库' });
                             setUploadProgress(0);
                             await loadDocuments(selectedFolderId, 0);
                         } catch (error) {
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
-                            notify('上传失败: ' + error.message, 'error', 'toast', 5000);
+                            notify({ text: '上传失败: ' + error.message, type: 'error', source: '管理员-知识库' });
                             setUploadProgress(0);
                         }
                     }}
@@ -585,21 +582,14 @@ const KnowledgeBaseTab = () => {
                     onSave={async (newConfig) => {
                         try {
                             await adminKnowledgeApi.updateConfig(newConfig);
-                            notify('配置保存成功', 'success', 'banner');
+                            notify({ text: '配置保存成功', type: 'success', source: '管理员-知识库' });
                             setShowConfigPanel(false);
                             await loadConfig();
                         } catch (error) {
-                            notify('保存失败: ' + error.message, 'error', 'banner', 5000);
+                            notify({ text: '保存失败: ' + error.message, type: 'error', source: '管理员-知识库' });
                         }
                     }}
                 />
-            )}
-
-            {toast.visible && (
-                <div className={`kb-toast ${toast.type}`}>
-                    {toast.type === 'error' ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}
-                    <span>{toast.text}</span>
-                </div>
             )}
         </div>
     );
@@ -993,13 +983,7 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
 };
 
 const ConfigPanel = ({ config, embeddingModels, onClose, onSave }) => {
-    const [formData, setFormData] = useState({});
-
-    useEffect(() => {
-        if (config) {
-            setFormData({ ...config });
-        }
-    }, [config]);
+    const [formData, setFormData] = useState(() => (config ? { ...config } : {}));
 
     const handleChange = (e) => {
         const { name, value, type } = e.target;

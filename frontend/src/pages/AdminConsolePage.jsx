@@ -5,6 +5,8 @@ import ConfigPanel from '../components/admin/ConfigPanel';
 import PreviewPanel from '../components/admin/PreviewPanel';
 import KnowledgeBaseTab from '../components/admin/KnowledgeBaseTab';
 import ToolsTab from '../components/admin/ToolsTab';
+import ModelsTab from '../components/admin/ModelsTab';
+import { AdminConsoleProvider } from '../components/admin/AdminConsoleFeedback';
 import './AdminConsolePage.css';
 
 const AdminConsolePage = () => {
@@ -34,8 +36,9 @@ const AdminConsolePage = () => {
 
     const handleSave = async (newConfig) => {
         try {
-            const savedConfig = await adminApi.updateAgentConfig(newConfig);
-            setConfig(savedConfig);
+            await adminApi.updateAgentConfig(newConfig);
+            const latestConfig = await adminApi.getAgentConfig();
+            setConfig(latestConfig);
             return { success: true };
         } catch (err) {
             return { success: false, message: err.message };
@@ -44,8 +47,9 @@ const AdminConsolePage = () => {
 
     const handleReset = async () => {
         try {
-            const resetConfig = await adminApi.resetAgentConfig();
-            setConfig(resetConfig);
+            await adminApi.resetAgentConfig();
+            const latestConfig = await adminApi.getAgentConfig();
+            setConfig(latestConfig);
             return { success: true };
         } catch (err) {
             return { success: false, message: err.message };
@@ -77,6 +81,7 @@ const AdminConsolePage = () => {
                     <div className="admin-layout">
                         <div className="admin-left-panel">
                             <ConfigPanel
+                                key={config?.updatedAt || 'agent-config'}
                                 config={config}
                                 onSave={handleSave}
                                 onReset={handleReset}
@@ -103,18 +108,28 @@ const AdminConsolePage = () => {
                         </div>
                     </div>
                 );
+            case 'models':
+                return (
+                    <div className="admin-layout single-panel">
+                        <div className="admin-full-panel">
+                            <ModelsTab />
+                        </div>
+                    </div>
+                );
             default:
                 return null;
         }
     };
 
     return (
-        <div className="admin-console-page">
-            <AdminNavbar activeTab={activeTab} onTabChange={setActiveTab} />
-            <main className="admin-main-content">
-                {renderContent()}
-            </main>
-        </div>
+        <AdminConsoleProvider>
+            <div className="admin-console-page">
+                <AdminNavbar activeTab={activeTab} onTabChange={setActiveTab} />
+                <main className="admin-main-content">
+                    {renderContent()}
+                </main>
+            </div>
+        </AdminConsoleProvider>
     );
 };
 

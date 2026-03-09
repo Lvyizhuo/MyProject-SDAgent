@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, BookOpen, Wrench, ChevronDown, Menu, X, Target, User, Bell } from 'lucide-react';
+import { Bot, BookOpen, Wrench, ChevronDown, Menu, X, Target, User, Bell, Cpu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import './AdminNavbar.css';
@@ -7,7 +7,8 @@ import './AdminNavbar.css';
 const NAV_ITEMS = [
     { id: 'agent', label: '智能体', icon: Bot },
     { id: 'knowledge', label: '知识库', icon: BookOpen },
-    { id: 'tools', label: '工具', icon: Wrench }
+    { id: 'tools', label: '工具', icon: Wrench },
+    { id: 'models', label: '模型', icon: Cpu }
 ];
 
 const AdminNavbar = ({ activeTab, onTabChange }) => {

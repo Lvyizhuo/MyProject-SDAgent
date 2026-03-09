@@ -219,6 +219,10 @@ public class KnowledgeService {
                 splitDocs.set(i, new Document(doc.getId(), doc.getText(), metadata));
             }
 
+            if (splitDocs.isEmpty()) {
+                throw new IllegalStateException("文档未提取到可入库文本，请检查文件内容或 OCR 配置");
+            }
+
             multiVectorStoreService.addDocuments(document.getEmbeddingModel(), splitDocs);
 
             document.setStatus(DocumentStatus.COMPLETED);

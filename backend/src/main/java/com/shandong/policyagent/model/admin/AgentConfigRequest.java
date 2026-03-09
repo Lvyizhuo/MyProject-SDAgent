@@ -38,6 +38,14 @@ public class AgentConfigRequest {
     @DecimalMax(value = "1.0", message = "温度值不能大于 1.0")
     private Double temperature;
 
+    private Long llmModelId;
+
+    private Long visionModelId;
+
+    private Long audioModelId;
+
+    private Long embeddingModelId;
+
     @NotBlank(message = "系统提示词不能为空")
     @Size(max = 10000, message = "系统提示词长度不能超过 10000 字符")
     private String systemPrompt;

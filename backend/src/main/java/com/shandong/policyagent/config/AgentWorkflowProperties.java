@@ -21,4 +21,9 @@ public class AgentWorkflowProperties {
      * 规划阶段最大步骤数。
      */
     private int maxPlanningSteps = 4;
+
+    /**
+     * 规划阶段超时时间（秒）。
+     */
+    private int planningTimeoutSeconds = 15;
 }

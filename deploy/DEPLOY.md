@@ -50,9 +50,11 @@ vi .env
 - `POSTGRES_PASSWORD`
 - `MINIO_PASSWORD`
 - `APP_JWT_SECRET`（推荐：`openssl rand -base64 48`）
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET`（启用管理员模型管理时建议配置独立密钥）
 
 建议确认：
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS=http://mmgg.dpdns.org,https://mmgg.dpdns.org`
+- 如需平滑轮换模型密钥，可配置 `APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS`
 
 ## 4. 启动整套容器（含 Ollama）
 
@@ -66,6 +68,7 @@ docker compose ps
 - `ollama-init` 会自动执行 `ollama pull qwen3-embedding:0.6b`
 - 前端仅监听 `127.0.0.1:5173`
 - 后端仅监听 `127.0.0.1:8080`
+- 若启用了管理员“模型管理”，生产环境应显式配置模型密钥加密主密钥，避免依赖默认回退逻辑
 
 ## 5. 校验模型是否成功拉取
 

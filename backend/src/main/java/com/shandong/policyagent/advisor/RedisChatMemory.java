@@ -22,21 +22,28 @@ public class RedisChatMemory implements ChatMemory {
     private static final String KEY_PREFIX = "chat:memory:";
     private static final long DEFAULT_TTL_DAYS = 7;
     private static final int DEFAULT_MAX_MESSAGES = 20;
+    private static final int DEFAULT_MAX_MESSAGE_CHARS = 2000;
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
     private final long ttlDays;
     private final int maxMessages;
+    private final int maxMessageChars;
 
     public RedisChatMemory(StringRedisTemplate redisTemplate) {
-        this(redisTemplate, new ObjectMapper(), DEFAULT_TTL_DAYS, DEFAULT_MAX_MESSAGES);
+        this(redisTemplate, new ObjectMapper(), DEFAULT_TTL_DAYS, DEFAULT_MAX_MESSAGES, DEFAULT_MAX_MESSAGE_CHARS);
     }
 
-    public RedisChatMemory(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, long ttlDays, int maxMessages) {
+    public RedisChatMemory(StringRedisTemplate redisTemplate,
+                           ObjectMapper objectMapper,
+                           long ttlDays,
+                           int maxMessages,
+                           int maxMessageChars) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.ttlDays = ttlDays;
         this.maxMessages = maxMessages;
+        this.maxMessageChars = maxMessageChars;
     }
 
     @Override
@@ -101,9 +108,16 @@ public class RedisChatMemory implements ChatMemory {
     private MessageRecord toRecord(Message message) {
         return new MessageRecord(
                 message.getMessageType().name(),
-                message.getText(),
+                truncate(message.getText()),
                 message.getMetadata()
         );
+    }
+
+    private String truncate(String content) {
+        if (content == null || content.length() <= maxMessageChars) {
+            return content;
+        }
+        return content.substring(0, maxMessageChars) + "\n...[历史消息已截断]";
     }
 
     private Message toMessage(MessageRecord record) {
@@ -126,6 +140,7 @@ public class RedisChatMemory implements ChatMemory {
         private ObjectMapper objectMapper = new ObjectMapper();
         private long ttlDays = DEFAULT_TTL_DAYS;
         private int maxMessages = DEFAULT_MAX_MESSAGES;
+        private int maxMessageChars = DEFAULT_MAX_MESSAGE_CHARS;
 
         public Builder redisTemplate(StringRedisTemplate redisTemplate) {
             this.redisTemplate = redisTemplate;
@@ -147,11 +162,16 @@ public class RedisChatMemory implements ChatMemory {
             return this;
         }
 
+        public Builder maxMessageChars(int maxMessageChars) {
+            this.maxMessageChars = maxMessageChars;
+            return this;
+        }
+
         public RedisChatMemory build() {
             if (redisTemplate == null) {
                 throw new IllegalStateException("RedisTemplate is required");
             }
-            return new RedisChatMemory(redisTemplate, objectMapper, ttlDays, maxMessages);
+            return new RedisChatMemory(redisTemplate, objectMapper, ttlDays, maxMessages, maxMessageChars);
         }
     }
 }

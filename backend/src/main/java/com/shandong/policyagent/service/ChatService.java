@@ -4,14 +4,16 @@ import com.shandong.policyagent.agent.AgentExecutionPlan;
 import com.shandong.policyagent.agent.ReActPlanningService;
 import com.shandong.policyagent.agent.ToolIntentClassifier;
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.entity.AgentConfig;
+import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.multimodal.service.VisionService;
+import com.shandong.policyagent.tool.WebSearchTool;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -33,13 +35,15 @@ public class ChatService {
 
     private static final String CHAT_MEMORY_CONVERSATION_ID = "chat_memory_conversation_id";
 
-    private final ChatClient chatClient;
+    private final DynamicChatClientFactory dynamicChatClientFactory;
     private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
     private final VisionService visionService;
     private final ReActPlanningService planningService;
     private final ToolIntentClassifier toolIntentClassifier;
     private final SessionFactCacheService sessionFactCacheService;
     private final ToolFailurePolicyCenter toolFailurePolicyCenter;
+    private final ModelProviderService modelProviderService;
+    private final WebSearchTool webSearchTool;
 
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
@@ -51,20 +55,21 @@ public class ChatService {
         ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
         plan = enforceRealtimeWebSearch(userMessage, plan, intentDecision, conversationId);
+        WebSearchTool.SearchResponse webSearchResponse = executeDirectWebSearchIfNeeded(
+            request.getMessage(),
+            plan,
+            intentDecision,
+            conversationId
+        );
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
-        String executionPrompt = buildExecutionPrompt(userMessage, plan);
+        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
+        ChatClient chatClient = dynamicChatClientFactory.create(shouldEnableToolCallbacks(plan, webSearchResponse));
 
-        String response = chatClient.prompt()
-                .system(dynamicAgentConfigHolder.getSystemPrompt())
-                .options(buildChatOptions())
-                .user(executionPrompt)
-                .advisors(advisorSpec -> advisorSpec
-                        .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
-                .call()
-                .content();
+        String response = executeChatWithFallback(chatClient, executionPrompt, conversationId);
+        response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
 
         long duration = System.currentTimeMillis() - startTime;
         log.info("对话完成 | conversationId={} | 耗时={}ms", conversationId, duration);
@@ -87,20 +92,26 @@ public class ChatService {
         ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
         plan = enforceRealtimeWebSearch(userMessage, plan, intentDecision, conversationId);
+        WebSearchTool.SearchResponse webSearchResponse = executeDirectWebSearchIfNeeded(
+            request.getMessage(),
+            plan,
+            intentDecision,
+            conversationId
+        );
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
-        String executionPrompt = buildExecutionPrompt(userMessage, plan);
+        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
+        ChatClient chatClient = dynamicChatClientFactory.create(shouldEnableToolCallbacks(plan, webSearchResponse));
 
         if (plan.needToolCall()) {
             log.info("检测到工具调用计划，直接使用非流式执行以规避流式工具调用缺陷 | conversationId={}", conversationId);
-            return fallbackToNonStreaming(executionPrompt, conversationId);
+            return fallbackToNonStreaming(chatClient, executionPrompt, conversationId, webSearchResponse);
         }
 
         return chatClient.prompt()
                 .system(dynamicAgentConfigHolder.getSystemPrompt())
-                .options(buildChatOptions())
                 .user(executionPrompt)
                 .advisors(advisorSpec -> advisorSpec
                         .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
@@ -110,7 +121,7 @@ public class ChatService {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(executionPrompt, conversationId);
+                        return fallbackToNonStreaming(chatClient, executionPrompt, conversationId, null);
                     }
                     return Flux.error(e);
                 })
@@ -161,7 +172,9 @@ public class ChatService {
                 baseMessage, imageAnalysis);
     }
 
-    private String buildExecutionPrompt(String userMessage, AgentExecutionPlan plan) {
+    private String buildExecutionPrompt(String userMessage,
+                                        AgentExecutionPlan plan,
+                                        WebSearchTool.SearchResponse webSearchResponse) {
         StringBuilder stepsBuilder = new StringBuilder();
         for (AgentExecutionPlan.AgentStep step : plan.steps()) {
             stepsBuilder.append(step.id())
@@ -172,7 +185,7 @@ public class ChatService {
                     .append("]\n");
         }
 
-        return String.format("""
+        String prompt = String.format("""
                 【用户原始问题】
                 %s
 
@@ -190,6 +203,17 @@ public class ChatService {
                 5. 不要暴露内部思维链路，只输出对用户可读的结论、步骤和建议。
                 6. 若问题包含最新/实时/价格/新闻/政策动态等时效性信息，必须调用 webSearch 并给出来源链接。
                 """, userMessage, plan.summary(), plan.needToolCall(), stepsBuilder);
+
+        if (webSearchResponse == null) {
+            return prompt;
+        }
+
+        return prompt + "\n\n【系统已执行联网搜索，以下结果优先作为事实依据】\n"
+                + formatWebSearchResponse(webSearchResponse)
+                + "\n\n【补充要求】\n"
+                + "1. 优先基于以上联网搜索结果回答，不要再声称无法联网搜索。\n"
+                + "2. 若结果包含链接，正文中保留主要来源。\n"
+                + "3. 若联网结果为空或明确失败，要如实说明，并给出可执行的替代查询渠道。";
     }
 
     private AgentExecutionPlan enforceRealtimeWebSearch(String userMessage,
@@ -248,11 +272,138 @@ public class ChatService {
         if (userMessage == null || userMessage.isBlank()) {
             return "山东以旧换新最新政策";
         }
-        String condensed = userMessage
+        String cleaned = userMessage;
+        int contextMarkerIndex = cleaned.indexOf("【用户城市上下文】");
+        if (contextMarkerIndex >= 0) {
+            cleaned = cleaned.substring(0, contextMarkerIndex);
+        }
+        contextMarkerIndex = cleaned.indexOf("【用户定位上下文】");
+        if (contextMarkerIndex >= 0) {
+            cleaned = cleaned.substring(0, contextMarkerIndex);
+        }
+
+        String condensed = cleaned
                 .replace("\n", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
         return condensed.length() > 120 ? condensed.substring(0, 120) : condensed;
+    }
+
+    private WebSearchTool.SearchResponse executeDirectWebSearchIfNeeded(String rawUserMessage,
+                                                                        AgentExecutionPlan plan,
+                                                                        ToolIntentClassifier.IntentDecision intentDecision,
+                                                                        String conversationId) {
+        if (plan == null || !plan.needToolCall() || !containsToolHint(plan, "webSearch")) {
+            return null;
+        }
+        if (!intentDecision.allowToolCall() && "webSearch".equals(intentDecision.targetTool())) {
+            return null;
+        }
+
+        String query = extractQueryForWebSearch(rawUserMessage);
+        log.info("执行后端直连 webSearch | conversationId={} | query={}", conversationId, query);
+
+        try {
+            return webSearchTool.webSearch().apply(new WebSearchTool.SearchRequest(query, 5));
+        } catch (Exception exception) {
+            log.warn("后端直连 webSearch 失败 | conversationId={} | query={} | error={}",
+                    conversationId, query, exception.getMessage());
+            return new WebSearchTool.SearchResponse(
+                    query,
+                    List.of(),
+                    0,
+                    toolFailurePolicyCenter.fallbackMessage("webSearch", exception.getMessage())
+            );
+        }
+    }
+
+    private boolean shouldEnableToolCallbacks(AgentExecutionPlan plan,
+                                              WebSearchTool.SearchResponse webSearchResponse) {
+        if (plan == null || !plan.needToolCall()) {
+            return false;
+        }
+        if (webSearchResponse == null) {
+            return true;
+        }
+        return plan.steps().stream()
+                .map(AgentExecutionPlan.AgentStep::toolHint)
+                .anyMatch(this::requiresRuntimeToolCallback);
+    }
+
+    private boolean requiresRuntimeToolCallback(String toolHint) {
+        return "calculateSubsidy".equals(toolHint)
+                || "parseFile".equals(toolHint)
+                || "amap-mcp".equals(toolHint);
+    }
+
+    private boolean containsToolHint(AgentExecutionPlan plan, String toolHint) {
+        return plan.steps() != null
+                && plan.steps().stream().anyMatch(step -> toolHint.equals(step.toolHint()));
+    }
+
+    private String formatWebSearchResponse(WebSearchTool.SearchResponse response) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("查询词：").append(response.query()).append("\n")
+                .append("摘要：").append(response.summary()).append("\n");
+
+        if (response.results() == null || response.results().isEmpty()) {
+            builder.append("结果：无可用结果");
+            return builder.toString();
+        }
+
+        builder.append("结果列表：\n");
+        for (int index = 0; index < response.results().size(); index++) {
+            WebSearchTool.SearchResult result = response.results().get(index);
+            builder.append(index + 1)
+                    .append(". 标题：")
+                    .append(result.title())
+                    .append("\n")
+                    .append("   链接：")
+                    .append(result.url())
+                    .append("\n")
+                    .append("   摘要：")
+                    .append(result.snippet())
+                    .append("\n");
+        }
+        return builder.toString().trim();
+    }
+
+    private String buildWebSearchFallbackAnswer(WebSearchTool.SearchResponse response) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("我已为您执行联网搜索。\n\n");
+
+        if (response.summary() != null && !response.summary().isBlank()) {
+            builder.append("检索摘要：")
+                    .append(response.summary())
+                    .append("\n\n");
+        }
+
+        if (response.results() == null || response.results().isEmpty()) {
+            builder.append("当前没有拿到可用搜索结果。您可以稍后重试，或直接查看品牌官网、电商官方旗舰店获取最新价格。\n");
+            return builder.toString().trim();
+        }
+
+        builder.append("主要来源：\n");
+        int count = Math.min(response.results().size(), 3);
+        for (int index = 0; index < count; index++) {
+            WebSearchTool.SearchResult result = response.results().get(index);
+            builder.append(index + 1)
+                    .append(". ")
+                    .append(result.title())
+                    .append("\n")
+                    .append("链接：")
+                    .append(result.url())
+                    .append("\n");
+            if (result.snippet() != null && !result.snippet().isBlank()) {
+                builder.append("摘要：")
+                        .append(result.snippet())
+                        .append("\n");
+            }
+            builder.append("\n");
+        }
+
+        builder.append("如果您愿意，我还可以继续帮您把这些实时价格和山东以旧换新补贴规则结合起来，估算实际到手价。\n");
+        return builder.toString().trim();
     }
 
     private String analyzeImages(List<String> imageBase64List, String imageFormat) {
@@ -320,19 +471,16 @@ public class ChatService {
                 || message.contains("Stream processing failed");
     }
 
-    private Flux<String> fallbackToNonStreaming(String userMessage, String conversationId) {
+    private Flux<String> fallbackToNonStreaming(ChatClient chatClient,
+                                                String userMessage,
+                                                String conversationId,
+                                                WebSearchTool.SearchResponse webSearchResponse) {
         try {
             log.info("执行非流式降级调用 | conversationId={}", conversationId);
             long startTime = System.currentTimeMillis();
 
-            String response = chatClient.prompt()
-                    .system(dynamicAgentConfigHolder.getSystemPrompt())
-                    .options(buildChatOptions())
-                    .user(userMessage)
-                    .advisors(advisorSpec -> advisorSpec
-                            .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
-                    .call()
-                    .content();
+            String response = executeChatWithFallback(chatClient, userMessage, conversationId);
+            response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
 
             long duration = System.currentTimeMillis() - startTime;
             log.info("非流式降级调用完成 | conversationId={} | 耗时={}ms", conversationId, duration);
@@ -376,16 +524,90 @@ public class ChatService {
         return conversationId;
     }
 
-    /**
-     * 构建当前运行时 ChatOptions（模型名 + temperature），用于 per-request 动态覆盖。
-     * 若 DynamicAgentConfigHolder 中配置不存在，使用 application.yml 中的全局默认值（不传 options）。
-     */
-    private OpenAiChatOptions buildChatOptions() {
-        String modelName = dynamicAgentConfigHolder.getModelName();
-        Double temperature = dynamicAgentConfigHolder.getTemperature();
-        return OpenAiChatOptions.builder()
-                .model(modelName)
-                .temperature(temperature)
-                .build();
+    private String executeChatWithFallback(ChatClient chatClient, String userMessage, String conversationId) {
+        try {
+            return chatClient.prompt()
+                    .system(dynamicAgentConfigHolder.getSystemPrompt())
+                    .user(userMessage)
+                    .advisors(advisorSpec -> advisorSpec
+                            .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
+                    .call()
+                    .content();
+        } catch (Exception exception) {
+            ModelProvider runtimeModel = resolveManagedLlmModel();
+            if (runtimeModel == null || !shouldUseDirectRestFallback(exception, runtimeModel)) {
+                throw exception;
+            }
+
+            log.warn("Spring AI 调用模型失败，切换为原生 REST 降级 | conversationId={} | provider={} | model={} | error={}",
+                    conversationId, runtimeModel.getProvider(), runtimeModel.getModelName(), exception.getMessage());
+            return modelProviderService.executeChatCompletion(
+                    runtimeModel,
+                    dynamicAgentConfigHolder.getSystemPrompt(),
+                    userMessage
+            );
+        }
+    }
+
+    private String ensureNonBlankResponse(String response,
+                                          WebSearchTool.SearchResponse webSearchResponse,
+                                          String conversationId) {
+        if (response != null && !response.isBlank()) {
+            return response;
+        }
+        if (webSearchResponse == null) {
+            return response;
+        }
+
+        log.warn("模型返回空内容，使用联网搜索结果生成兜底答案 | conversationId={}", conversationId);
+        return buildWebSearchFallbackAnswer(webSearchResponse);
+    }
+
+    private ModelProvider resolveManagedLlmModel() {
+        AgentConfig config = dynamicAgentConfigHolder.get();
+        if (config == null || config.getLlmModelId() == null) {
+            return null;
+        }
+
+        return modelProviderService.getModelEntityForRuntime(config.getLlmModelId(), null);
+    }
+
+    private boolean shouldUseDirectRestFallback(Exception exception, ModelProvider runtimeModel) {
+        if (is404Error(exception) && "volcano".equalsIgnoreCase(runtimeModel.getProvider())) {
+            return true;
+        }
+        return isTimeoutOrNetworkError(exception);
+    }
+
+    private boolean is404Error(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("404")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isTimeoutOrNetworkError(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase();
+                if (normalized.contains("readtimeout")
+                        || normalized.contains("timed out")
+                        || normalized.contains("resourceaccessexception")
+                        || normalized.contains("i/o error on post request")
+                        || normalized.contains("connection reset")
+                        || normalized.contains("connection refused")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

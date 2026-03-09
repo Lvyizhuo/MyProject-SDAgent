@@ -39,6 +39,22 @@ class ToolIntentClassifierTest {
     }
 
     @Test
+    void shouldAllowWebSearchForMacBookConfigurationPriceQuery() {
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "查询 MacBook 价格",
+                true,
+                List.of(new AgentExecutionPlan.AgentStep(1, "联网搜索价格", "webSearch"))
+        );
+
+        ToolIntentClassifier.IntentDecision decision = classifier.classify(
+                "查一下2026款MacBook air 13英寸的基础款16GB+512GB的价格",
+                plan
+        );
+
+        assertTrue(decision.allowToolCall());
+    }
+
+    @Test
     void shouldBlockMapSearchWithoutLocation() {
         AgentExecutionPlan plan = new AgentExecutionPlan(
                 "查询附近门店",

@@ -2,11 +2,14 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    background:
+        radial-gradient(540px 220px at 100% -18%, hsl(var(--color-primary-light) / 0.75), transparent 70%),
+        linear-gradient(180deg, hsl(var(--color-bg-elevated) / 0.96), hsl(var(--color-bg-elevated) / 0.84));
 }
 
 .preview-header {
     border-bottom: 1px solid hsl(var(--color-border));
-    background: hsl(var(--color-bg));
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated) / 0.98), hsl(var(--color-bg-elevated) / 0.9));
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
@@ -32,18 +35,20 @@
 }
 
 .preview-tab:hover {
-    color: hsl(var(--color-text));
+    color: hsl(var(--color-title));
+    background: hsl(var(--color-primary-light) / 0.44);
 }
 
 .preview-tab.active {
     color: hsl(var(--color-primary));
     border-bottom-color: hsl(var(--color-primary));
+    background: hsl(var(--color-bg-elevated));
 }
 
 .preview-content {
     flex: 1;
     overflow: hidden; /* Let inner components handle scrolling */
-    background: hsl(var(--color-bg));
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-soft)));
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     display: flex;
     flex-direction: column;

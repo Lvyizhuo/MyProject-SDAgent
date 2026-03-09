@@ -15,15 +15,15 @@
 │       ├── advisor/       # Spring AI Advisors (安全、记忆、日志等)
 │       ├── agent/         # Agent 计划解析与意图分类 (AgentPlanParser/ToolIntentClassifier)
 │       ├── config/        # Spring 配置类
-│       ├── controller/    # REST API 控制器 (含 admin 配置与知识库接口)
-│       ├── entity/        # JPA 实体类
+│       ├── controller/    # REST API 控制器 (含 admin 配置、知识库、模型管理、公开配置接口)
+│       ├── entity/        # JPA 实体类（含 AgentConfig / ModelProvider / ModelType）
 │       ├── exception/     # 全局异常处理器
 │       ├── model/         # 数据传输对象和领域模型
 │       ├── multimodal/    # 多模态能力 (ASR/视觉)
-│       ├── rag/           # RAG 相关服务 (文档加载、切片、检索)
+│       ├── rag/           # RAG 相关服务 (文档加载、切片、检索、运行时嵌入模型路由)
 │       ├── repository/    # 数据访问层
 │       ├── security/      # JWT 认证相关
-│       ├── service/       # 业务逻辑服务 (包括 SessionFactCacheService 会话事实缓存)
+│       ├── service/       # 业务逻辑服务 (含 SessionFactCacheService、DynamicChatClientFactory、ModelProviderService)
 │       └── tool/          # LLM 可调用工具 (补贴/文件解析/联网搜索/ToolFailurePolicyCenter)
 ├── frontend/              # 前端：React 19 + Vite 7 (JavaScript/JSX)
 │   └── src/
@@ -202,6 +202,7 @@ docker compose --env-file .env up -d --build
 | :--- | :--- |
 | `backend/pom.xml` | Maven 构建配置，依赖管理 |
 | `backend/src/main/resources/application.yml` | Spring Boot 配置文件 |
+| `backend/src/main/resources/db/migration/*.sql` | Flyway 数据库迁移脚本（含模型管理表结构） |
 | `backend/docker-compose.yml` | PostgreSQL (pgvector) + Redis + MinIO 服务编排 |
 | `frontend/package.json` | npm 依赖包和脚本 |
 | `frontend/vite.config.js` | Vite 构建配置 |
@@ -211,7 +212,7 @@ docker compose --env-file .env up -d --build
 
 **后端：**
 - Java 21 + Spring Boot 3.4.1
-- Spring AI 1.0.3 (兼容 OpenAI，使用阿里云 DashScope/通义千问)
+- Spring AI 1.0.3 (兼容 OpenAI，支持管理员配置第三方 OpenAI 兼容模型)
 - PostgreSQL 16 配合 pgvector 扩展 (用于 RAG 向量存储)
 - Redis 7 (用于聊天记忆/会话存储)
 - MinIO (用于知识库原始文档对象存储)
@@ -248,12 +249,21 @@ docker compose --env-file .env up -d --build
 | PUT | `/api/admin/agent-config` | 更新管理员智能体配置 |
 | POST | `/api/admin/agent-config/reset` | 重置管理员智能体配置 |
 | POST | `/api/admin/agent-config/test` | 管理员配置测试对话 |
+| GET | `/api/admin/models` | 获取模型列表（支持按类型过滤） |
+| GET | `/api/admin/models/{id}` | 获取模型详情 |
+| POST | `/api/admin/models` | 新增模型配置 |
+| PUT | `/api/admin/models/{id}` | 更新模型配置 |
+| DELETE | `/api/admin/models/{id}` | 删除模型配置 |
+| PUT | `/api/admin/models/{id}/set-default` | 设为默认模型 |
+| POST | `/api/admin/models/{id}/test` | 测试模型连接 |
+| GET | `/api/admin/models/options` | 获取模型下拉选项 |
 | GET | `/api/admin/knowledge/folders` | 知识库目录树 |
 | POST | `/api/admin/knowledge/documents` | 上传知识库文档 |
 | GET | `/api/admin/knowledge/documents` | 分页查询知识库文档 |
 | GET | `/api/admin/knowledge/documents/{id}/chunks` | 查询文档切片结果 |
 | POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
 | GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
+| GET | `/api/public/config/agent` | 获取公开智能体配置（当前返回开场白） |
 | POST | `/api/multimodal/transcribe` | 语音识别 |
 | POST | `/api/multimodal/analyze-image` | 图像分析 |
 | POST | `/api/multimodal/analyze-invoice` | 发票识别 |
@@ -267,6 +277,8 @@ docker compose --env-file .env up -d --build
 - `APP_JWT_SECRET` - JWT 签名密钥（生产环境必需）
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` - CORS 放行来源（生产域名）
 - `APP_EMBEDDING_OLLAMA_BASE_URL` - Ollama 嵌入服务地址（容器内默认 `http://ollama:11434`）
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET` - 模型 API Key 加密主密钥（生产环境启用模型管理时建议显式配置）
+- `APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS` - 历史模型密钥解密兼容列表（逗号分隔，可选）
 
 #### 类型安全
 
@@ -281,8 +293,10 @@ docker compose --env-file .env up -d --build
 4. **API：** 流式接口返回类型为 `text/event-stream`。
 5. **鉴权：** `/api/conversations/**` 与 `/api/auth/me` 需要 `Authorization: Bearer <JWT>`。
 6. **管理员鉴权：** `/api/admin/**` 需要管理员角色 JWT；默认管理员账号在首次启动时由 `AdminInitializer` 初始化为 `admin/admin`（建议立即修改密码）。
-7. **工具调用：** 通过 `ToolIntentClassifier` 进行前置校验，参数不足时会先向用户补充必要参数。
-8. **会话事实：** `SessionFactCacheService` 会将关键事实（价格、地区、设备型号等）缓存到 Redis 供多轮对话复用。
+7. **公开配置：** `/api/public/config/agent` 无需登录，可供前端读取当前开场白等公开信息。
+8. **工具调用：** 通过 `ToolIntentClassifier` 进行前置校验，参数不足时会先向用户补充必要参数；实时查询场景会优先走 `webSearch`。
+9. **会话事实：** `SessionFactCacheService` 会将关键事实（价格、地区、设备型号等）缓存到 Redis 供多轮对话复用。
+10. **模型联动：** 管理员在“智能体配置”里选择 LLM/视觉/语音/嵌入模型后，运行时会分别影响对话模型和 RAG 嵌入模型选择。
 
 #### Advisor 执行顺序
 

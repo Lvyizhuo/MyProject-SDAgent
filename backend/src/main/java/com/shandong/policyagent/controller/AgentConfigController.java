@@ -43,10 +43,10 @@ public class AgentConfigController {
             @AuthenticationPrincipal User user) {
 
         log.info("管理员更新配置: {}", user.getUsername());
-        AgentConfigResponse response = agentConfigService.updateConfig(request);
+        agentConfigService.updateConfig(request);
         agentConfigSyncService.reloadFromDatabase();
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(agentConfigService.getCurrentConfig());
     }
 
     /**
@@ -56,9 +56,9 @@ public class AgentConfigController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AgentConfigResponse> resetConfig(@AuthenticationPrincipal User user) {
         log.info("管理员重置配置为默认: {}", user.getUsername());
-        AgentConfigResponse response = agentConfigService.resetToDefault();
+        agentConfigService.resetToDefault();
         agentConfigSyncService.reloadFromDatabase();
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(agentConfigService.getCurrentConfig());
     }
 }

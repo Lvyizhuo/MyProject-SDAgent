@@ -199,6 +199,7 @@ app:
   agent:
     planning-enabled: true
     max-planning-steps: 4
+    planning-timeout-seconds: 15
 
   security:
     cors:
@@ -228,3 +229,11 @@ app:
     retry:
       max-attempts: 2
       backoff-millis: 350
+
+  model-provider:
+    openai:
+      connect-timeout-seconds: 10
+      read-timeout-seconds: 45
+    direct:
+      connect-timeout-seconds: 10
+      read-timeout-seconds: 90

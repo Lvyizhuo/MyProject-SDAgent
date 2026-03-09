@@ -7,15 +7,27 @@ import InputArea from '../InputArea';
 import '../ChatWindow.css'; // Reuse ChatWindow styles
 import './ChatTestTab.css';
 
-const ChatTestTab = ({ greetingMessage }) => {
+const ChatTestTab = ({ config }) => {
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(false);
     const [sessionId, setSessionId] = useState('');
     const messagesEndRef = useRef(null);
 
+    const greetingMessage = config?.greetingMessage;
+    const effectiveModelName = config?.effectiveModelName || config?.modelName || '未配置';
+    const effectiveProvider = config?.effectiveModelProvider || config?.modelProvider || '未配置';
+    const effectiveSource = config?.effectiveConfigSource === 'MODEL_PROVIDER' ? '模型管理' : '手动配置';
+    const configVersion = [
+        config?.updatedAt,
+        config?.llmModelId,
+        config?.effectiveModelName,
+        config?.effectiveModelProvider,
+        config?.greetingMessage
+    ].filter(Boolean).join('|');
+
     useEffect(() => {
         initSession();
-    }, [greetingMessage]);
+    }, [configVersion]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,7 +82,12 @@ const ChatTestTab = ({ greetingMessage }) => {
     return (
         <div className="chat-test-tab">
             <div className="chat-test-header">
-                <span className="session-info">测试会话: {sessionId.substring(0, 18)}...</span>
+                <div className="chat-test-header-meta">
+                    <span className="session-info">测试会话: {sessionId.substring(0, 18)}...</span>
+                    <span className="active-model-info">
+                        当前生效: {effectiveProvider} / {effectiveModelName} ({effectiveSource})
+                    </span>
+                </div>
                 <button className="btn-clear" onClick={initSession} title="清空会话">
                     <Trash2 size={16} />
                     清空

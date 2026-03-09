@@ -65,6 +65,7 @@ public class SecurityConfig {
                     "/api/auth/register",
                     "/api/auth/login",
                     "/api/admin/auth/login",
+                    "/api/public/config/**",
                     "/api/chat/**",
                     "/api/documents/**",
                     "/api/multimodal/**",

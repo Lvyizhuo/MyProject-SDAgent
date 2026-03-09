@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **前端**: React 19 + Vite 7 (JavaScript/JSX)
 - **后端**: Spring Boot 3.4.1 + Spring AI 1.0.3 (Java 21)
 - **AI 模型**: 阿里云 DashScope（默认 `qwen3.5-plus`，支持可配置嵌入模型）
+- **模型管理**: 管理员可在控制台维护 LLM / VISION / AUDIO / EMBEDDING 四类第三方模型，并绑定到智能体配置
 - **向量数据库**: PostgreSQL 16 + pgvector
 - **会话存储**: Redis 7
 - **对象存储**: MinIO
@@ -24,15 +25,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   │   ├── advisor/            # Security / ReReading / Logging / RedisChatMemory
 │   │   ├── agent/              # ToolIntentClassifier / AgentPlanParser（工具意图分类与计划解析）
 │   │   ├── config/             # ChatClient, Security, Embedding, Minio 等配置
-│   │   ├── controller/         # Chat/Auth/Conversation/Admin/Knowledge/MultiModal API
-│   │   ├── entity/             # JPA 实体
+│   │   ├── controller/         # Chat/Auth/Conversation/Admin/Knowledge/Model/PublicConfig/MultiModal API
+│   │   ├── entity/             # JPA 实体（含 AgentConfig/ModelProvider/ModelType）
 │   │   ├── exception/          # 全局异常处理器
 │   │   ├── model/              # DTO 和领域模型
 │   │   ├── multimodal/         # ASR 与视觉能力
-│   │   ├── rag/                # 文档加载、切片、检索
+│   │   ├── rag/                # 文档加载、切片、检索、运行时嵌入模型路由
 │   │   ├── repository/         # 数据访问层
 │   │   ├── security/           # JWT 相关
-│   │   ├── service/            # 业务服务（包括 SessionFactCacheService 会话事实缓存）
+│   │   ├── service/            # 业务服务（含 SessionFactCacheService、DynamicChatClientFactory、ModelProviderService）
 │   │   └── tool/               # calculateSubsidy / parseFile / webSearch / ToolFailurePolicyCenter
 │   ├── src/main/resources/     # application.yml 等配置
 │   ├── docker-compose.yml      # PostgreSQL + Redis + MinIO
@@ -87,6 +88,8 @@ npm run preview
 - `APP_JWT_SECRET` - 必需（生产），JWT 签名密钥（Base64）
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` - 生产域名 CORS 放行
 - `APP_EMBEDDING_OLLAMA_BASE_URL` - 可选，Ollama 嵌入地址（容器内默认 `http://ollama:11434`）
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET` - 可选但推荐，模型管理 API Key 加密主密钥
+- `APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS` - 可选，历史加密密钥兼容列表
 
 ## 服务器部署（Production）
 
@@ -142,6 +145,14 @@ docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
 - `PUT /api/admin/agent-config` - 更新智能体配置（需管理员 JWT）
 - `POST /api/admin/agent-config/reset` - 重置智能体配置（需管理员 JWT）
 - `POST /api/admin/agent-config/test` - 配置测试对话（需管理员 JWT）
+- `GET /api/admin/models` - 获取模型列表（需管理员 JWT）
+- `GET /api/admin/models/{id}` - 获取模型详情（需管理员 JWT）
+- `POST /api/admin/models` - 新增模型（需管理员 JWT）
+- `PUT /api/admin/models/{id}` - 更新模型（需管理员 JWT）
+- `DELETE /api/admin/models/{id}` - 删除模型（需管理员 JWT）
+- `PUT /api/admin/models/{id}/set-default` - 设为默认模型（需管理员 JWT）
+- `POST /api/admin/models/{id}/test` - 测试模型连接（需管理员 JWT）
+- `GET /api/admin/models/options` - 获取模型下拉选项（需管理员 JWT）
 - `GET /api/admin/knowledge/folders` - 获取知识库目录树（需管理员 JWT）
 - `POST /api/admin/knowledge/documents` - 上传知识库文档（需管理员 JWT）
 - `GET /api/admin/knowledge/documents/{id}/chunks` - 查询文档切片（需管理员 JWT）
@@ -150,6 +161,7 @@ docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
 - `POST /api/multimodal/analyze-image` - 图像分析
 - `POST /api/multimodal/analyze-invoice` - 发票识别
 - `POST /api/multimodal/analyze-device` - 设备识别
+- `GET /api/public/config/agent` - 获取公开智能体配置（无需认证）
 
 ## Advisor 执行顺序
 
@@ -173,10 +185,13 @@ docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
 - **AgentPlanParser** - Agent 计划解析器，解析和执行多步计划
 - **SessionFactCacheService** - 会话事实缓存服务，将关键事实（价格、地区、设备型号等）结构化写入 Redis 供多轮对话复用
 - **ToolFailurePolicyCenter** - 工具失败策略中心，统一管理重试、退避与兜底提示模板
+- **DynamicChatClientFactory** - 根据管理员绑定的模型动态创建当前会话使用的 ChatClient
+- **ModelProviderService** - 模型管理 CRUD、默认模型切换、连接测试与 API Key 加解密入口
 
 ## 配置文件
 
 - `backend/src/main/resources/application.yml` - 主配置
+- `backend/src/main/resources/db/migration/V3__create_model_provider_and_extend_agent_config.sql` - 模型管理与智能体绑定表结构迁移
 - `backend/pom.xml` - Maven 依赖与构建
 - `backend/docker-compose.yml` - 基础设施编排（PostgreSQL/Redis/MinIO）
 - `frontend/package.json` - 前端依赖与脚本

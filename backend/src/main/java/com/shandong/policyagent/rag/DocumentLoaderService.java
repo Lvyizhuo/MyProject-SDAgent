@@ -1,9 +1,12 @@
 package com.shandong.policyagent.rag;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -18,17 +21,30 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+
+import com.shandong.policyagent.multimodal.service.VisionService;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DocumentLoaderService {
+    private static final int OCR_MAX_PAGES = 12;
+    private static final String PDF_OCR_PROMPT = """
+            请执行严格 OCR，完整提取图片中的全部中文、数字、标点和条目编号。
+            要求：
+            1. 只输出识别出的正文文本，不要解释，不要总结。
+            2. 保持原有段落和条目顺序。
+            3. 对看不清的个别字符可以跳过，但不要编造。
+            4. 如果整页几乎没有可识别文本，请返回空字符串。
+            """;
 
     private final RagConfig ragConfig;
     private final ObjectMapper objectMapper;
+    private final VisionService visionService;
 
     private static final List<String> SUPPORTED_EXTENSIONS = List.of(
             ".pdf", ".doc", ".docx", ".md", ".txt"
@@ -84,7 +100,15 @@ public class DocumentLoaderService {
     }
 
     public List<Document> loadDocumentFromResource(Resource resource, String fileName) {
-        TikaDocumentReader reader = new TikaDocumentReader(resource);
+        byte[] resourceBytes = readResourceBytes(resource, fileName);
+        Resource namedResource = new ByteArrayResource(resourceBytes) {
+            @Override
+            public String getFilename() {
+                return fileName;
+            }
+        };
+
+        TikaDocumentReader reader = new TikaDocumentReader(namedResource);
         List<Document> documents = reader.get();
 
         Map<String, Object> metadata = new HashMap<>();
@@ -92,7 +116,18 @@ public class DocumentLoaderService {
         metadata.put("fileName", fileName);
         documents.forEach(doc -> doc.getMetadata().putAll(metadata));
 
-        return documents;
+        if (hasExtractableText(documents) || !isPdf(fileName)) {
+            return documents;
+        }
+
+        String ocrText = extractPdfTextWithVision(resourceBytes, fileName);
+        if (ocrText.isBlank()) {
+            log.warn("PDF 文本提取失败且 OCR 未获得可用文本: {}", fileName);
+            return documents;
+        }
+
+        log.info("PDF OCR 兜底成功: {} | textLength={}", fileName, ocrText.length());
+        return List.of(new Document(ocrText, metadata));
     }
 
     public List<Document> loadAllDefaultDocuments() {
@@ -244,6 +279,103 @@ public class DocumentLoaderService {
             sb.append(c);
         }
         return sb.toString().trim();
+    }
+
+    private byte[] readResourceBytes(Resource resource, String fileName) {
+        try (InputStream inputStream = resource.getInputStream()) {
+            return inputStream.readAllBytes();
+        } catch (IOException e) {
+            throw new IllegalStateException("读取文档资源失败: " + fileName, e);
+        }
+    }
+
+    private boolean hasExtractableText(List<Document> documents) {
+        return documents.stream()
+                .map(Document::getText)
+                .anyMatch(text -> text != null && !text.isBlank());
+    }
+
+    private boolean isPdf(String fileName) {
+        return fileName != null && fileName.toLowerCase().endsWith(".pdf");
+    }
+
+    private String extractPdfTextWithVision(byte[] pdfBytes, String fileName) {
+        if (pdfBytes.length == 0) {
+            return "";
+        }
+
+        Path tempDir = null;
+        try {
+            tempDir = Files.createTempDirectory("policy-agent-pdf-ocr-");
+            Path pdfPath = tempDir.resolve("source.pdf");
+            Files.write(pdfPath, pdfBytes);
+
+            Path outputPrefix = tempDir.resolve("page");
+            Process process = new ProcessBuilder(
+                    "pdftoppm",
+                    "-png",
+                    "-f", "1",
+                    "-l", String.valueOf(OCR_MAX_PAGES),
+                    pdfPath.toString(),
+                    outputPrefix.toString()
+            ).start();
+
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                String error = new String(process.getErrorStream().readAllBytes());
+                log.warn("pdftoppm 执行失败: {} | exitCode={} | error={}", fileName, exitCode, error);
+                return "";
+            }
+
+            List<Path> pageImages;
+            try (var stream = Files.list(tempDir)) {
+                pageImages = stream
+                        .filter(path -> path.getFileName().toString().startsWith("page-"))
+                        .filter(path -> path.getFileName().toString().endsWith(".png"))
+                        .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                        .toList();
+            }
+
+            if (pageImages.isEmpty()) {
+                log.warn("PDF OCR 未生成页面图片: {}", fileName);
+                return "";
+            }
+
+            StringBuilder combinedText = new StringBuilder();
+            for (int i = 0; i < pageImages.size(); i++) {
+                byte[] imageBytes = Files.readAllBytes(pageImages.get(i));
+                String pageText = visionService.analyzeBase64Image(
+                        Base64.getEncoder().encodeToString(imageBytes),
+                        "png",
+                        PDF_OCR_PROMPT
+                ).trim();
+                if (pageText.isBlank()) {
+                    continue;
+                }
+                if (!combinedText.isEmpty()) {
+                    combinedText.append("\n\n");
+                }
+                combinedText.append("第").append(i + 1).append("页\n").append(pageText);
+            }
+
+            return combinedText.toString().trim();
+        } catch (Exception e) {
+            log.warn("PDF OCR 兜底失败: {}", fileName, e);
+            return "";
+        } finally {
+            if (tempDir != null) {
+                try (var walk = Files.walk(tempDir)) {
+                    walk.sorted(Comparator.reverseOrder())
+                            .forEach(path -> {
+                                try {
+                                    Files.deleteIfExists(path);
+                                } catch (IOException ignored) {
+                                }
+                            });
+                } catch (IOException ignored) {
+                }
+            }
+        }
     }
 
     private Path resolveFirstExistingPath(String rawPath) {

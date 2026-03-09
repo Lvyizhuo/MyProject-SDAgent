@@ -5,13 +5,14 @@ import com.shandong.policyagent.advisor.RedisChatMemory;
 import com.shandong.policyagent.advisor.ReReadingAdvisor;
 import com.shandong.policyagent.advisor.SecurityAdvisor;
 import com.shandong.policyagent.rag.RagConfig;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -33,6 +34,8 @@ public class ChatClientConfig {
         return RedisChatMemory.builder()
                 .redisTemplate(redisTemplate)
                 .ttlDays(7)
+                                .maxMessages(8)
+                                .maxMessageChars(1500)
                 .build();
     }
 
@@ -60,33 +63,37 @@ public class ChatClientConfig {
     }
 
     @Bean
-    public ChatClient chatClient(ChatClient.Builder builder, 
-                                  VectorStore vectorStore,
-                                  RagConfig ragConfig,
-                                  ChatMemory chatMemory,
-                                  SecurityAdvisor securityAdvisor,
-                                  ReReadingAdvisor reReadingAdvisor,
-                                  LoggingAdvisor loggingAdvisor,
-                                  List<ToolCallbackProvider> toolCallbackProviders) {
+    public QuestionAnswerAdvisor questionAnswerAdvisor(
+            @Qualifier("runtimeRagVectorStore") VectorStore vectorStore,
+            RagConfig ragConfig) {
         RagConfig.Retrieval retrievalConfig = ragConfig.getRetrieval();
-
-        QuestionAnswerAdvisor qaAdvisor = QuestionAnswerAdvisor.builder(vectorStore)
+        return QuestionAnswerAdvisor.builder(vectorStore)
                 .searchRequest(SearchRequest.builder()
                         .topK(retrievalConfig.getTopK())
                         .similarityThreshold(retrievalConfig.getSimilarityThreshold())
                         .build())
                 .build();
+    }
 
-        MessageChatMemoryAdvisor memoryAdvisor = MessageChatMemoryAdvisor.builder(chatMemory)
-                .build();
+    @Bean
+    public MessageChatMemoryAdvisor messageChatMemoryAdvisor(ChatMemory chatMemory) {
+        return MessageChatMemoryAdvisor.builder(chatMemory).build();
+    }
 
-        // System Prompt 已迁移到数据库，由 ChatService 每次请求时动态注入 .system(...)
+    @Bean
+    public ChatClient chatClient(ChatClient.Builder builder,
+                                 SecurityAdvisor securityAdvisor,
+                                 MessageChatMemoryAdvisor messageChatMemoryAdvisor,
+                                 ReReadingAdvisor reReadingAdvisor,
+                                 QuestionAnswerAdvisor questionAnswerAdvisor,
+                                 LoggingAdvisor loggingAdvisor,
+                                 List<ToolCallbackProvider> toolCallbackProviders) {
         return builder
                 .defaultAdvisors(
                         securityAdvisor,
-                        memoryAdvisor,
+                        messageChatMemoryAdvisor,
                         reReadingAdvisor,
-                        qaAdvisor,
+                        questionAnswerAdvisor,
                         loggingAdvisor
                 )
                 .defaultToolCallbacks(toolCallbackProviders.toArray(ToolCallbackProvider[]::new))

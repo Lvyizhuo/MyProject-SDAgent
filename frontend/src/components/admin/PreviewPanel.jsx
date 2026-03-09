@@ -37,7 +37,7 @@ const PreviewPanel = ({ config }) => {
             </div>
 
             <div className="preview-content">
-                {activeTab === 'chat' && <ChatTestTab greetingMessage={config?.greetingMessage} />}
+                {activeTab === 'chat' && <ChatTestTab config={config} />}
                 {activeTab === 'effect' && <EffectPreviewTab config={config} />}
                 {activeTab === 'json' && <ConfigJsonTab config={config} />}
             </div>

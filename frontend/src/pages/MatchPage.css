@@ -266,41 +266,23 @@
 .suggestion {
     margin-top: 16px;
     padding: 16px;
-    background: hsl(var(--color-bg-soft) / 0.5);
-    border-radius: var(--radius-md);
+    background: #f0fdf4;
+    border-radius: 12px;
+    border: 1px solid #86efac;
     border-left: 3px solid hsl(var(--color-primary));
 }
 
 .suggestion h4 {
-    color: hsl(var(--color-heading));
-    font-size: 0.9rem;
+    color: #166534;
+    font-size: 0.84rem;
     margin-bottom: 4px;
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
 }
 
 .suggestion p {
     margin: 0;
-    font-size: 0.9rem;
-    color: hsl(var(--color-text-secondary));
-}
-
-    border-radius: 12px;
-    border: 1px solid #86efac;
-    background: #f0fdf4;
-    padding: 10px;
-}
-
-.suggestion h4 {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    color: #166534;
-    font-size: 0.84rem;
-}
-
-.suggestion p {
     color: #166534;
     font-size: 0.82rem;
 }

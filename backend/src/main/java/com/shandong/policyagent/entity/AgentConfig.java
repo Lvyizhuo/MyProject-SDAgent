@@ -43,6 +43,18 @@ public class AgentConfig {
 
     private Double temperature;
 
+    @Column(name = "llm_model_id")
+    private Long llmModelId;
+
+    @Column(name = "vision_model_id")
+    private Long visionModelId;
+
+    @Column(name = "audio_model_id")
+    private Long audioModelId;
+
+    @Column(name = "embedding_model_id")
+    private Long embeddingModelId;
+
     // 系统提示词
     @Column(nullable = false, columnDefinition = "TEXT")
     private String systemPrompt;

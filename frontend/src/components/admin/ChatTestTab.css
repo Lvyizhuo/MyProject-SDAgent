@@ -18,8 +18,23 @@
     color: var(--color-text-secondary);
 }
 
+.chat-test-header-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
 .session-info {
     font-family: monospace;
+}
+
+.active-model-info {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text);
 }
 
 .btn-clear {
@@ -39,6 +54,18 @@
 .btn-clear:hover {
     background-color: var(--color-bg-hover);
     color: var(--color-danger);
+}
+
+@media (max-width: 720px) {
+    .chat-test-header {
+        align-items: flex-start;
+        gap: 8px;
+        flex-direction: column;
+    }
+
+    .btn-clear {
+        align-self: flex-end;
+    }
 }
 
 .chat-test-messages {

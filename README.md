@@ -1,6 +1,6 @@
 # 山东省智能政策咨询助手
 
-基于 AI/LLM 的山东省以旧换新政策咨询系统，支持政策问答、补贴计算、多模态识别，以及管理员控制台知识库管理。
+基于 AI/LLM 的山东省以旧换新政策咨询系统，支持政策问答、补贴计算、多模态识别，以及管理员控制台中的智能体配置、知识库管理和模型服务管理。
 
 ## 技术架构
 
@@ -8,7 +8,7 @@
 |------|--------|
 | 前端 | React 19 + Vite 7 |
 | 后端 | Spring Boot 3.4.1 + Spring AI 1.0.3 |
-| 大模型 | 阿里云 DashScope（聊天默认 `qwen3.5-plus`） |
+| 大模型 | 阿里云 DashScope（聊天默认 `qwen3.5-plus`，支持管理员绑定第三方 OpenAI 兼容模型） |
 | 向量数据库 | PostgreSQL 16 + pgvector |
 | 缓存/会话 | Redis 7 |
 | 对象存储 | MinIO |
@@ -22,11 +22,11 @@
 │   │   ├── advisor/       # 安全、记忆、日志、重读校验
 │   │   ├── agent/         # ToolIntentClassifier / AgentPlanParser
 │   │   ├── config/        # ChatClient/Security/Embedding/Minio 配置
-│   │   ├── controller/    # Chat/Auth/Admin/Knowledge API
-│   │   ├── entity/        # JPA 实体
+│   │   ├── controller/    # Chat/Auth/Admin/Knowledge/Model/PublicConfig API
+│   │   ├── entity/        # JPA 实体（含 AgentConfig / ModelProvider / ModelType）
 │   │   ├── multimodal/    # ASR 与视觉
-│   │   ├── rag/           # 知识库切片、检索、向量写入
-│   │   ├── service/       # 业务逻辑
+│   │   ├── rag/           # 知识库切片、检索、向量写入、运行时嵌入模型路由
+│   │   ├── service/       # 业务逻辑（含动态模型与密钥加解密）
 │   │   └── tool/          # calculateSubsidy / parseFile / webSearch
 │   ├── src/main/resources/
 │   ├── docker-compose.yml # PostgreSQL + Redis + MinIO
@@ -54,6 +54,8 @@
 ```bash
 export DASHSCOPE_API_KEY=your_dashscope_api_key
 export TAVILY_API_KEY=your_tavily_api_key   # 可选，联网搜索工具
+export APP_JWT_SECRET=your_base64_jwt_secret
+export APP_MODEL_PROVIDER_ENCRYPTION_SECRET=your_model_provider_secret   # 可选但推荐，启用模型管理时建议配置
 ```
 
 ### 2. 启动基础设施
@@ -96,10 +98,22 @@ vi deploy/.env
 至少需要正确配置：
 - `DASHSCOPE_API_KEY`
 - `APP_JWT_SECRET`
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET`（启用模型管理时建议配置）
 - `POSTGRES_PASSWORD`
 - `MINIO_PASSWORD`
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`
 - `APP_EMBEDDING_OLLAMA_BASE_URL`（容器内默认 `http://ollama:11434`）
+
+## 管理员控制台
+
+当前管理员控制台包含 4 个主模块：
+
+- 智能体：配置系统提示词、开场白、技能开关，并可绑定大语言/视觉/语音/嵌入模型
+- 知识库：管理文件夹、上传文档、查看切片结果、重新入库
+- 工具：展示统一工具治理的信息架构与后续接入方向
+- 模型：维护 LLM、视觉、语音、嵌入四类模型，支持新增、编辑、删除、设为默认、连接测试
+
+智能体测试面板会展示“当前生效模型”，区分是来自模型管理绑定还是手动配置。
 
 ### 2. 启动容器
 
@@ -204,11 +218,20 @@ docker compose --env-file .env up -d --build
 | PUT | `/api/admin/agent-config` | 更新智能体配置 |
 | POST | `/api/admin/agent-config/reset` | 重置智能体配置 |
 | POST | `/api/admin/agent-config/test` | 管理员测试对话 |
+| GET | `/api/admin/models` | 获取模型列表 |
+| GET | `/api/admin/models/{id}` | 获取模型详情 |
+| POST | `/api/admin/models` | 新增模型 |
+| PUT | `/api/admin/models/{id}` | 更新模型 |
+| DELETE | `/api/admin/models/{id}` | 删除模型 |
+| PUT | `/api/admin/models/{id}/set-default` | 设为默认模型 |
+| POST | `/api/admin/models/{id}/test` | 测试模型连接 |
+| GET | `/api/admin/models/options` | 获取模型下拉选项 |
 | GET | `/api/admin/knowledge/folders` | 获取知识库目录树 |
 | POST | `/api/admin/knowledge/documents` | 上传知识文档 |
 | GET | `/api/admin/knowledge/documents` | 分页查询文档 |
 | POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
 | GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
+| GET | `/api/public/config/agent` | 获取公开智能体配置（当前包含开场白） |
 
 ### 多模态
 
@@ -234,6 +257,13 @@ npm run dev
 npm run build
 npm run lint
 ```
+
+## 运行时说明
+
+- `DynamicChatClientFactory` 会优先使用管理员绑定的大语言模型；未绑定时回退到手动配置。
+- `RuntimeRagVectorStore` 会优先使用管理员绑定的嵌入模型；未绑定时回退到知识库默认嵌入模型。
+- `DocumentLoaderService` 在扫描版 PDF 提取不到正文时，会尝试走视觉 OCR 兜底。
+- `ChatService` 对实时查询会优先执行 `webSearch`，并在部分模型超时或 OpenAI 兼容调用异常时尝试降级。
 
 ## 默认端口
 

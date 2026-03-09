@@ -85,5 +85,108 @@ export const adminApi = {
             throw new Error(error.message || '测试对话失败');
         }
         return response.json();
+    },
+
+    // ========== 模型管理 API ==========
+
+    async getModels(type) {
+        const url = type ? `${API_BASE}/admin/models?type=${type}` : `${API_BASE}/admin/models`;
+        const response = await fetch(url, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '获取模型列表失败' }));
+            throw new Error(error.message || '获取模型列表失败');
+        }
+        return response.json();
+    },
+
+    async getModelById(id) {
+        const response = await fetch(`${API_BASE}/admin/models/${id}`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '获取模型详情失败' }));
+            throw new Error(error.message || '获取模型详情失败');
+        }
+        return response.json();
+    },
+
+    async createModel(model) {
+        const response = await fetch(`${API_BASE}/admin/models`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify(model)
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '创建模型失败' }));
+            throw new Error(error.message || '创建模型失败');
+        }
+        return response.json();
+    },
+
+    async updateModel(id, model) {
+        const response = await fetch(`${API_BASE}/admin/models/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify(model)
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '更新模型失败' }));
+            throw new Error(error.message || '更新模型失败');
+        }
+        return response.json();
+    },
+
+    async deleteModel(id) {
+        const response = await fetch(`${API_BASE}/admin/models/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '删除模型失败' }));
+            throw new Error(error.message || '删除模型失败');
+        }
+    },
+
+    async setDefaultModel(id) {
+        const response = await fetch(`${API_BASE}/admin/models/${id}/set-default`, {
+            method: 'PUT',
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '设置默认模型失败' }));
+            throw new Error(error.message || '设置默认模型失败');
+        }
+        return response.json();
+    },
+
+    async testModelConnection(id) {
+        const response = await fetch(`${API_BASE}/admin/models/${id}/test`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '测试连接失败' }));
+            throw new Error(error.message || '测试连接失败');
+        }
+        return response.json();
+    },
+
+    async getModelOptions() {
+        const response = await fetch(`${API_BASE}/admin/models/options`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ message: '获取模型选项失败' }));
+            throw new Error(error.message || '获取模型选项失败');
+        }
+        return response.json();
     }
 };

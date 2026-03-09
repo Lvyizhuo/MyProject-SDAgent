@@ -1,6 +1,6 @@
 # 山东省智能政策咨询助手 - Backend
 
-基于 Spring Boot 3.4.1 + Spring AI 1.0.3 的后端服务，提供用户对话、多模态识别、管理员控制台配置管理和知识库管理能力。
+基于 Spring Boot 3.4.1 + Spring AI 1.0.3 的后端服务，提供用户对话、多模态识别、管理员控制台配置管理、知识库管理和模型服务管理能力。
 
 ## 依赖服务
 
@@ -39,6 +39,7 @@ docker compose ps
 - `APP_JWT_SECRET`
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`
 - `APP_EMBEDDING_OLLAMA_BASE_URL`
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET`（启用模型管理时建议显式配置）
 
 ## 运行与测试
 
@@ -67,12 +68,22 @@ set -a; source .env; set +a
 
 - `DASHSCOPE_API_KEY`（必需）
 - `TAVILY_API_KEY`（可选，联网搜索）
+- `APP_JWT_SECRET`（生产必需）
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET`（可选但推荐，用于模型 API Key 加密）
+- `APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS`（可选，用于历史密钥兼容解密）
 
 ```bash
 export DASHSCOPE_API_KEY="your-api-key"
 export TAVILY_API_KEY="your-tavily-key"
+export APP_JWT_SECRET="your-base64-secret"
+export APP_MODEL_PROVIDER_ENCRYPTION_SECRET="your-model-provider-secret"
 ./mvnw spring-boot:run
 ```
+
+应用内重要配置项：
+- `app.agent.planning-timeout-seconds`：ReAct 规划超时时间，当前默认 15 秒
+- `app.model-provider.openai.*`：OpenAI 兼容调用超时配置
+- `app.model-provider.direct.*`：直连模型测试/降级调用超时配置
 
 ## API 速览
 
@@ -90,11 +101,22 @@ export TAVILY_API_KEY="your-tavily-key"
 - `GET|PUT /api/admin/agent-config`
 - `POST /api/admin/agent-config/reset`
 - `POST /api/admin/agent-config/test`
+- `GET /api/admin/models`
+- `GET /api/admin/models/{id}`
+- `POST /api/admin/models`
+- `PUT /api/admin/models/{id}`
+- `DELETE /api/admin/models/{id}`
+- `PUT /api/admin/models/{id}/set-default`
+- `POST /api/admin/models/{id}/test`
+- `GET /api/admin/models/options`
 - `GET /api/admin/knowledge/folders`
 - `POST /api/admin/knowledge/documents`
 - `GET /api/admin/knowledge/documents`
 - `GET /api/admin/knowledge/documents/{id}/chunks`
 - `POST /api/admin/knowledge/documents/{id}/reingest`
+
+公开配置接口：
+- `GET /api/public/config/agent`
 
 多模态接口：
 - `POST /api/multimodal/transcribe`
@@ -112,5 +134,9 @@ curl http://localhost:8080/actuator/health
 ## 关键实现说明
 
 - 默认管理员账号会在首次启动时初始化为 `admin/admin`（`AdminInitializer`），上线前必须修改。
-- `SecurityConfig` 对 `/api/admin/**` 启用 `ROLE_ADMIN` 鉴权。
-- 知识库配置由 `app.knowledge.*` 驱动，包含 MinIO、切片、召回、重排与嵌入模型配置。
+- `SecurityConfig` 对 `/api/admin/**` 启用 `ROLE_ADMIN` 鉴权，并放行 `/api/public/config/**` 供前端读取开场白等公开信息。
+- `DynamicChatClientFactory` 会基于 `AgentConfig` 中选定的 LLM 动态创建当前请求的 ChatClient。
+- `RuntimeRagVectorStore` 会优先使用管理员绑定的嵌入模型做向量检索，未绑定时回退到知识库默认嵌入模型。
+- `ModelProviderService` 负责模型 CRUD、默认模型切换、连接测试，以及模型 API Key 的 AES-GCM 加解密。
+- `DocumentLoaderService` 在扫描版 PDF 无法直接提取文本时，会调用视觉能力做 OCR 兜底；若仍无文本则阻止入库并标记失败。
+- `ChatService` 会对实时查询优先执行 `webSearch`，并在 OpenAI 兼容调用 404 / 网络超时等异常场景下尝试原生 REST 降级。
