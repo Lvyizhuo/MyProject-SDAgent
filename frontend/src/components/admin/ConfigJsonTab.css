@@ -1,18 +1,25 @@
 .config-json-tab {
     height: 100%;
     padding: var(--space-md);
-    background-color: var(--color-bg);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-soft)));
     border-radius: var(--radius-md);
     overflow: auto;
 }
 
 .config-json-tab pre {
     margin: 0;
-    font-family: monospace;
+    min-height: 100%;
+    padding: var(--space-md);
+    border: 1px solid hsl(var(--color-border));
+    border-radius: var(--radius-md);
+    background: hsl(var(--color-title) / 0.97);
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.06);
+    font-family: var(--font-mono);
     font-size: 0.9rem;
-    color: var(--color-text);
+    color: hsl(210 40% 96%);
     white-space: pre-wrap;
     word-break: break-all;
+    line-height: 1.65;
 }
 
 .config-json-tab code {

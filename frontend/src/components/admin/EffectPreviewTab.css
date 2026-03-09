@@ -2,7 +2,7 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background-color: var(--color-bg);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-soft)));
     overflow: hidden;
 }
 
@@ -51,38 +51,40 @@
 
 .info-divider span {
     position: relative;
-    background: var(--color-bg);
+    background: hsl(var(--color-bg-elevated));
     padding: 0 var(--space-md);
-    color: var(--color-text-tertiary);
+    color: hsl(var(--color-text-muted));
     font-size: 0.85rem;
     z-index: 2;
 }
 
 .info-card {
-    background-color: var(--color-surface);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-soft)));
     border-radius: var(--radius-md);
-    border: 1px dashed var(--color-border);
+    border: 1px solid hsl(var(--color-border));
     padding: var(--space-md);
     margin-bottom: var(--space-md);
+    box-shadow: 0 16px 32px -30px hsl(var(--color-title) / 0.4);
 }
 
 .info-card h4 {
     margin: 0 0 var(--space-sm) 0;
     font-size: 0.95rem;
-    color: var(--color-text);
+    color: hsl(var(--color-title));
 }
 
 .info-card p {
     margin: 0;
     font-size: 0.85rem;
-    color: var(--color-text-secondary);
+    color: hsl(var(--color-text-secondary));
     white-space: pre-wrap;
     word-break: break-word;
+    line-height: 1.65;
 }
 
 .stat-bar-container {
     height: 8px;
-    background-color: var(--color-border);
+    background-color: hsl(var(--color-border));
     border-radius: 4px;
     margin-bottom: var(--space-xs);
     overflow: hidden;
@@ -90,7 +92,7 @@
 
 .stat-bar {
     height: 100%;
-    background-color: var(--color-primary);
+    background: linear-gradient(90deg, hsl(var(--color-primary)), hsl(var(--color-secondary)));
     border-radius: 4px;
     transition: width 0.3s ease;
 }
@@ -102,22 +104,22 @@
 }
 
 .tool-badge {
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    font-size: 0.85rem;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.82rem;
     font-weight: 500;
 }
 
 .tool-badge.enabled {
-    background-color: hsla(120, 50%, 50%, 0.1);
-    color: hsl(120, 60%, 35%);
-    border: 1px solid hsla(120, 50%, 50%, 0.2);
+    background-color: hsl(var(--color-success) / 0.1);
+    color: hsl(142 68% 30%);
+    border: 1px solid hsl(var(--color-success) / 0.22);
 }
 
 .tool-badge.disabled {
-    background-color: var(--color-bg-hover);
-    color: var(--color-text-tertiary);
-    border: 1px dashed var(--color-border);
+    background-color: hsl(var(--color-bg-soft));
+    color: hsl(var(--color-text-muted));
+    border: 1px solid hsl(var(--color-border));
 }
 
 @keyframes fadeIn {

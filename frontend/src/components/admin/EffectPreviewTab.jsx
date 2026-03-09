@@ -6,6 +6,8 @@ import '../ChatWindow.css'; // Reuse chat window styles to keep it consistent
 import './EffectPreviewTab.css';
 
 const EffectPreviewTab = ({ config }) => {
+    const skillEntries = Object.entries(config?.skills || {});
+
     return (
         <div className="effect-preview-tab">
             <div className="chat-window mock-chat-window">
@@ -38,20 +40,21 @@ const EffectPreviewTab = ({ config }) => {
                         </div>
                         
                         <div className="info-card">
-                            <h4>温度 (Temperature): {config?.temperature || 0}</h4>
+                            <h4>温度 (Temperature): {config?.temperature ?? 0}</h4>
                             <div className="stat-bar-container">
-                                <div className="stat-bar" style={{ width: `${(config?.temperature || 0) * 100}%` }}></div>
+                                <div className="stat-bar" style={{ width: `${(config?.temperature ?? 0) * 100}%` }}></div>
                             </div>
                         </div>
                         
                         <div className="info-card">
-                            <h4>启用的工具</h4>
+                            <h4>启用的技能</h4>
                             <div className="tools-list">
-                                {Object.entries(config?.tools || {}).map(([key, enabled]) => (
-                                    <div key={key} className={`tool-badge ${enabled ? 'enabled' : 'disabled'}`}>
-                                        {key}: {enabled ? '启用' : '禁用'}
+                                {skillEntries.map(([key, value]) => (
+                                    <div key={key} className={`tool-badge ${value?.enabled ? 'enabled' : 'disabled'}`}>
+                                        {key}: {value?.enabled ? '启用' : '禁用'}
                                     </div>
                                 ))}
+                                {skillEntries.length === 0 && <div className="tool-badge disabled">暂无技能配置</div>}
                             </div>
                         </div>
                     </div>

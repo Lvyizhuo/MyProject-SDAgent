@@ -2,7 +2,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background-color: var(--color-bg);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-soft)));
     border-radius: var(--radius-md);
     overflow: hidden;
 }
@@ -12,10 +12,10 @@
     justify-content: space-between;
     align-items: center;
     padding: var(--space-sm) var(--space-md);
-    background-color: var(--color-surface);
-    border-bottom: 1px solid var(--color-border);
+    background: linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-soft)));
+    border-bottom: 1px solid hsl(var(--color-border));
     font-size: 0.85rem;
-    color: var(--color-text-secondary);
+    color: hsl(var(--color-text-secondary));
 }
 
 .chat-test-header-meta {
@@ -34,7 +34,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--color-text);
+    color: hsl(var(--color-title));
 }
 
 .btn-clear {
@@ -43,7 +43,7 @@
     gap: var(--space-xs);
     background: none;
     border: none;
-    color: var(--color-text-secondary);
+    color: hsl(var(--color-text-secondary));
     cursor: pointer;
     font-size: 0.85rem;
     padding: var(--space-xs) var(--space-sm);
@@ -52,8 +52,8 @@
 }
 
 .btn-clear:hover {
-    background-color: var(--color-bg-hover);
-    color: var(--color-danger);
+    background-color: hsl(var(--color-primary-light));
+    color: hsl(var(--color-accent));
 }
 
 @media (max-width: 720px) {
