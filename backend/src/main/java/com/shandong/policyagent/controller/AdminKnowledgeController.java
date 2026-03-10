@@ -4,11 +4,13 @@ import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.entity.DocumentStatus;
 import com.shandong.policyagent.entity.KnowledgeConfig;
 import com.shandong.policyagent.entity.KnowledgeDocument;
+import com.shandong.policyagent.entity.KnowledgeDocumentSource;
 import com.shandong.policyagent.entity.KnowledgeFolder;
 import com.shandong.policyagent.entity.User;
 import com.shandong.policyagent.model.dto.*;
 import com.shandong.policyagent.rag.EmbeddingService;
 import com.shandong.policyagent.rag.KnowledgeService;
+import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
 import com.shandong.policyagent.service.UrlImportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +47,7 @@ public class AdminKnowledgeController {
 
     private final KnowledgeService knowledgeService;
     private final EmbeddingService embeddingService;
+    private final KnowledgeDocumentSourceRepository knowledgeDocumentSourceRepository;
     private final UrlImportService urlImportService;
 
     @PostMapping("/folders")
@@ -109,7 +112,7 @@ public class AdminKnowledgeController {
                 publishDate, source, validFrom, validTo, summary, currentUser
         );
 
-        return ResponseEntity.ok(toDocumentResponse(document));
+        return ResponseEntity.ok(toDocumentResponse(document, null));
     }
 
     @PostMapping(value = "/documents/extract-metadata", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -121,6 +124,7 @@ public class AdminKnowledgeController {
     @GetMapping("/documents")
     public ResponseEntity<Map<String, Object>> listDocuments(
             @RequestParam(value = "folderId", required = false) Long folderId,
+            @RequestParam(value = "importJobId", required = false) Long importJobId,
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "tag", required = false) String tag,
             @RequestParam(value = "status", required = false) DocumentStatus status,
@@ -132,11 +136,15 @@ public class AdminKnowledgeController {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
         Page<KnowledgeDocument> documentPage = knowledgeService.listDocuments(
-                folderId, category, tag, status, keyword, pageable);
+            folderId, importJobId, category, tag, status, keyword, pageable);
+        Map<Long, KnowledgeDocumentSource> sourceMapping = knowledgeDocumentSourceRepository.findByKnowledgeDocumentIdIn(
+                documentPage.getContent().stream().map(KnowledgeDocument::getId).toList())
+            .stream()
+            .collect(Collectors.toMap(item -> item.getKnowledgeDocument().getId(), item -> item, (left, right) -> right));
 
         Map<String, Object> result = new HashMap<>();
         result.put("content", documentPage.getContent().stream()
-                .map(this::toDocumentResponse).toList());
+            .map(doc -> toDocumentResponse(doc, sourceMapping.get(doc.getId()))).toList());
         result.put("page", documentPage.getNumber());
         result.put("size", documentPage.getSize());
         result.put("totalElements", documentPage.getTotalElements());
@@ -148,9 +156,10 @@ public class AdminKnowledgeController {
     @GetMapping("/documents/selection")
     public ResponseEntity<Map<String, Object>> listDocumentSelection(
             @RequestParam(value = "folderId", required = false) Long folderId,
+            @RequestParam(value = "importJobId", required = false) Long importJobId,
             @RequestParam(value = "status", required = false) DocumentStatus status,
             @RequestParam(value = "q", required = false) String keyword) {
-        List<Long> ids = knowledgeService.listDocumentIds(folderId, status, keyword);
+        List<Long> ids = knowledgeService.listDocumentIds(folderId, importJobId, status, keyword);
         Map<String, Object> result = new HashMap<>();
         result.put("ids", ids);
         result.put("count", ids.size());
@@ -160,7 +169,8 @@ public class AdminKnowledgeController {
     @GetMapping("/documents/{id}")
     public ResponseEntity<DocumentResponse> getDocument(@PathVariable Long id) {
         return knowledgeService.getDocument(id)
-                .map(doc -> ResponseEntity.ok(toDocumentResponse(doc)))
+            .map(doc -> ResponseEntity.ok(toDocumentResponse(doc,
+                knowledgeDocumentSourceRepository.findByKnowledgeDocumentIdIn(List.of(doc.getId())).stream().findFirst().orElse(null))))
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -193,9 +203,16 @@ public class AdminKnowledgeController {
 
     @GetMapping("/documents/{id}/preview")
     public ResponseEntity<Map<String, String>> getDocumentPreview(@PathVariable Long id) {
-        String previewUrl = knowledgeService.getDocumentPreviewUrl(id, 60);
+        KnowledgeDocumentSource sourceMapping = knowledgeDocumentSourceRepository.findByKnowledgeDocumentIdIn(List.of(id))
+            .stream()
+            .findFirst()
+            .orElse(null);
+        String previewUrl = sourceMapping != null && sourceMapping.getSourceUrl() != null && !sourceMapping.getSourceUrl().isBlank()
+            ? sourceMapping.getSourceUrl()
+            : knowledgeService.getDocumentPreviewUrl(id, 60);
         Map<String, String> result = new HashMap<>();
         result.put("previewUrl", previewUrl);
+        result.put("previewMode", sourceMapping != null ? "external" : "file");
         return ResponseEntity.ok(result);
     }
 
@@ -209,7 +226,8 @@ public class AdminKnowledgeController {
     public ResponseEntity<DocumentResponse> reingestDocument(@PathVariable Long id) {
         knowledgeService.reingestDocument(id);
         return knowledgeService.getDocument(id)
-                .map(doc -> ResponseEntity.ok(toDocumentResponse(doc)))
+            .map(doc -> ResponseEntity.ok(toDocumentResponse(doc,
+                knowledgeDocumentSourceRepository.findByKnowledgeDocumentIdIn(List.of(doc.getId())).stream().findFirst().orElse(null))))
                 .orElse(ResponseEntity.notFound().build());
     }
 
@@ -329,7 +347,7 @@ public class AdminKnowledgeController {
                 .build();
     }
 
-    private DocumentResponse toDocumentResponse(KnowledgeDocument doc) {
+    private DocumentResponse toDocumentResponse(KnowledgeDocument doc, KnowledgeDocumentSource sourceMapping) {
         return DocumentResponse.builder()
                 .id(doc.getId())
                 .folderId(doc.getFolder() != null ? doc.getFolder().getId() : null)
@@ -343,6 +361,16 @@ public class AdminKnowledgeController {
                 .tags(doc.getTags())
                 .publishDate(doc.getPublishDate())
                 .source(doc.getSource())
+                .websiteImported(sourceMapping != null)
+                .externalSourceUrl(sourceMapping != null ? sourceMapping.getSourceUrl() : null)
+                .externalSourcePage(sourceMapping != null ? sourceMapping.getSourcePage() : null)
+                .externalSourceSite(sourceMapping != null ? sourceMapping.getSourceSite() : null)
+                .importJobId(sourceMapping != null && sourceMapping.getImportItem() != null && sourceMapping.getImportItem().getJob() != null
+                    ? sourceMapping.getImportItem().getJob().getId()
+                    : null)
+                .importItemId(sourceMapping != null && sourceMapping.getImportItem() != null
+                    ? sourceMapping.getImportItem().getId()
+                    : null)
                 .validFrom(doc.getValidFrom())
                 .validTo(doc.getValidTo())
                 .summary(doc.getSummary())
@@ -352,5 +380,11 @@ public class AdminKnowledgeController {
                 .createdAt(doc.getCreatedAt())
                 .updatedAt(doc.getUpdatedAt())
                 .build();
+    }
+
+    @DeleteMapping("/url-import-items/{id}")
+    public ResponseEntity<Void> deleteUrlImportItem(@PathVariable Long id) {
+        urlImportService.deleteImportItem(id);
+        return ResponseEntity.noContent().build();
     }
 }

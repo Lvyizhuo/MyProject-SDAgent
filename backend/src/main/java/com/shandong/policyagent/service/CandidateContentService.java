@@ -22,6 +22,7 @@ public class CandidateContentService {
 
     private static final Pattern REGION_PATTERN = Pattern.compile("(济南|青岛|淄博|枣庄|东营|烟台|潍坊|济宁|泰安|威海|日照|临沂|德州|聊城|滨州|菏泽)");
     private static final Pattern YEAR_PATTERN = Pattern.compile("20\\d{2}");
+    private static final String PROVINCE_TAG = "山东省";
     private static final Set<String> POLICY_KEYWORDS = Set.of("以旧换新", "补贴", "通知", "公告", "方案", "细则", "实施", "办法", "指南", "政策");
     private static final Set<String> LOW_PRIORITY_KEYWORDS = Set.of("启动仪式", "圆满成功", "接力赛", "消费季", "走进", "活动现场", "宣贯活动");
     private static final Set<String> NOISE_PATTERNS = Set.of("当前位置", "网站声明", "隐私保护", "版权所有", "联系我们", "网站地图", "打印", "关闭窗口", "分享到");
@@ -136,6 +137,9 @@ public class CandidateContentService {
     private List<String> inferTags(String title, String text) {
         String haystack = title + " " + text;
         Set<String> tags = new LinkedHashSet<>();
+        if (containsAny(haystack, Set.of("山东", "山东省", "山东省商务厅"))) {
+            tags.add(PROVINCE_TAG);
+        }
         if (containsAny(haystack, Set.of("以旧换新"))) {
             tags.add("以旧换新");
         }

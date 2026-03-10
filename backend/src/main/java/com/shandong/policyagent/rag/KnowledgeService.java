@@ -7,7 +7,9 @@ import com.shandong.policyagent.model.dto.DocumentMetadataExtractResponse;
 import com.shandong.policyagent.model.dto.DocumentChunksPageResponse;
 import com.shandong.policyagent.repository.KnowledgeConfigRepository;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
+import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
+import com.shandong.policyagent.repository.UrlImportItemRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -27,6 +29,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -40,6 +43,8 @@ public class KnowledgeService {
     private final KnowledgeFolderRepository folderRepository;
     private final KnowledgeDocumentRepository documentRepository;
     private final KnowledgeConfigRepository configRepository;
+    private final KnowledgeDocumentSourceRepository knowledgeDocumentSourceRepository;
+    private final UrlImportItemRepository urlImportItemRepository;
 
     private final StorageService storageService;
     private final DocumentLoaderService documentLoaderService;
@@ -50,6 +55,7 @@ public class KnowledgeService {
     private static final Pattern SOURCE_LABEL_PATTERN = Pattern.compile("(来源|发布单位|印发单位)[:：]\\s*([^\\n\\r]{2,50})");
     private static final Pattern REGION_PATTERN = Pattern.compile("(济南|青岛|淄博|枣庄|东营|烟台|潍坊|济宁|泰安|威海|日照|临沂|德州|聊城|滨州|菏泽)");
     private static final Pattern YEAR_PATTERN = Pattern.compile("20\\d{2}");
+    private static final String PROVINCE_TAG = "山东省";
 
     @Transactional
     public KnowledgeFolder createFolder(Long parentId, String name, String description, User createdBy) {
@@ -291,7 +297,13 @@ public class KnowledgeService {
         }
     }
 
-    public Page<KnowledgeDocument> listDocuments(Long folderId, String category, String tag, DocumentStatus status, String keyword, Pageable pageable) {
+    public Page<KnowledgeDocument> listDocuments(Long folderId, Long importJobId, String category, String tag, DocumentStatus status, String keyword, Pageable pageable) {
+        if (importJobId != null) {
+            if (keyword != null && !keyword.isBlank()) {
+                return documentRepository.searchDocumentsByImportJobId(importJobId, status, keyword.trim(), pageable);
+            }
+            return documentRepository.findByImportJobId(importJobId, status, pageable);
+        }
         if (keyword != null && !keyword.isBlank()) {
             return documentRepository.searchDocuments(folderId, status, keyword.trim(), pageable);
         }
@@ -307,8 +319,14 @@ public class KnowledgeService {
         return documentRepository.findAll(pageable);
     }
 
-    public List<Long> listDocumentIds(Long folderId, DocumentStatus status, String keyword) {
+    public List<Long> listDocumentIds(Long folderId, Long importJobId, DocumentStatus status, String keyword) {
         String normalizedKeyword = keyword != null && !keyword.isBlank() ? keyword.trim() : null;
+        if (importJobId != null) {
+            if (normalizedKeyword == null) {
+                return documentRepository.findIdsByImportJobId(importJobId, status);
+            }
+            return documentRepository.searchIdsByImportJobId(importJobId, status, normalizedKeyword);
+        }
         if (normalizedKeyword == null) {
             return documentRepository.findIdsBySelection(folderId, status);
         }
@@ -355,10 +373,19 @@ public class KnowledgeService {
 
     @Transactional
     public void batchDeleteDocuments(List<Long> ids) {
-        List<KnowledgeDocument> documents = documentRepository.findAllById(ids);
-        if (documents.size() != ids.size()) {
+        List<Long> normalizedIds = ids == null ? List.of() : ids.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (normalizedIds.isEmpty()) {
+            throw new IllegalArgumentException("未选择任何文档");
+        }
+
+        List<KnowledgeDocument> documents = documentRepository.findAllById(normalizedIds);
+        if (documents.size() != normalizedIds.size()) {
             throw new IllegalArgumentException("部分文档不存在，无法批量删除");
         }
+        clearDocumentReferences(normalizedIds);
         for (KnowledgeDocument document : documents) {
             deleteDocument(document);
         }
@@ -384,11 +411,21 @@ public class KnowledgeService {
     private void deleteDocument(KnowledgeDocument document) {
 
         List<String> vectorIds = new ArrayList<>();
-        multiVectorStoreService.deleteDocuments(document.getEmbeddingModel(), vectorIds);
+        if (!vectorIds.isEmpty()) {
+            multiVectorStoreService.deleteDocuments(document.getEmbeddingModel(), vectorIds);
+        }
 
         storageService.deleteFile(document.getStoragePath());
 
         documentRepository.delete(document);
+    }
+
+    private void clearDocumentReferences(List<Long> knowledgeDocumentIds) {
+        if (knowledgeDocumentIds == null || knowledgeDocumentIds.isEmpty()) {
+            return;
+        }
+        urlImportItemRepository.clearKnowledgeDocumentReferences(knowledgeDocumentIds);
+        knowledgeDocumentSourceRepository.deleteByKnowledgeDocumentIdIn(knowledgeDocumentIds);
     }
 
     @Transactional
@@ -440,6 +477,9 @@ public class KnowledgeService {
     private List<String> inferTags(String title, String text) {
         Set<String> tags = new LinkedHashSet<>();
         String haystack = title + " " + text;
+        if (containsAny(haystack, "山东", "山东省", "山东省商务厅")) {
+            tags.add(PROVINCE_TAG);
+        }
         if (containsAny(haystack, "以旧换新")) {
             tags.add("以旧换新");
         }

@@ -229,7 +229,8 @@ const adminKnowledgeApi = {
             body: JSON.stringify({ ids })
         });
         if (!response.ok) {
-            throw new Error('批量删除文档失败');
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '批量删除文档失败');
         }
     },
 
@@ -385,6 +386,17 @@ const adminKnowledgeApi = {
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
             throw new Error(error.message || '删除网站导入任务失败');
+        }
+    },
+
+    async deleteUrlImportItem(id) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-import-items/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '删除待入库内容失败');
         }
     }
 };

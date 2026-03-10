@@ -14,8 +14,12 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class UrlImportJobResponse {
     private Long id;
+    private String title;
     private String sourceUrl;
     private String sourceSite;
+    private Long targetFolderId;
+    private String targetFolderPath;
+    private String embeddingModel;
     private UrlImportJobStatus status;
     private Integer discoveredCount;
     private Integer candidateCount;

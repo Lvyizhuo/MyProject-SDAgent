@@ -61,8 +61,12 @@ const KnowledgeBaseTab = () => {
     const [urlImportJobs, setUrlImportJobs] = useState([]);
     const [urlImportCandidates, setUrlImportCandidates] = useState([]);
     const [showUrlImportDialog, setShowUrlImportDialog] = useState(false);
+    const [showTaskListDialog, setShowTaskListDialog] = useState(false);
     const [showImportPreviewDialog, setShowImportPreviewDialog] = useState(false);
     const [selectedImportItem, setSelectedImportItem] = useState(null);
+    const [selectedTaskId, setSelectedTaskId] = useState(null);
+    const [taskDocuments, setTaskDocuments] = useState([]);
+    const [taskPagination, setTaskPagination] = useState({ page: 0, size: 20, totalElements: 0, totalPages: 0 });
     const [pagination, setPagination] = useState({ page: 0, size: 20, totalElements: 0, totalPages: 0 });
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState(null);
@@ -102,6 +106,35 @@ const KnowledgeBaseTab = () => {
         }
     }, [filterStatus, notify, pagination.size]);
 
+    const loadTaskDocuments = useCallback(async (taskId, page = 0, keyword = '') => {
+        if (!taskId) {
+            setTaskDocuments([]);
+            setTaskPagination(prev => ({ ...prev, page: 0, totalElements: 0, totalPages: 0 }));
+            return;
+        }
+
+        try {
+            const params = {
+                importJobId: taskId,
+                page,
+                size: taskPagination.size,
+                status: filterStatus,
+                q: keyword?.trim() || null
+            };
+            const data = await adminKnowledgeApi.listDocuments(params);
+            setTaskDocuments(data.content || []);
+            setTaskPagination({
+                page: data.page,
+                size: data.size,
+                totalElements: data.totalElements,
+                totalPages: data.totalPages
+            });
+        } catch (error) {
+            console.error('Failed to load task documents:', error);
+            notify({ text: '加载任务文档失败', type: 'error', source: '管理员-知识库' });
+        }
+    }, [filterStatus, notify, taskPagination.size]);
+
     const loadEmbeddingModels = useCallback(async () => {
         try {
             const data = await adminKnowledgeApi.getEmbeddingModels();
@@ -125,8 +158,18 @@ const KnowledgeBaseTab = () => {
     const loadUrlImports = useCallback(async () => {
         try {
             const data = await adminKnowledgeApi.listUrlImports();
-            setUrlImportJobs(data.jobs || []);
+            const nextJobs = data.jobs || [];
+            setUrlImportJobs(nextJobs);
             setUrlImportCandidates(data.candidates || []);
+            setSelectedTaskId(prev => {
+                if (!nextJobs.length) {
+                    return null;
+                }
+                if (prev && nextJobs.some(job => job.id === prev)) {
+                    return prev;
+                }
+                return nextJobs[0].id;
+            });
         } catch (error) {
             console.error('Failed to load url imports:', error);
         }
@@ -153,6 +196,16 @@ const KnowledgeBaseTab = () => {
         }, 250);
         return () => window.clearTimeout(timer);
     }, [filterStatus, loadDocuments, searchQuery, selectedFolderId]);
+
+    useEffect(() => {
+        if (!showTaskListDialog || !selectedTaskId) {
+            return undefined;
+        }
+        const timer = window.setTimeout(() => {
+            loadTaskDocuments(selectedTaskId, 0, searchQuery);
+        }, 250);
+        return () => window.clearTimeout(timer);
+    }, [filterStatus, loadTaskDocuments, searchQuery, selectedTaskId, showTaskListDialog]);
 
     useEffect(() => {
         setSelectedDocumentIds([]);
@@ -243,6 +296,9 @@ const KnowledgeBaseTab = () => {
             await adminKnowledgeApi.deleteDocument(docId);
             notify({ text: '文档删除成功', type: 'success', source: '管理员-知识库' });
             await loadDocuments(selectedFolderId, pagination.page, searchQuery);
+            if (showTaskListDialog && selectedTaskId) {
+                await loadTaskDocuments(selectedTaskId, taskPagination.page, searchQuery);
+            }
         } catch (error) {
             notify({ text: '文档删除失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
@@ -267,9 +323,10 @@ const KnowledgeBaseTab = () => {
                 status: filterStatus,
                 q: searchQuery?.trim() || null
             });
-            setSelectedDocumentIds(result.ids || []);
+            const uniqueIds = [...new Set(result.ids || [])];
+            setSelectedDocumentIds(uniqueIds);
             notify({
-                text: `已选中当前范围内 ${result.count || 0} 份文档`,
+                text: `已选中当前范围内 ${uniqueIds.length} 份文档`,
                 type: 'success',
                 source: '管理员-知识库'
             });
@@ -279,14 +336,15 @@ const KnowledgeBaseTab = () => {
     };
 
     const handleBatchDeleteDocuments = async () => {
-        if (selectedDocumentIds.length === 0) {
+        const uniqueSelectedIds = [...new Set(selectedDocumentIds)];
+        if (uniqueSelectedIds.length === 0) {
             notify({ text: '请先选择需要删除的文档', type: 'warning', source: '管理员-知识库' });
             return;
         }
 
         const confirmed = await confirm({
             title: '批量删除文档',
-            message: `确定要删除选中的 ${selectedDocumentIds.length} 份文档吗？删除后无法恢复。`,
+            message: `确定要删除选中的 ${uniqueSelectedIds.length} 份文档吗？删除后无法恢复。`,
             confirmText: '确认删除',
             tone: 'danger'
         });
@@ -295,7 +353,7 @@ const KnowledgeBaseTab = () => {
         }
 
         try {
-            await adminKnowledgeApi.batchDeleteDocuments(selectedDocumentIds);
+            await adminKnowledgeApi.batchDeleteDocuments(uniqueSelectedIds);
             notify({ text: '批量删除成功', type: 'success', source: '管理员-知识库' });
             setSelectedDocumentIds([]);
             await loadDocuments(selectedFolderId, pagination.page, searchQuery);
@@ -348,6 +406,7 @@ const KnowledgeBaseTab = () => {
                 type: 'info',
                 source: '管理员-知识库'
             });
+            setSelectedTaskId(result.id);
             setShowUrlImportDialog(false);
             await loadUrlImports();
         } catch (error) {
@@ -371,7 +430,11 @@ const KnowledgeBaseTab = () => {
             notify({ text: '候选内容已进入知识库处理流程', type: 'success', source: '管理员-知识库' });
             setShowImportPreviewDialog(false);
             setSelectedImportItem(null);
-            await Promise.all([loadUrlImports(), loadDocuments(selectedFolderId, 0, searchQuery)]);
+            await Promise.all([
+                loadUrlImports(),
+                loadDocuments(selectedFolderId, 0, searchQuery),
+                loadTaskDocuments(selectedTaskId, 0, searchQuery)
+            ]);
         } catch (error) {
             notify({ text: '确认入库失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
@@ -405,7 +468,11 @@ const KnowledgeBaseTab = () => {
                 ? `已入库 ${result.successCount} 条，失败 ${result.failedCount} 条`
                 : `已完成 ${result.successCount} 条候选内容入库`;
             notify({ text: summary, type: result.failedCount > 0 ? 'warning' : 'success', source: '管理员-知识库' });
-            await Promise.all([loadUrlImports(), loadDocuments(selectedFolderId, 0, searchQuery)]);
+            await Promise.all([
+                loadUrlImports(),
+                loadDocuments(selectedFolderId, 0, searchQuery),
+                loadTaskDocuments(selectedTaskId, 0, searchQuery)
+            ]);
         } catch (error) {
             notify({ text: '一键入库失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
@@ -476,7 +543,51 @@ const KnowledgeBaseTab = () => {
         }
     };
 
+    const handleDeleteImportItem = async (itemId) => {
+        const confirmed = await confirm({
+            title: '删除待入库内容',
+            message: '确定要删除这条抓取内容吗？删除后将不会出现在审批列表中。',
+            confirmText: '确认删除',
+            tone: 'danger'
+        });
+        if (!confirmed) return;
+
+        try {
+            await adminKnowledgeApi.deleteUrlImportItem(itemId);
+            notify({ text: '待入库内容已删除', type: 'success', source: '管理员-知识库' });
+            if (selectedImportItem?.id === itemId) {
+                setShowImportPreviewDialog(false);
+                setSelectedImportItem(null);
+            }
+            await Promise.all([
+                loadUrlImports(),
+                loadDocuments(selectedFolderId, 0, searchQuery),
+                loadTaskDocuments(selectedTaskId, 0, searchQuery)
+            ]);
+        } catch (error) {
+            notify({ text: '删除待入库内容失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handlePreviewDocument = async (doc) => {
+        try {
+            const result = await adminKnowledgeApi.getDocumentPreview(doc.id);
+            if (!result?.previewUrl) {
+                throw new Error('未获取到可预览地址');
+            }
+            window.open(result.previewUrl, '_blank', 'noopener,noreferrer');
+        } catch (error) {
+            notify({ text: '打开预览失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
     const handleDownloadDocument = async (doc) => {
+        if (doc.externalSourceUrl) {
+            window.open(doc.externalSourceUrl, '_blank', 'noopener,noreferrer');
+            notify({ text: '该文档来自网站抓取，已跳转至原网页', type: 'info', source: '管理员-知识库' });
+            return;
+        }
+
         try {
             const blob = await adminKnowledgeApi.downloadDocument(doc.id);
             const url = window.URL.createObjectURL(blob);
@@ -618,56 +729,68 @@ const KnowledgeBaseTab = () => {
 
     const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
-    const activeImportDocs = urlImportJobs
-        .filter(job => ['PENDING', 'CRAWLING', 'PROCESSING', 'FAILED'].includes(job.status))
-        .map(job => ({
-            id: `import-job-${job.id}`,
-            importJobId: job.id,
-            title: job.title || `网站导入任务 #${job.id}`,
-            fileName: job.sourceUrl,
-            fileSize: null,
-            folderPath: '/',
-            status: job.status === 'FAILED' ? 'FAILED' : 'PROCESSING',
-            chunkCount: job.candidateCount || 0,
-            errorMessage: job.errorMessage,
-            isImportJob: true,
-            importStatus: job.status,
-            sourceUrl: job.sourceUrl,
-            canCancelImportJob: ['CRAWLING', 'PROCESSING'].includes(job.status),
-            canDeleteImportJob: ['PENDING', 'FAILED'].includes(job.status)
-        }));
+    const jobMap = new Map(urlImportJobs.map(job => [job.id, job]));
 
-    const candidateDocs = urlImportCandidates.map(item => ({
+    const taskJobs = urlImportJobs.filter(job => {
+        if (!normalizedSearchQuery) {
+            return true;
+        }
+        const haystack = `${job.title || ''} ${job.sourceUrl || ''} ${job.sourceSite || ''}`.toLowerCase();
+        return haystack.includes(normalizedSearchQuery);
+    });
+
+    const selectedTask = urlImportJobs.find(job => job.id === selectedTaskId) || null;
+
+    const candidateDocs = urlImportCandidates
+        .map(item => {
+            const job = jobMap.get(item.jobId);
+            return {
         id: `import-item-${item.id}`,
         title: item.title,
         fileName: item.sourceUrl,
         fileSize: null,
-        folderPath: '/待入库',
+        folderPath: job?.targetFolderPath || '/待入库',
         status: 'PENDING',
         chunkCount: 0,
         errorMessage: item.reviewComment || item.errorMessage,
         isUrlImportCandidate: true,
         importItemId: item.id,
         importStatus: item.reviewStatus,
+        jobId: item.jobId,
+        targetFolderId: job?.targetFolderId ?? null,
+        taskTitle: job?.title || `网站导入任务 #${item.jobId}`,
         sourceUrl: item.sourceUrl,
         publishDate: item.publishDate,
         qualityScore: item.qualityScore,
-        suspectedDuplicate: item.suspectedDuplicate
-    }));
-
-    const mergedDocuments = [...pendingDocuments, ...activeImportDocs, ...candidateDocs, ...documents]
+        suspectedDuplicate: item.suspectedDuplicate,
+        previewText: item.summary || item.cleanedText || ''
+    };
+        })
         .filter(doc => {
-            if (!normalizedSearchQuery) {
-                return true;
+            if (selectedFolderId !== null && doc.targetFolderId !== selectedFolderId) {
+                return false;
             }
-            if (!doc.isImportJob && !doc.isUrlImportCandidate && !doc.isTransient) {
+            if (!normalizedSearchQuery) {
                 return true;
             }
             const haystack = `${doc.title || ''} ${doc.fileName || ''} ${doc.sourceUrl || ''}`.toLowerCase();
             return haystack.includes(normalizedSearchQuery);
         });
 
+    const visibleKnowledgeDocuments = [...pendingDocuments, ...documents];
+
+    const mergedDocuments = [...candidateDocs, ...visibleKnowledgeDocuments];
+
+    const taskCandidateDocs = candidateDocs.filter(doc => !selectedTask || doc.jobId === selectedTask.id);
+    const taskMergedDocuments = selectedTask
+        ? [...taskCandidateDocs, ...taskDocuments]
+        : [];
+
     const visibleCandidateIds = mergedDocuments
+        .filter(doc => doc.isUrlImportCandidate)
+        .map(doc => doc.importItemId);
+
+    const taskVisibleCandidateIds = taskMergedDocuments
         .filter(doc => doc.isUrlImportCandidate)
         .map(doc => doc.importItemId);
 
@@ -701,6 +824,10 @@ const KnowledgeBaseTab = () => {
                     <button className="btn-secondary" onClick={() => setShowUrlImportDialog(true)}>
                         <Link2 size={16} />
                         网站导入
+                    </button>
+                    <button className="btn-secondary" onClick={() => setShowTaskListDialog(true)}>
+                        <Clock size={16} />
+                        任务列表
                     </button>
                     <button className="btn-primary" onClick={() => setShowUploadDialog(true)}>
                         <Upload size={16} />
@@ -754,59 +881,61 @@ const KnowledgeBaseTab = () => {
                             onClick={() => {
                                 loadDocuments(selectedFolderId, pagination.page, searchQuery);
                                 loadUrlImports();
+                                if (showTaskListDialog && selectedTaskId) {
+                                    loadTaskDocuments(selectedTaskId, taskPagination.page, searchQuery);
+                                }
                             }}
                             title="刷新"
                         >
                             <RefreshCw size={16} />
                         </button>
                     </div>
-
                     <div className="kb-batch-toolbar">
-                        <button
-                            className="btn-secondary"
-                            onClick={handleToggleSelectAllDocuments}
-                            disabled={pagination.totalElements === 0}
-                        >
-                            {allMatchingSelected ? <CheckSquare size={16} /> : <Square size={16} />}
-                            {allMatchingSelected ? '取消全选' : '全选当前目录'}
-                        </button>
-                        <span className="kb-batch-count">
-                            已选 {selectedDocumentIds.length} / {pagination.totalElements} 份文档
-                        </span>
-                        <button
-                            className="btn-secondary"
-                            onClick={() => setShowBatchMoveDialog(true)}
-                            disabled={selectedDocumentIds.length === 0}
-                        >
-                            <FolderInput size={16} />
-                            批量移动
-                        </button>
-                        <button
-                            className="btn-secondary danger-outline"
-                            onClick={handleBatchDeleteDocuments}
-                            disabled={selectedDocumentIds.length === 0}
-                        >
-                            <Trash2 size={16} />
-                            批量删除
-                        </button>
-                        <button
-                            className="btn-primary"
-                            onClick={() => handleBatchConfirmImportItems(visibleCandidateIds)}
-                            disabled={visibleCandidateIds.length === 0}
-                        >
-                            <Sparkles size={16} />
-                            一键入库 {visibleCandidateIds.length > 0 ? `(${visibleCandidateIds.length})` : ''}
-                        </button>
-                    </div>
-
-                    <div className="document-list">
-                        {mergedDocuments.length === 0 ? (
-                            <div className="empty-state">
-                                <FileText size={48} />
-                                <p>暂无文档</p>
+                                <button
+                                    className="btn-secondary"
+                                    onClick={handleToggleSelectAllDocuments}
+                                    disabled={pagination.totalElements === 0}
+                                >
+                                    {allMatchingSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                                    {allMatchingSelected ? '取消全选' : '全选当前目录'}
+                                </button>
+                                <span className="kb-batch-count">
+                                    已选 {selectedDocumentIds.length} / {pagination.totalElements} 份文档
+                                </span>
+                                <button
+                                    className="btn-secondary"
+                                    onClick={() => setShowBatchMoveDialog(true)}
+                                    disabled={selectedDocumentIds.length === 0}
+                                >
+                                    <FolderInput size={16} />
+                                    批量移动
+                                </button>
+                                <button
+                                    className="btn-secondary danger-outline"
+                                    onClick={handleBatchDeleteDocuments}
+                                    disabled={selectedDocumentIds.length === 0}
+                                >
+                                    <Trash2 size={16} />
+                                    批量删除
+                                </button>
+                                <button
+                                    className="btn-primary"
+                                    onClick={() => handleBatchConfirmImportItems(visibleCandidateIds)}
+                                    disabled={visibleCandidateIds.length === 0}
+                                >
+                                    <Sparkles size={16} />
+                                    一键入库 {visibleCandidateIds.length > 0 ? `(${visibleCandidateIds.length})` : ''}
+                                </button>
                             </div>
-                        ) : (
-                            mergedDocuments.map(doc => (
+
+                            <div className="document-list">
+                                {mergedDocuments.length === 0 ? (
+                                    <div className="empty-state">
+                                        <FileText size={48} />
+                                        <p>暂无文档</p>
+                                    </div>
+                                ) : (
+                                    mergedDocuments.map(doc => (
                                 <div key={doc.id} className="document-item">
                                     <div className="doc-selection">
                                         {!doc.isTransient && !doc.isImportJob && !doc.isUrlImportCandidate ? (
@@ -845,6 +974,18 @@ const KnowledgeBaseTab = () => {
                                             {doc.qualityScore != null && (
                                                 <span className="doc-import-badge">评分 {doc.qualityScore}</span>
                                             )}
+                                            {doc.taskTitle && (
+                                                <span className="doc-import-badge">{doc.taskTitle}</span>
+                                            )}
+                                            {doc.isImportJob && (
+                                                <span className="doc-import-badge">候选 {doc.candidateCount ?? 0}</span>
+                                            )}
+                                            {doc.isImportJob && (doc.importedCount ?? 0) > 0 && (
+                                                <span className="doc-import-badge">已入库 {doc.importedCount}</span>
+                                            )}
+                                            {doc.isImportJob && (doc.rejectedCount ?? 0) > 0 && (
+                                                <span className="doc-import-badge warning">已驳回 {doc.rejectedCount}</span>
+                                            )}
                                             {doc.publishDate && (
                                                 <span className="doc-import-badge">{doc.publishDate}</span>
                                             )}
@@ -871,6 +1012,9 @@ const KnowledgeBaseTab = () => {
                                                     查看原文
                                                 </a>
                                             </div>
+                                        )}
+                                        {doc.previewText && (
+                                            <div className="doc-preview-text">{doc.previewText}</div>
                                         )}
                                         {doc.errorMessage && (
                                             <div className="doc-error">{doc.errorMessage}</div>
@@ -900,38 +1044,25 @@ const KnowledgeBaseTab = () => {
                                                 >
                                                     <X size={16} />
                                                 </button>
-                                            </>
-                                        )}
-                                        {doc.isImportJob && (
-                                            <>
                                                 <button
-                                                    className="btn-icon"
-                                                    onClick={() => loadUrlImports()}
-                                                    title="刷新任务状态"
+                                                    className="btn-icon danger"
+                                                    onClick={() => handleDeleteImportItem(doc.importItemId)}
+                                                    title="删除待入库内容"
                                                 >
-                                                    <RefreshCw size={16} />
+                                                    <Trash2 size={16} />
                                                 </button>
-                                                {doc.canCancelImportJob && (
-                                                    <button
-                                                        className="btn-icon danger"
-                                                        onClick={() => handleCancelImportJob(doc.importJobId)}
-                                                        title="取消任务"
-                                                    >
-                                                        <X size={16} />
-                                                    </button>
-                                                )}
-                                                {doc.canDeleteImportJob && (
-                                                    <button
-                                                        className="btn-icon danger"
-                                                        onClick={() => handleDeleteImportJob(doc.importJobId)}
-                                                        title="删除任务"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                )}
                                             </>
                                         )}
                                         {!doc.isTransient && !doc.isImportJob && !doc.isUrlImportCandidate && (
+                                            <button
+                                                className="btn-icon"
+                                                onClick={() => handlePreviewDocument(doc)}
+                                                title="预览"
+                                            >
+                                                <Eye size={16} />
+                                            </button>
+                                        )}
+                                        {!doc.isTransient && !doc.isImportJob && !doc.isUrlImportCandidate && !doc.externalSourceUrl && (
                                             <button
                                                 className="btn-icon"
                                                 onClick={() => handleDownloadDocument(doc)}
@@ -970,28 +1101,28 @@ const KnowledgeBaseTab = () => {
                                     </div>
                                 </div>
                             ))
-                        )}
-                    </div>
+                                )}
+                            </div>
 
-                    {pagination.totalPages > 1 && (
-                        <div className="kb-pagination">
-                            <button
-                                disabled={pagination.page === 0}
-                                onClick={() => loadDocuments(selectedFolderId, pagination.page - 1, searchQuery)}
-                            >
-                                上一页
-                            </button>
-                            <span>
-                                第 {pagination.page + 1} / {pagination.totalPages} 页，共 {pagination.totalElements} 条
-                            </span>
-                            <button
-                                disabled={pagination.page >= pagination.totalPages - 1}
-                                onClick={() => loadDocuments(selectedFolderId, pagination.page + 1, searchQuery)}
-                            >
-                                下一页
-                            </button>
-                        </div>
-                    )}
+                            {pagination.totalPages > 1 && (
+                                <div className="kb-pagination">
+                                    <button
+                                        disabled={pagination.page === 0}
+                                        onClick={() => loadDocuments(selectedFolderId, pagination.page - 1, searchQuery)}
+                                    >
+                                        上一页
+                                    </button>
+                                    <span>
+                                        第 {pagination.page + 1} / {pagination.totalPages} 页，共 {pagination.totalElements} 条
+                                    </span>
+                                    <button
+                                        disabled={pagination.page >= pagination.totalPages - 1}
+                                        onClick={() => loadDocuments(selectedFolderId, pagination.page + 1, searchQuery)}
+                                    >
+                                        下一页
+                                    </button>
+                                </div>
+                            )}
                 </div>
             </div>
 
@@ -1036,6 +1167,45 @@ const KnowledgeBaseTab = () => {
                         }
                     }}
                     uploadProgress={uploadProgress}
+                />
+            )}
+
+            {showTaskListDialog && (
+                <TaskListDialog
+                    jobs={taskJobs}
+                    selectedTask={selectedTask}
+                    selectedTaskId={selectedTaskId}
+                    documents={taskMergedDocuments}
+                    pagination={taskPagination}
+                    onClose={() => setShowTaskListDialog(false)}
+                    onRefresh={() => {
+                        loadUrlImports();
+                        if (selectedTaskId) {
+                            loadTaskDocuments(selectedTaskId, taskPagination.page, searchQuery);
+                        }
+                    }}
+                    onSelectTask={(taskId) => {
+                        setSelectedTaskId(taskId);
+                        loadTaskDocuments(taskId, 0, searchQuery);
+                    }}
+                    onCancelTask={handleCancelImportJob}
+                    onDeleteTask={handleDeleteImportJob}
+                    onPreviewImportItem={handlePreviewImportItem}
+                    onConfirmImportItem={(itemId) => handleConfirmImportItem(itemId, { folderId: selectedFolderId || null })}
+                    onRejectImportItem={handleRejectImportItem}
+                    onDeleteImportItem={handleDeleteImportItem}
+                    onPreviewDocument={handlePreviewDocument}
+                    onDownloadDocument={handleDownloadDocument}
+                    onViewChunks={handleViewChunks}
+                    onReingestDocument={handleReingestDocument}
+                    onDeleteDocument={handleDeleteDocument}
+                    onBatchConfirm={() => handleBatchConfirmImportItems(taskVisibleCandidateIds)}
+                    batchConfirmCount={taskVisibleCandidateIds.length}
+                    getImportStatusText={getImportStatusText}
+                    getStatusIcon={getStatusIcon}
+                    getStatusText={getStatusText}
+                    getStatusBarClass={getStatusBarClass}
+                    onPageChange={(page) => loadTaskDocuments(selectedTaskId, page, searchQuery)}
                 />
             )}
 
@@ -1156,6 +1326,315 @@ const ChunkPreviewDialog = ({ documentInfo, chunkPageData, loading, onClose }) =
                     <button type="button" className="btn-secondary" onClick={onClose}>
                         关闭
                     </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const TaskListDialog = ({
+    jobs,
+    selectedTask,
+    selectedTaskId,
+    documents,
+    pagination,
+    onClose,
+    onRefresh,
+    onSelectTask,
+    onCancelTask,
+    onDeleteTask,
+    onPreviewImportItem,
+    onConfirmImportItem,
+    onRejectImportItem,
+    onDeleteImportItem,
+    onPreviewDocument,
+    onDownloadDocument,
+    onViewChunks,
+    onReingestDocument,
+    onDeleteDocument,
+    onBatchConfirm,
+    batchConfirmCount,
+    getImportStatusText,
+    getStatusIcon,
+    getStatusText,
+    getStatusBarClass,
+    onPageChange
+}) => {
+    return (
+        <div className="dialog-overlay" onClick={onClose}>
+            <div className="dialog task-dialog" onClick={event => event.stopPropagation()}>
+                <div className="dialog-header">
+                    <div>
+                        <h3>任务列表</h3>
+                        <p className="task-dialog-subtitle">查看网站导入任务、抓取进度和入库结果</p>
+                    </div>
+                    <div className="task-dialog-header-actions">
+                        <button className="btn-icon" onClick={onRefresh} title="刷新任务列表">
+                            <RefreshCw size={16} />
+                        </button>
+                        <button className="btn-close" onClick={onClose}>
+                            <X size={20} />
+                        </button>
+                    </div>
+                </div>
+
+                <div className="dialog-body task-dialog-body">
+                    <div className="task-dialog-layout">
+                        <aside className="task-dialog-sidebar">
+                            <div className="task-list">
+                                {jobs.length === 0 ? (
+                                    <div className="task-empty-state">
+                                        <Clock size={28} />
+                                        <p>暂无网站导入任务</p>
+                                    </div>
+                                ) : (
+                                    jobs.map(job => {
+                                        const isSelected = selectedTaskId === job.id;
+                                        const canCancelImportJob = ['CRAWLING', 'PROCESSING'].includes(job.status);
+                                        const canDeleteImportJob = !canCancelImportJob;
+
+                                        return (
+                                            <div
+                                                key={job.id}
+                                                className={`task-item ${isSelected ? 'selected' : ''}`}
+                                                onClick={() => onSelectTask(job.id)}
+                                            >
+                                                <div className="task-item-head">
+                                                    <div className="task-item-title">{job.title || `网站导入任务 #${job.id}`}</div>
+                                                    <span className={`task-status-badge ${job.status.toLowerCase()}`}>
+                                                        {getImportStatusText(job.status)}
+                                                    </span>
+                                                </div>
+                                                <div className="task-item-meta">
+                                                    <span>{job.sourceSite || '网站导入'}</span>
+                                                    <span>{job.targetFolderPath || '/'}</span>
+                                                </div>
+                                                <div className="task-item-url">{job.sourceUrl}</div>
+                                                <div className="task-item-stats">
+                                                    <span>抓取 {job.discoveredCount || 0}</span>
+                                                    <span>待审 {job.candidateCount || 0}</span>
+                                                    <span>已入库 {job.importedCount || 0}</span>
+                                                    <span>已驳回 {job.rejectedCount || 0}</span>
+                                                </div>
+                                                {job.errorMessage && <div className="task-item-error">{job.errorMessage}</div>}
+                                                <div className="task-item-actions">
+                                                    {canCancelImportJob && (
+                                                        <button
+                                                            className="btn-icon danger"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onCancelTask(job.id);
+                                                            }}
+                                                            title="取消任务"
+                                                        >
+                                                            <X size={16} />
+                                                        </button>
+                                                    )}
+                                                    {canDeleteImportJob && (
+                                                        <button
+                                                            className="btn-icon danger"
+                                                            onClick={(event) => {
+                                                                event.stopPropagation();
+                                                                onDeleteTask(job.id);
+                                                            }}
+                                                            title="删除任务"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </aside>
+
+                        <section className="task-dialog-content">
+                            {selectedTask ? (
+                                <>
+                                    <div className="task-summary-card task-summary-card-inline">
+                                        <div className="task-summary-head">
+                                            <div>
+                                                <h3>{selectedTask.title || `网站导入任务 #${selectedTask.id}`}</h3>
+                                                <p>{selectedTask.sourceUrl}</p>
+                                            </div>
+                                            <span className={`task-status-badge ${selectedTask.status.toLowerCase()}`}>
+                                                {getImportStatusText(selectedTask.status)}
+                                            </span>
+                                        </div>
+                                        <div className="task-summary-grid">
+                                            <div className="task-summary-metric">
+                                                <span className="task-summary-label">抓取情况</span>
+                                                <strong>{selectedTask.discoveredCount || 0}</strong>
+                                                <span>已发现政策页面</span>
+                                            </div>
+                                            <div className="task-summary-metric">
+                                                <span className="task-summary-label">待审批</span>
+                                                <strong>{selectedTask.candidateCount || 0}</strong>
+                                                <span>等待人工确认</span>
+                                            </div>
+                                            <div className="task-summary-metric">
+                                                <span className="task-summary-label">已入库</span>
+                                                <strong>{selectedTask.importedCount || 0}</strong>
+                                                <span>已进入知识库</span>
+                                            </div>
+                                            <div className="task-summary-metric">
+                                                <span className="task-summary-label">已驳回</span>
+                                                <strong>{selectedTask.rejectedCount || 0}</strong>
+                                                <span>已被人工剔除</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="kb-batch-toolbar task-batch-toolbar">
+                                        <span className="kb-batch-count">
+                                            当前任务共 {documents.length} 条内容，含待审批与已入库文档
+                                        </span>
+                                        <button
+                                            className="btn-primary"
+                                            onClick={onBatchConfirm}
+                                            disabled={batchConfirmCount === 0}
+                                        >
+                                            <Sparkles size={16} />
+                                            一键入库 {batchConfirmCount > 0 ? `(${batchConfirmCount})` : ''}
+                                        </button>
+                                    </div>
+
+                                    <div className="document-list task-document-list">
+                                        {documents.length === 0 ? (
+                                            <div className="empty-state">
+                                                <FileText size={48} />
+                                                <p>该任务下暂无待审批或已入库内容</p>
+                                            </div>
+                                        ) : (
+                                            documents.map(doc => (
+                                                <div key={doc.id} className="document-item">
+                                                    <div className="doc-selection" />
+                                                    <div className="doc-icon">
+                                                        <FileText size={24} />
+                                                    </div>
+                                                    <div className="doc-info">
+                                                        <div className="doc-title">{doc.title}</div>
+                                                        <div className="doc-meta">
+                                                            <span className="doc-folder">{doc.folderPath || '/'}</span>
+                                                            <span className="doc-size">
+                                                                {typeof doc.fileSize === 'number' ? `${(doc.fileSize / 1024).toFixed(1)} KB` : '-'}
+                                                            </span>
+                                                            <span className="doc-status">
+                                                                {getStatusIcon(doc.status)}
+                                                                {doc.isUrlImportCandidate ? '待入库' : getStatusText(doc.status)}
+                                                            </span>
+                                                            {doc.chunkCount > 0 && (
+                                                                <span className="doc-chunks">{doc.chunkCount} 个切片</span>
+                                                            )}
+                                                            {doc.qualityScore != null && (
+                                                                <span className="doc-import-badge">评分 {doc.qualityScore}</span>
+                                                            )}
+                                                            {doc.publishDate && (
+                                                                <span className="doc-import-badge">{doc.publishDate}</span>
+                                                            )}
+                                                            {doc.suspectedDuplicate && (
+                                                                <span className="doc-import-badge warning">疑似重复</span>
+                                                            )}
+                                                        </div>
+                                                        <div className={`doc-status-bar ${getStatusBarClass(doc.status)}`}>
+                                                            <div className="doc-status-bar-fill" />
+                                                            <span className="doc-status-bar-text">
+                                                                {doc.isUrlImportCandidate ? '等待管理员确认入库' : getStatusText(doc.status)}
+                                                            </span>
+                                                        </div>
+                                                        {doc.sourceUrl && (
+                                                            <div className="doc-source-link">
+                                                                <a href={doc.sourceUrl} target="_blank" rel="noreferrer">
+                                                                    <ExternalLink size={14} />
+                                                                    查看原文
+                                                                </a>
+                                                            </div>
+                                                        )}
+                                                        {doc.previewText && (
+                                                            <div className="doc-preview-text">{doc.previewText}</div>
+                                                        )}
+                                                        {doc.errorMessage && (
+                                                            <div className="doc-error">{doc.errorMessage}</div>
+                                                        )}
+                                                    </div>
+                                                    <div className="doc-actions">
+                                                        {doc.isUrlImportCandidate && (
+                                                            <>
+                                                                <button className="btn-icon" onClick={() => onPreviewImportItem(doc.importItemId)} title="预览待入库内容">
+                                                                    <Eye size={16} />
+                                                                </button>
+                                                                <button className="btn-icon success" onClick={() => onConfirmImportItem(doc.importItemId)} title="确认入库">
+                                                                    <CheckCircle2 size={16} />
+                                                                </button>
+                                                                <button className="btn-icon danger" onClick={() => onRejectImportItem(doc.importItemId)} title="驳回">
+                                                                    <X size={16} />
+                                                                </button>
+                                                                <button className="btn-icon danger" onClick={() => onDeleteImportItem(doc.importItemId)} title="删除待入库内容">
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {!doc.isUrlImportCandidate && (
+                                                            <button className="btn-icon" onClick={() => onPreviewDocument(doc)} title="预览">
+                                                                <Eye size={16} />
+                                                            </button>
+                                                        )}
+                                                        {!doc.isUrlImportCandidate && !doc.externalSourceUrl && (
+                                                            <button className="btn-icon" onClick={() => onDownloadDocument(doc)} title="下载">
+                                                                <Download size={16} />
+                                                            </button>
+                                                        )}
+                                                        {!doc.isUrlImportCandidate && doc.status === 'COMPLETED' && doc.chunkCount > 0 && (
+                                                            <button className="btn-icon" onClick={() => onViewChunks(doc)} title="查看分段">
+                                                                <Eye size={16} />
+                                                            </button>
+                                                        )}
+                                                        {!doc.isUrlImportCandidate && doc.status === 'FAILED' && (
+                                                            <button className="btn-icon" onClick={() => onReingestDocument(doc.id)} title="重新处理">
+                                                                <RefreshCw size={16} />
+                                                            </button>
+                                                        )}
+                                                        {!doc.isUrlImportCandidate && (
+                                                            <button className="btn-icon danger" onClick={() => onDeleteDocument(doc.id)} title="删除">
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+
+                                    {pagination.totalPages > 1 && (
+                                        <div className="kb-pagination task-pagination">
+                                            <button
+                                                disabled={pagination.page === 0}
+                                                onClick={() => onPageChange(pagination.page - 1)}
+                                            >
+                                                上一页
+                                            </button>
+                                            <span>
+                                                第 {pagination.page + 1} / {pagination.totalPages} 页，共 {pagination.totalElements} 条
+                                            </span>
+                                            <button
+                                                disabled={pagination.page >= pagination.totalPages - 1}
+                                                onClick={() => onPageChange(pagination.page + 1)}
+                                            >
+                                                下一页
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="empty-state task-dialog-empty">
+                                    <Clock size={40} />
+                                    <p>请选择左侧任务查看抓取与入库详情</p>
+                                </div>
+                            )}
+                        </section>
+                    </div>
                 </div>
             </div>
         </div>

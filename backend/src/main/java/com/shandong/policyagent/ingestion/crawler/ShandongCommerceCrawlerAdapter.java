@@ -422,7 +422,8 @@ public class ShandongCommerceCrawlerAdapter implements SiteCrawlerAdapter {
                 return fileName;
             }
         };
-        List<Document> docs = documentLoaderService.loadDocumentFromResource(resource, fileName);
+        // Website import must stay responsive; skip slow OCR fallback during crawling.
+        List<Document> docs = documentLoaderService.loadDocumentFromResource(resource, fileName, false);
         return docs.stream()
                 .map(Document::getText)
                 .filter(text -> text != null && !text.isBlank())

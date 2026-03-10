@@ -27,6 +27,12 @@ public class DocumentResponse {
     private List<String> tags;
     private LocalDate publishDate;
     private String source;
+    private Boolean websiteImported;
+    private String externalSourceUrl;
+    private String externalSourcePage;
+    private String externalSourceSite;
+    private Long importJobId;
+    private Long importItemId;
     private LocalDate validFrom;
     private LocalDate validTo;
     private String summary;

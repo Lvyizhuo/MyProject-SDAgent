@@ -20,12 +20,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -88,6 +90,7 @@ public class UrlImportService {
 
         UrlImportJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("导入任务不存在"));
+        ensureJobVisible(job);
 
         if (job.getStatus() == UrlImportJobStatus.CANCELED) {
             return;
@@ -106,25 +109,46 @@ public class UrlImportService {
     public void deleteImportJob(Long jobId) {
         UrlImportJob job = jobRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("导入任务不存在"));
+        ensureJobVisible(job);
 
         if (job.getStatus() == UrlImportJobStatus.CRAWLING || job.getStatus() == UrlImportJobStatus.PROCESSING) {
             throw new IllegalArgumentException("任务仍在执行中，请先取消后再删除");
         }
-        if (job.getImportedCount() != null && job.getImportedCount() > 0) {
-            throw new IllegalArgumentException("任务下已有内容入库，不能直接删除任务记录");
-        }
-
-        jobRepository.delete(job);
+        job.setDeletedAt(LocalDateTime.now());
+        jobRepository.save(job);
         log.info("网站导入任务已删除: jobId={}", jobId);
     }
 
+    @Transactional
+    public void deleteImportItem(Long itemId) {
+        UrlImportItem item = itemRepository.findById(itemId)
+                .orElseThrow(() -> new IllegalArgumentException("待入库内容不存在"));
+
+        UrlImportJob job = item.getJob();
+        ensureJobVisible(job);
+        if (item.getKnowledgeDocument() != null || item.getReviewStatus() == UrlImportReviewStatus.CONFIRMED) {
+            throw new IllegalArgumentException("已入库内容请在知识库列表中删除对应文档");
+        }
+
+        if (job.getCandidateCount() != null && job.getCandidateCount() > 0) {
+            job.setCandidateCount(job.getCandidateCount() - 1);
+        }
+        if (item.getReviewStatus() == UrlImportReviewStatus.REJECTED && job.getRejectedCount() != null && job.getRejectedCount() > 0) {
+            job.setRejectedCount(job.getRejectedCount() - 1);
+        }
+
+        itemRepository.delete(item);
+        updateJobStatusAfterReview(job);
+        log.info("网站导入候选已删除: itemId={} | jobId={}", itemId, job.getId());
+    }
+
     public UrlImportListResponse listImports() {
-        List<UrlImportJobResponse> jobs = jobRepository.findTop20ByOrderByCreatedAtDesc().stream()
+        List<UrlImportJobResponse> jobs = jobRepository.findTop20ByDeletedAtIsNullOrderByCreatedAtDesc().stream()
                 .sorted(Comparator.comparing(UrlImportJob::getCreatedAt).reversed())
                 .map(this::toJobResponse)
                 .toList();
         List<UrlImportItemResponse> candidates = itemRepository
-            .findTop200ByReviewStatusOrderByCreatedAtDesc(UrlImportReviewStatus.WAITING_CONFIRM)
+            .findTop200VisibleByReviewStatusOrderByCreatedAtDesc(UrlImportReviewStatus.WAITING_CONFIRM)
                 .stream()
                 .map(item -> toItemResponse(item, false))
                 .toList();
@@ -137,6 +161,7 @@ public class UrlImportService {
     public UrlImportItemResponse getImportItem(Long itemId) {
         UrlImportItem item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new IllegalArgumentException("待入库内容不存在"));
+        ensureJobVisible(item.getJob());
         return toItemResponse(item, true);
     }
 
@@ -144,6 +169,7 @@ public class UrlImportService {
     public DocumentResponse confirmImport(Long itemId, UrlImportConfirmRequest request, User currentUser) {
         UrlImportItem item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new IllegalArgumentException("待入库内容不存在"));
+        ensureJobVisible(item.getJob());
         KnowledgeDocument document = confirmImportInternal(item, request, currentUser);
         return toDocumentResponse(document);
     }
@@ -181,6 +207,7 @@ public class UrlImportService {
     public void rejectImport(Long itemId, UrlImportRejectRequest request) {
         UrlImportItem item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new IllegalArgumentException("待入库内容不存在"));
+        ensureJobVisible(item.getJob());
         item.setReviewStatus(UrlImportReviewStatus.REJECTED);
         item.setReviewComment(request.getReason().trim());
         itemRepository.save(item);
@@ -219,13 +246,14 @@ public class UrlImportService {
     private List<UrlImportItem> resolveBatchConfirmItems(BatchUrlImportConfirmRequest request) {
         List<Long> requestedIds = request != null ? request.getIds() : null;
         if (requestedIds == null || requestedIds.isEmpty()) {
-            return itemRepository.findTop200ByReviewStatusOrderByCreatedAtDesc(UrlImportReviewStatus.WAITING_CONFIRM);
+            return itemRepository.findTop200VisibleByReviewStatusOrderByCreatedAtDesc(UrlImportReviewStatus.WAITING_CONFIRM);
         }
 
         List<UrlImportItem> items = itemRepository.findAllByIdInOrderByCreatedAtAsc(requestedIds);
         if (items.size() != requestedIds.stream().filter(Objects::nonNull).distinct().count()) {
             throw new IllegalArgumentException("部分待入库内容不存在，无法批量确认");
         }
+        items.forEach(item -> ensureJobVisible(item.getJob()));
         return items;
     }
 
@@ -314,7 +342,7 @@ public class UrlImportService {
                     continue;
                 }
 
-                boolean suspectedDuplicate = isDuplicate(page.sourceUrl(), evaluation.contentHash());
+                DuplicateCheckResult duplicateCheck = evaluateDuplicate(page.sourceUrl(), page.publishDate(), evaluation.contentHash());
                 String rawObjectPath = storeRawPage(job, page);
                 String cleanedTextObjectPath = storageService.storeText(
                         evaluation.cleanedText(),
@@ -337,8 +365,8 @@ public class UrlImportService {
                         .qualityScore(evaluation.qualityScore())
                         .parseStatus(UrlImportParseStatus.PARSED)
                         .reviewStatus(UrlImportReviewStatus.WAITING_CONFIRM)
-                        .reviewComment(suspectedDuplicate ? "检测到疑似重复内容，请人工确认" : "")
-                        .suspectedDuplicate(suspectedDuplicate)
+                        .reviewComment(duplicateCheck.reviewComment())
+                        .suspectedDuplicate(duplicateCheck.suspectedDuplicate())
                         .category(evaluation.category())
                         .tags(evaluation.tags())
                         .summary(evaluation.summary())
@@ -432,19 +460,61 @@ public class UrlImportService {
 
     private boolean isJobCanceled(Long jobId) {
         return jobRepository.findById(jobId)
-                .map(job -> job.getStatus() == UrlImportJobStatus.CANCELED)
+                .map(job -> job.getDeletedAt() != null || job.getStatus() == UrlImportJobStatus.CANCELED)
                 .orElse(true);
     }
 
-    private boolean isDuplicate(String sourceUrl, String contentHash) {
-        boolean duplicatedBySource = itemRepository.findFirstBySourceUrlOrderByCreatedAtDesc(sourceUrl).isPresent()
-                || knowledgeDocumentSourceRepository.existsBySourceUrl(sourceUrl);
+    private void ensureJobVisible(UrlImportJob job) {
+        if (job == null || job.getDeletedAt() != null) {
+            throw new IllegalArgumentException("导入任务不存在或已删除");
+        }
+    }
+
+    private DuplicateCheckResult evaluateDuplicate(String sourceUrl, LocalDate publishDate, String contentHash) {
+        Optional<KnowledgeDocumentSource> existingSource = knowledgeDocumentSourceRepository
+                .findFirstBySourceUrlOrderByCreatedAtDesc(sourceUrl);
+        if (existingSource.isPresent()) {
+            LocalDate existingPublishDate = existingSource.get().getKnowledgeDocument() != null
+                    ? existingSource.get().getKnowledgeDocument().getPublishDate()
+                    : null;
+            if (isNewer(publishDate, existingPublishDate)) {
+                return DuplicateCheckResult.allowWithReview("检测到知识库中存在同链接旧版本，当前发布时间更新，可人工确认后覆盖");
+            }
+            return DuplicateCheckResult.allowWithReview("检测到知识库中已存在相同链接且版本未更新，请人工确认是否保留本次导入结果");
+        }
+
+        Optional<UrlImportItem> existingItem = itemRepository.findFirstBySourceUrlOrderByCreatedAtDesc(sourceUrl);
+        if (existingItem.isPresent()) {
+            if (isNewer(publishDate, existingItem.get().getPublishDate())) {
+                return DuplicateCheckResult.allowWithReview("检测到导入队列中存在同链接旧版本候选，当前发布时间更新，请人工确认");
+            }
+            return DuplicateCheckResult.allowWithReview("检测到导入队列中已存在相同链接且版本未更新，请人工确认是否重复入库");
+        }
+
         boolean duplicatedByHash = contentHash != null && !contentHash.isBlank()
                 && itemRepository.findFirstByContentHashAndReviewStatusInOrderByCreatedAtDesc(
                         contentHash,
                         List.of(UrlImportReviewStatus.WAITING_CONFIRM, UrlImportReviewStatus.CONFIRMED)
                 ).isPresent();
-        return duplicatedBySource || duplicatedByHash;
+        if (duplicatedByHash) {
+            return DuplicateCheckResult.allowWithReview("检测到相同正文内容已存在于知识库或候选队列中，请人工确认是否重复");
+        }
+
+        return DuplicateCheckResult.allow();
+    }
+
+    private boolean isNewer(LocalDate incoming, LocalDate existing) {
+        return incoming != null && (existing == null || incoming.isAfter(existing));
+    }
+
+    private record DuplicateCheckResult(boolean skip, boolean suspectedDuplicate, String reviewComment) {
+        private static DuplicateCheckResult allow() {
+            return new DuplicateCheckResult(false, false, "");
+        }
+
+        private static DuplicateCheckResult allowWithReview(String reviewComment) {
+            return new DuplicateCheckResult(false, true, reviewComment);
+        }
     }
 
     private String storeRawPage(UrlImportJob job, CrawledPage page) {
@@ -485,8 +555,12 @@ public class UrlImportService {
     private UrlImportJobResponse toJobResponse(UrlImportJob job) {
         return UrlImportJobResponse.builder()
                 .id(job.getId())
+                .title(job.getTitleOverride())
                 .sourceUrl(job.getSourceUrl())
                 .sourceSite(job.getSourceSite())
+                .targetFolderId(job.getTargetFolder() != null ? job.getTargetFolder().getId() : null)
+                .targetFolderPath(job.getTargetFolder() != null ? job.getTargetFolder().getPath() : "/")
+                .embeddingModel(job.getEmbeddingModel())
                 .status(job.getStatus())
                 .discoveredCount(job.getDiscoveredCount())
                 .candidateCount(job.getCandidateCount())

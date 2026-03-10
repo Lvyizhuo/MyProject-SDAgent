@@ -2,6 +2,7 @@ package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.MinioConfig;
 import io.minio.*;
+import io.minio.errors.ErrorResponseException;
 import io.minio.http.Method;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -92,7 +93,7 @@ public class StorageService {
             return minioClient.getObject(
                     GetObjectArgs.builder()
                             .bucket(minioConfig.getBucketName())
-                            .object(storagePath)
+                            .object(normalizeStoragePath(storagePath))
                             .build()
             );
         } catch (Exception e) {
@@ -106,7 +107,7 @@ public class StorageService {
             return minioClient.getPresignedObjectUrl(
                     GetPresignedObjectUrlArgs.builder()
                             .bucket(minioConfig.getBucketName())
-                            .object(storagePath)
+                            .object(normalizeStoragePath(storagePath))
                             .method(Method.GET)
                             .expiry(expirationMinutes, TimeUnit.MINUTES)
                             .build()
@@ -118,14 +119,26 @@ public class StorageService {
     }
 
     public void deleteFile(String storagePath) {
+        if (storagePath == null || storagePath.isBlank()) {
+            log.info("Skip MinIO deletion because storage path is empty");
+            return;
+        }
         try {
             minioClient.removeObject(
                     RemoveObjectArgs.builder()
                             .bucket(minioConfig.getBucketName())
-                            .object(storagePath)
+                            .object(normalizeStoragePath(storagePath))
                             .build()
             );
             log.info("Deleted file from MinIO: {}", storagePath);
+        } catch (ErrorResponseException e) {
+            String errorCode = e.errorResponse() == null ? null : e.errorResponse().code();
+            if ("NoSuchKey".equals(errorCode) || "NoSuchObject".equals(errorCode)) {
+                log.warn("Skip MinIO deletion because object is already missing: {}", storagePath);
+                return;
+            }
+            log.error("Failed to delete file from MinIO: {}", storagePath, e);
+            throw new RuntimeException("Failed to delete file", e);
         } catch (Exception e) {
             log.error("Failed to delete file from MinIO: {}", storagePath, e);
             throw new RuntimeException("Failed to delete file", e);
@@ -138,7 +151,21 @@ public class StorageService {
         String safeFolderPath = folderPath == null || folderPath.isBlank() ? "root" : folderPath;
         safeFolderPath = safeFolderPath.startsWith("/") ? safeFolderPath.substring(1) : safeFolderPath;
         safeFolderPath = safeFolderPath.replace("/", "_");
+        if (safeFolderPath.isBlank()) {
+            safeFolderPath = "root";
+        }
         String safeFileName = fileName == null || fileName.isBlank() ? "document.bin" : fileName;
         return String.format("%s/%s_%s_%s", safeFolderPath, timestamp, uuid, safeFileName);
+    }
+
+    private String normalizeStoragePath(String storagePath) {
+        if (storagePath == null) {
+            return null;
+        }
+        String normalized = storagePath.trim();
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
     }
 }

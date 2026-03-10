@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -33,6 +34,7 @@ import com.shandong.policyagent.multimodal.service.VisionService;
 @RequiredArgsConstructor
 public class DocumentLoaderService {
     private static final int OCR_MAX_PAGES = 12;
+    private static final long OCR_PROCESS_TIMEOUT_SECONDS = 20;
     private static final String PDF_OCR_PROMPT = """
             请执行严格 OCR，完整提取图片中的全部中文、数字、标点和条目编号。
             要求：
@@ -100,6 +102,10 @@ public class DocumentLoaderService {
     }
 
     public List<Document> loadDocumentFromResource(Resource resource, String fileName) {
+        return loadDocumentFromResource(resource, fileName, true);
+    }
+
+    public List<Document> loadDocumentFromResource(Resource resource, String fileName, boolean allowPdfOcrFallback) {
         byte[] resourceBytes = readResourceBytes(resource, fileName);
         Resource namedResource = new ByteArrayResource(resourceBytes) {
             @Override
@@ -116,7 +122,10 @@ public class DocumentLoaderService {
         metadata.put("fileName", fileName);
         documents.forEach(doc -> doc.getMetadata().putAll(metadata));
 
-        if (hasExtractableText(documents) || !isPdf(fileName)) {
+        if (hasExtractableText(documents) || !isPdf(fileName) || !allowPdfOcrFallback) {
+            if (!allowPdfOcrFallback && isPdf(fileName) && !hasExtractableText(documents)) {
+                log.info("跳过 PDF OCR 兜底，使用快速提取模式: {}", fileName);
+            }
             return documents;
         }
 
@@ -320,7 +329,14 @@ public class DocumentLoaderService {
                     outputPrefix.toString()
             ).start();
 
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(OCR_PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("pdftoppm 执行超时，已中止 OCR 兜底: {}", fileName);
+                return "";
+            }
+
+            int exitCode = process.exitValue();
             if (exitCode != 0) {
                 String error = new String(process.getErrorStream().readAllBytes());
                 log.warn("pdftoppm 执行失败: {} | exitCode={} | error={}", fileName, exitCode, error);

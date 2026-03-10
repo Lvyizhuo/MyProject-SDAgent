@@ -9,5 +9,5 @@ import java.util.List;
 @Repository
 public interface UrlImportJobRepository extends JpaRepository<UrlImportJob, Long> {
 
-    List<UrlImportJob> findTop20ByOrderByCreatedAtDesc();
+    List<UrlImportJob> findTop20ByDeletedAtIsNullOrderByCreatedAtDesc();
 }
