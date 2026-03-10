@@ -46,6 +46,8 @@ public class AgentConfigRequest {
 
     private Long embeddingModelId;
 
+    private Long knowledgeBaseFolderId;
+
     @NotBlank(message = "系统提示词不能为空")
     @Size(max = 10000, message = "系统提示词长度不能超过 10000 字符")
     private String systemPrompt;

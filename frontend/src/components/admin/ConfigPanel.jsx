@@ -1,7 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { adminApi } from '../../services/adminApi';
+import adminKnowledgeApi from '../../services/adminKnowledgeApi';
 import { useAdminConsole } from './useAdminConsole';
 import './ConfigPanel.css';
+
+const flattenFoldersTree = (folderList, depth = 0) => {
+    let result = [];
+    for (const folder of folderList) {
+        result.push({ ...folder, depth });
+        if (folder.children?.length) {
+            result = result.concat(flattenFoldersTree(folder.children, depth + 1));
+        }
+    }
+    return result;
+};
 
 const MODEL_TYPE_META = [
     { key: 'LLM', field: 'llmModelId', label: '大语言模型', description: '负责主对话与推理输出。' },
@@ -60,30 +72,46 @@ const ConfigPanel = ({ config, onSave, onReset }) => {
         AUDIO: [],
         EMBEDDING: []
     });
+    const [knowledgeFolders, setKnowledgeFolders] = useState([]);
 
     useEffect(() => {
-        const fetchModelOptions = async () => {
+        const initializeOptions = async () => {
             try {
-                const options = await adminApi.getModelOptions();
+                const [options, folderTree] = await Promise.all([
+                    adminApi.getModelOptions(),
+                    adminKnowledgeApi.getFolderTree()
+                ]);
                 setModelOptions({
                     LLM: options.LLM || [],
                     VISION: options.VISION || [],
                     AUDIO: options.AUDIO || [],
                     EMBEDDING: options.EMBEDDING || []
                 });
+                setKnowledgeFolders(flattenFoldersTree(folderTree.folders || []));
             } catch (err) {
-                console.error('加载模型选项失败:', err);
-                notify({ text: '加载模型选项失败，请稍后重试', type: 'error', source: '管理员-智能体配置' });
+                console.error('加载智能体配置选项失败:', err);
+                notify({ text: '加载配置选项失败，请稍后重试', type: 'error', source: '管理员-智能体配置' });
             }
         };
 
-        fetchModelOptions();
+        initializeOptions();
     }, [notify]);
 
     const handleModelSelectChange = (field, value) => {
         setFormData((prev) => ({
             ...prev,
             [field]: value ? Number(value) : null
+        }));
+        setIsDirty(true);
+    };
+
+    const handleKnowledgeBaseChange = (value) => {
+        const selectedFolder = knowledgeFolders.find((folder) => folder.id === Number(value));
+        setFormData((prev) => ({
+            ...prev,
+            knowledgeBaseFolderId: value ? Number(value) : null,
+            knowledgeBaseFolderName: value ? selectedFolder?.name || null : null,
+            knowledgeBaseFolderPath: value ? selectedFolder?.path || null : null
         }));
         setIsDirty(true);
     };
@@ -317,6 +345,35 @@ const ConfigPanel = ({ config, onSave, onReset }) => {
                             </div>
                         </>
                     )}
+                </div>
+
+                <div className="form-section">
+                    <div className="section-heading">
+                        <div>
+                            <span className="section-eyebrow">知识库范围</span>
+                            <h3>智能体检索范围</h3>
+                        </div>
+                    </div>
+                    <div className="form-group">
+                        <label>知识库目录</label>
+                        <select
+                            value={formData.knowledgeBaseFolderId ?? ''}
+                            onChange={(e) => handleKnowledgeBaseChange(e.target.value)}
+                        >
+                            <option value="">全部文档</option>
+                            {knowledgeFolders.map((folder) => (
+                                <option key={folder.id} value={folder.id}>
+                                    {`${'　'.repeat(folder.depth)}${folder.name}`}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="field-note">
+                            保存后立即生效。选择目录后，智能体只会在该目录及其子目录内检索知识库内容。
+                        </p>
+                        <p className="field-hint compact">
+                            当前范围：{formData.knowledgeBaseFolderPath || '全部文档'}
+                        </p>
+                    </div>
                 </div>
 
                 <div className="form-section">

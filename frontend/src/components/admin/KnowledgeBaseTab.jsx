@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     Folder,
     FolderPlus,
+    FolderInput,
     FileText,
+    Link2,
     Upload,
     Settings,
     Trash2,
@@ -19,11 +21,25 @@ import {
     AlertCircle,
     Loader2,
     Clock,
-    Sparkles
+    Sparkles,
+    ExternalLink,
+    Square,
+    CheckSquare
 } from 'lucide-react';
 import './KnowledgeBaseTab.css';
 import adminKnowledgeApi from '../../services/adminKnowledgeApi';
 import { useAdminConsole } from './useAdminConsole';
+
+const flattenFoldersTree = (folderList, depth = 0) => {
+    let result = [];
+    for (const folder of folderList) {
+        result.push({ ...folder, depth });
+        if (folder.children) {
+            result = result.concat(flattenFoldersTree(folder.children, depth + 1));
+        }
+    }
+    return result;
+};
 
 const KnowledgeBaseTab = () => {
     const { notify, confirm, prompt } = useAdminConsole();
@@ -42,9 +58,16 @@ const KnowledgeBaseTab = () => {
     const [chunkPageData, setChunkPageData] = useState(null);
     const [chunkDocumentInfo, setChunkDocumentInfo] = useState(null);
     const [pendingDocuments, setPendingDocuments] = useState([]);
+    const [urlImportJobs, setUrlImportJobs] = useState([]);
+    const [urlImportCandidates, setUrlImportCandidates] = useState([]);
+    const [showUrlImportDialog, setShowUrlImportDialog] = useState(false);
+    const [showImportPreviewDialog, setShowImportPreviewDialog] = useState(false);
+    const [selectedImportItem, setSelectedImportItem] = useState(null);
     const [pagination, setPagination] = useState({ page: 0, size: 20, totalElements: 0, totalPages: 0 });
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState(null);
+    const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
+    const [showBatchMoveDialog, setShowBatchMoveDialog] = useState(false);
 
     const loadFolderTree = useCallback(async () => {
         try {
@@ -56,13 +79,14 @@ const KnowledgeBaseTab = () => {
         }
     }, [notify]);
 
-    const loadDocuments = useCallback(async (folderId = null, page = 0) => {
+    const loadDocuments = useCallback(async (folderId = null, page = 0, keyword = '') => {
         try {
             const params = {
                 folderId,
                 page,
                 size: pagination.size,
-                status: filterStatus
+                status: filterStatus,
+                q: keyword?.trim() || null
             };
             const data = await adminKnowledgeApi.listDocuments(params);
             setDocuments(data.content || []);
@@ -98,23 +122,48 @@ const KnowledgeBaseTab = () => {
         }
     }, [notify]);
 
+    const loadUrlImports = useCallback(async () => {
+        try {
+            const data = await adminKnowledgeApi.listUrlImports();
+            setUrlImportJobs(data.jobs || []);
+            setUrlImportCandidates(data.candidates || []);
+        } catch (error) {
+            console.error('Failed to load url imports:', error);
+        }
+    }, []);
+
     useEffect(() => {
         const initialize = async () => {
             setLoading(true);
             await Promise.all([
                 loadFolderTree(),
                 loadEmbeddingModels(),
-                loadConfig()
+                loadConfig(),
+                loadUrlImports()
             ]);
             await loadDocuments();
             setLoading(false);
         };
         initialize();
-    }, [loadFolderTree, loadDocuments, loadEmbeddingModels, loadConfig]);
+    }, [loadFolderTree, loadDocuments, loadEmbeddingModels, loadConfig, loadUrlImports]);
 
     useEffect(() => {
-        loadDocuments(selectedFolderId, 0);
-    }, [filterStatus, loadDocuments, selectedFolderId]);
+        const timer = window.setTimeout(() => {
+            loadDocuments(selectedFolderId, 0, searchQuery);
+        }, 250);
+        return () => window.clearTimeout(timer);
+    }, [filterStatus, loadDocuments, searchQuery, selectedFolderId]);
+
+    useEffect(() => {
+        setSelectedDocumentIds([]);
+    }, [selectedFolderId, filterStatus, searchQuery]);
+
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            loadUrlImports();
+        }, 15000);
+        return () => window.clearInterval(timer);
+    }, [loadUrlImports]);
 
     const toggleFolder = (folderId) => {
         setExpandedFolders(prev => {
@@ -193,9 +242,85 @@ const KnowledgeBaseTab = () => {
         try {
             await adminKnowledgeApi.deleteDocument(docId);
             notify({ text: '文档删除成功', type: 'success', source: '管理员-知识库' });
-            await loadDocuments(selectedFolderId, pagination.page);
+            await loadDocuments(selectedFolderId, pagination.page, searchQuery);
         } catch (error) {
             notify({ text: '文档删除失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleToggleDocumentSelection = (docId) => {
+        setSelectedDocumentIds(prev => prev.includes(docId)
+            ? prev.filter(id => id !== docId)
+            : [...prev, docId]);
+    };
+
+    const handleToggleSelectAllDocuments = async () => {
+        const allSelected = pagination.totalElements > 0 && selectedDocumentIds.length === pagination.totalElements;
+        if (allSelected) {
+            setSelectedDocumentIds([]);
+            return;
+        }
+
+        try {
+            const result = await adminKnowledgeApi.listDocumentSelection({
+                folderId: selectedFolderId,
+                status: filterStatus,
+                q: searchQuery?.trim() || null
+            });
+            setSelectedDocumentIds(result.ids || []);
+            notify({
+                text: `已选中当前范围内 ${result.count || 0} 份文档`,
+                type: 'success',
+                source: '管理员-知识库'
+            });
+        } catch (error) {
+            notify({ text: '全选失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleBatchDeleteDocuments = async () => {
+        if (selectedDocumentIds.length === 0) {
+            notify({ text: '请先选择需要删除的文档', type: 'warning', source: '管理员-知识库' });
+            return;
+        }
+
+        const confirmed = await confirm({
+            title: '批量删除文档',
+            message: `确定要删除选中的 ${selectedDocumentIds.length} 份文档吗？删除后无法恢复。`,
+            confirmText: '确认删除',
+            tone: 'danger'
+        });
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            await adminKnowledgeApi.batchDeleteDocuments(selectedDocumentIds);
+            notify({ text: '批量删除成功', type: 'success', source: '管理员-知识库' });
+            setSelectedDocumentIds([]);
+            await loadDocuments(selectedFolderId, pagination.page, searchQuery);
+        } catch (error) {
+            notify({ text: '批量删除失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleBatchMoveDocuments = async (targetFolderId) => {
+        if (selectedDocumentIds.length === 0) {
+            notify({ text: '请先选择需要移动的文档', type: 'warning', source: '管理员-知识库' });
+            return;
+        }
+
+        try {
+            await adminKnowledgeApi.batchMoveDocuments(selectedDocumentIds, targetFolderId);
+            notify({ text: '批量移动成功', type: 'success', source: '管理员-知识库' });
+            setShowBatchMoveDialog(false);
+            setSelectedDocumentIds([]);
+            await Promise.all([
+                loadFolderTree(),
+                loadDocuments(selectedFolderId, pagination.page, searchQuery)
+            ]);
+        } catch (error) {
+            notify({ text: '批量移动失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
@@ -203,9 +328,151 @@ const KnowledgeBaseTab = () => {
         try {
             await adminKnowledgeApi.reingestDocument(docId);
             notify({ text: '文档已加入重新处理队列', type: 'info', source: '管理员-知识库' });
-            await loadDocuments(selectedFolderId, pagination.page);
+            await loadDocuments(selectedFolderId, pagination.page, searchQuery);
         } catch (error) {
             notify({ text: '重新处理失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleCreateUrlImport = async ({ url, folderId, embeddingModel, titleOverride, remark }) => {
+        try {
+            const result = await adminKnowledgeApi.createUrlImport({
+                url,
+                folderId,
+                embeddingModel,
+                titleOverride,
+                remark
+            });
+            notify({
+                text: `网站导入任务已创建，任务 #${result.id} 正在抓取中`,
+                type: 'info',
+                source: '管理员-知识库'
+            });
+            setShowUrlImportDialog(false);
+            await loadUrlImports();
+        } catch (error) {
+            notify({ text: '创建网站导入失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handlePreviewImportItem = async (itemId) => {
+        try {
+            const detail = await adminKnowledgeApi.getUrlImportItem(itemId);
+            setSelectedImportItem(detail);
+            setShowImportPreviewDialog(true);
+        } catch (error) {
+            notify({ text: '加载待入库内容失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleConfirmImportItem = async (itemId, payload) => {
+        try {
+            await adminKnowledgeApi.confirmUrlImport(itemId, payload);
+            notify({ text: '候选内容已进入知识库处理流程', type: 'success', source: '管理员-知识库' });
+            setShowImportPreviewDialog(false);
+            setSelectedImportItem(null);
+            await Promise.all([loadUrlImports(), loadDocuments(selectedFolderId, 0, searchQuery)]);
+        } catch (error) {
+            notify({ text: '确认入库失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleBatchConfirmImportItems = async (itemIds) => {
+        if (!itemIds.length) {
+            notify({ text: '当前没有可一键入库的候选内容', type: 'warning', source: '管理员-知识库' });
+            return;
+        }
+
+        const folderHint = selectedFolderId
+            ? `将统一入库到当前目录。`
+            : '将按各自导入任务的默认目录入库。';
+        const confirmed = await confirm({
+            title: '一键入库',
+            message: `确定要一键审批并入库当前 ${itemIds.length} 条候选内容吗？${folderHint}`,
+            confirmText: '确认入库',
+            tone: 'primary'
+        });
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            const result = await adminKnowledgeApi.batchConfirmUrlImports({
+                ids: itemIds,
+                folderId: selectedFolderId || null
+            });
+            const summary = result.failedCount > 0
+                ? `已入库 ${result.successCount} 条，失败 ${result.failedCount} 条`
+                : `已完成 ${result.successCount} 条候选内容入库`;
+            notify({ text: summary, type: result.failedCount > 0 ? 'warning' : 'success', source: '管理员-知识库' });
+            await Promise.all([loadUrlImports(), loadDocuments(selectedFolderId, 0, searchQuery)]);
+        } catch (error) {
+            notify({ text: '一键入库失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleRejectImportItem = async (itemId) => {
+        const reason = await prompt({
+            title: '驳回待入库内容',
+            message: '请输入驳回原因，便于后续回溯。',
+            label: '驳回原因',
+            placeholder: '例如：活动新闻，非政策正文',
+            confirmText: '确认驳回'
+        });
+        if (reason === null) {
+            return;
+        }
+
+        const trimmedReason = reason.trim();
+        if (!trimmedReason) {
+            notify({ text: '驳回原因不能为空', type: 'warning', source: '管理员-知识库' });
+            return;
+        }
+
+        try {
+            await adminKnowledgeApi.rejectUrlImport(itemId, { reason: trimmedReason });
+            notify({ text: '待入库内容已驳回', type: 'success', source: '管理员-知识库' });
+            setShowImportPreviewDialog(false);
+            setSelectedImportItem(null);
+            await loadUrlImports();
+        } catch (error) {
+            notify({ text: '驳回失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleCancelImportJob = async (jobId) => {
+        const confirmed = await confirm({
+            title: '取消网站导入任务',
+            message: '确定要取消这个网站导入任务吗？已生成的待入库候选会保留当前状态。',
+            confirmText: '确认取消',
+            tone: 'danger'
+        });
+        if (!confirmed) return;
+
+        try {
+            await adminKnowledgeApi.cancelUrlImport(jobId);
+            notify({ text: '网站导入任务已取消', type: 'success', source: '管理员-知识库' });
+            await loadUrlImports();
+        } catch (error) {
+            notify({ text: '取消任务失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        }
+    };
+
+    const handleDeleteImportJob = async (jobId) => {
+        const confirmed = await confirm({
+            title: '删除网站导入任务',
+            message: '确定要彻底删除这个网站导入任务吗？未入库的候选内容会一并移除。',
+            confirmText: '确认删除',
+            tone: 'danger'
+        });
+        if (!confirmed) return;
+
+        try {
+            await adminKnowledgeApi.deleteUrlImport(jobId);
+            notify({ text: '网站导入任务已删除', type: 'success', source: '管理员-知识库' });
+            await loadUrlImports();
+        } catch (error) {
+            notify({ text: '删除任务失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
@@ -317,6 +584,27 @@ const KnowledgeBaseTab = () => {
                 return '处理中';
             case 'FAILED':
                 return '失败';
+            case 'CANCELED':
+                return '已取消';
+            default:
+                return '等待中';
+        }
+    };
+
+    const getImportStatusText = (status) => {
+        switch (status) {
+            case 'CRAWLING':
+                return '抓取中';
+            case 'PROCESSING':
+                return '解析中';
+            case 'WAITING_CONFIRM':
+                return '待入库';
+            case 'PARTIALLY_IMPORTED':
+                return '部分已入库';
+            case 'COMPLETED':
+                return '已完成';
+            case 'FAILED':
+                return '失败';
             default:
                 return '等待中';
         }
@@ -328,7 +616,62 @@ const KnowledgeBaseTab = () => {
         return 'processing';
     };
 
-    const mergedDocuments = [...pendingDocuments, ...documents];
+    const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+
+    const activeImportDocs = urlImportJobs
+        .filter(job => ['PENDING', 'CRAWLING', 'PROCESSING', 'FAILED'].includes(job.status))
+        .map(job => ({
+            id: `import-job-${job.id}`,
+            importJobId: job.id,
+            title: job.title || `网站导入任务 #${job.id}`,
+            fileName: job.sourceUrl,
+            fileSize: null,
+            folderPath: '/',
+            status: job.status === 'FAILED' ? 'FAILED' : 'PROCESSING',
+            chunkCount: job.candidateCount || 0,
+            errorMessage: job.errorMessage,
+            isImportJob: true,
+            importStatus: job.status,
+            sourceUrl: job.sourceUrl,
+            canCancelImportJob: ['CRAWLING', 'PROCESSING'].includes(job.status),
+            canDeleteImportJob: ['PENDING', 'FAILED'].includes(job.status)
+        }));
+
+    const candidateDocs = urlImportCandidates.map(item => ({
+        id: `import-item-${item.id}`,
+        title: item.title,
+        fileName: item.sourceUrl,
+        fileSize: null,
+        folderPath: '/待入库',
+        status: 'PENDING',
+        chunkCount: 0,
+        errorMessage: item.reviewComment || item.errorMessage,
+        isUrlImportCandidate: true,
+        importItemId: item.id,
+        importStatus: item.reviewStatus,
+        sourceUrl: item.sourceUrl,
+        publishDate: item.publishDate,
+        qualityScore: item.qualityScore,
+        suspectedDuplicate: item.suspectedDuplicate
+    }));
+
+    const mergedDocuments = [...pendingDocuments, ...activeImportDocs, ...candidateDocs, ...documents]
+        .filter(doc => {
+            if (!normalizedSearchQuery) {
+                return true;
+            }
+            if (!doc.isImportJob && !doc.isUrlImportCandidate && !doc.isTransient) {
+                return true;
+            }
+            const haystack = `${doc.title || ''} ${doc.fileName || ''} ${doc.sourceUrl || ''}`.toLowerCase();
+            return haystack.includes(normalizedSearchQuery);
+        });
+
+    const visibleCandidateIds = mergedDocuments
+        .filter(doc => doc.isUrlImportCandidate)
+        .map(doc => doc.importItemId);
+
+    const allMatchingSelected = pagination.totalElements > 0 && selectedDocumentIds.length === pagination.totalElements;
 
     if (loading) {
         return (
@@ -354,6 +697,10 @@ const KnowledgeBaseTab = () => {
                     <button className="btn-secondary" onClick={handleCreateFolder}>
                         <FolderPlus size={16} />
                         新建文件夹
+                    </button>
+                    <button className="btn-secondary" onClick={() => setShowUrlImportDialog(true)}>
+                        <Link2 size={16} />
+                        网站导入
                     </button>
                     <button className="btn-primary" onClick={() => setShowUploadDialog(true)}>
                         <Upload size={16} />
@@ -404,10 +751,51 @@ const KnowledgeBaseTab = () => {
                         </div>
                         <button
                             className="btn-icon"
-                            onClick={() => loadDocuments(selectedFolderId, pagination.page)}
+                            onClick={() => {
+                                loadDocuments(selectedFolderId, pagination.page, searchQuery);
+                                loadUrlImports();
+                            }}
                             title="刷新"
                         >
                             <RefreshCw size={16} />
+                        </button>
+                    </div>
+
+                    <div className="kb-batch-toolbar">
+                        <button
+                            className="btn-secondary"
+                            onClick={handleToggleSelectAllDocuments}
+                            disabled={pagination.totalElements === 0}
+                        >
+                            {allMatchingSelected ? <CheckSquare size={16} /> : <Square size={16} />}
+                            {allMatchingSelected ? '取消全选' : '全选当前目录'}
+                        </button>
+                        <span className="kb-batch-count">
+                            已选 {selectedDocumentIds.length} / {pagination.totalElements} 份文档
+                        </span>
+                        <button
+                            className="btn-secondary"
+                            onClick={() => setShowBatchMoveDialog(true)}
+                            disabled={selectedDocumentIds.length === 0}
+                        >
+                            <FolderInput size={16} />
+                            批量移动
+                        </button>
+                        <button
+                            className="btn-secondary danger-outline"
+                            onClick={handleBatchDeleteDocuments}
+                            disabled={selectedDocumentIds.length === 0}
+                        >
+                            <Trash2 size={16} />
+                            批量删除
+                        </button>
+                        <button
+                            className="btn-primary"
+                            onClick={() => handleBatchConfirmImportItems(visibleCandidateIds)}
+                            disabled={visibleCandidateIds.length === 0}
+                        >
+                            <Sparkles size={16} />
+                            一键入库 {visibleCandidateIds.length > 0 ? `(${visibleCandidateIds.length})` : ''}
                         </button>
                     </div>
 
@@ -420,6 +808,17 @@ const KnowledgeBaseTab = () => {
                         ) : (
                             mergedDocuments.map(doc => (
                                 <div key={doc.id} className="document-item">
+                                    <div className="doc-selection">
+                                        {!doc.isTransient && !doc.isImportJob && !doc.isUrlImportCandidate ? (
+                                            <button
+                                                className="btn-icon select-toggle"
+                                                onClick={() => handleToggleDocumentSelection(doc.id)}
+                                                title={selectedDocumentIds.includes(doc.id) ? '取消选择' : '选择文档'}
+                                            >
+                                                {selectedDocumentIds.includes(doc.id) ? <CheckSquare size={16} /> : <Square size={16} />}
+                                            </button>
+                                        ) : null}
+                                    </div>
                                     <div className="doc-icon">
                                         <FileText size={24} />
                                     </div>
@@ -432,28 +831,107 @@ const KnowledgeBaseTab = () => {
                                             </span>
                                             <span className="doc-status">
                                                 {getStatusIcon(doc.status)}
-                                                {doc.status === 'PROCESSING' || doc.status === 'PENDING'
+                                                {doc.isImportJob
+                                                    ? getImportStatusText(doc.importStatus)
+                                                    : doc.isUrlImportCandidate
+                                                        ? '待入库'
+                                                        : doc.status === 'PROCESSING' || doc.status === 'PENDING'
                                                     ? '正在解析'
                                                     : getStatusText(doc.status)}
                                             </span>
                                             {doc.chunkCount > 0 && (
                                                 <span className="doc-chunks">{doc.chunkCount} 个切片</span>
                                             )}
+                                            {doc.qualityScore != null && (
+                                                <span className="doc-import-badge">评分 {doc.qualityScore}</span>
+                                            )}
+                                            {doc.publishDate && (
+                                                <span className="doc-import-badge">{doc.publishDate}</span>
+                                            )}
+                                            {doc.suspectedDuplicate && (
+                                                <span className="doc-import-badge warning">疑似重复</span>
+                                            )}
                                         </div>
                                         <div className={`doc-status-bar ${getStatusBarClass(doc.status)}`}>
                                             <div className="doc-status-bar-fill" />
                                             <span className="doc-status-bar-text">
-                                                {doc.status === 'PROCESSING' || doc.status === 'PENDING'
+                                                {doc.isImportJob
+                                                    ? getImportStatusText(doc.importStatus)
+                                                    : doc.isUrlImportCandidate
+                                                        ? '等待管理员确认入库'
+                                                        : doc.status === 'PROCESSING' || doc.status === 'PENDING'
                                                     ? '正在解析'
                                                     : getStatusText(doc.status)}
                                             </span>
                                         </div>
+                                        {doc.sourceUrl && (
+                                            <div className="doc-source-link">
+                                                <a href={doc.sourceUrl} target="_blank" rel="noreferrer">
+                                                    <ExternalLink size={14} />
+                                                    查看原文
+                                                </a>
+                                            </div>
+                                        )}
                                         {doc.errorMessage && (
                                             <div className="doc-error">{doc.errorMessage}</div>
                                         )}
                                     </div>
                                     <div className="doc-actions">
-                                        {!doc.isTransient && (
+                                        {doc.isUrlImportCandidate && (
+                                            <>
+                                                <button
+                                                    className="btn-icon"
+                                                    onClick={() => handlePreviewImportItem(doc.importItemId)}
+                                                    title="预览待入库内容"
+                                                >
+                                                    <Eye size={16} />
+                                                </button>
+                                                <button
+                                                    className="btn-icon success"
+                                                    onClick={() => handleConfirmImportItem(doc.importItemId, { folderId: selectedFolderId || null })}
+                                                    title="确认入库"
+                                                >
+                                                    <CheckCircle2 size={16} />
+                                                </button>
+                                                <button
+                                                    className="btn-icon danger"
+                                                    onClick={() => handleRejectImportItem(doc.importItemId)}
+                                                    title="驳回"
+                                                >
+                                                    <X size={16} />
+                                                </button>
+                                            </>
+                                        )}
+                                        {doc.isImportJob && (
+                                            <>
+                                                <button
+                                                    className="btn-icon"
+                                                    onClick={() => loadUrlImports()}
+                                                    title="刷新任务状态"
+                                                >
+                                                    <RefreshCw size={16} />
+                                                </button>
+                                                {doc.canCancelImportJob && (
+                                                    <button
+                                                        className="btn-icon danger"
+                                                        onClick={() => handleCancelImportJob(doc.importJobId)}
+                                                        title="取消任务"
+                                                    >
+                                                        <X size={16} />
+                                                    </button>
+                                                )}
+                                                {doc.canDeleteImportJob && (
+                                                    <button
+                                                        className="btn-icon danger"
+                                                        onClick={() => handleDeleteImportJob(doc.importJobId)}
+                                                        title="删除任务"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
+                                            </>
+                                        )}
+                                        {!doc.isTransient && !doc.isImportJob && !doc.isUrlImportCandidate && (
                                             <button
                                                 className="btn-icon"
                                                 onClick={() => handleDownloadDocument(doc)}
@@ -462,7 +940,7 @@ const KnowledgeBaseTab = () => {
                                                 <Download size={16} />
                                             </button>
                                         )}
-                                        {!doc.isTransient && doc.status === 'COMPLETED' && doc.chunkCount > 0 && (
+                                        {!doc.isTransient && !doc.isImportJob && !doc.isUrlImportCandidate && doc.status === 'COMPLETED' && doc.chunkCount > 0 && (
                                             <button
                                                 className="btn-icon"
                                                 onClick={() => handleViewChunks(doc)}
@@ -471,7 +949,7 @@ const KnowledgeBaseTab = () => {
                                                 <Eye size={16} />
                                             </button>
                                         )}
-                                        {doc.status === 'FAILED' && (
+                                        {!doc.isImportJob && !doc.isUrlImportCandidate && doc.status === 'FAILED' && (
                                             <button
                                                 className="btn-icon"
                                                 onClick={() => handleReingestDocument(doc.id)}
@@ -480,7 +958,7 @@ const KnowledgeBaseTab = () => {
                                                 <RefreshCw size={16} />
                                             </button>
                                         )}
-                                        {!doc.isTransient && (
+                                        {!doc.isTransient && !doc.isImportJob && !doc.isUrlImportCandidate && (
                                             <button
                                                 className="btn-icon danger"
                                                 onClick={() => handleDeleteDocument(doc.id)}
@@ -499,7 +977,7 @@ const KnowledgeBaseTab = () => {
                         <div className="kb-pagination">
                             <button
                                 disabled={pagination.page === 0}
-                                onClick={() => loadDocuments(selectedFolderId, pagination.page - 1)}
+                                onClick={() => loadDocuments(selectedFolderId, pagination.page - 1, searchQuery)}
                             >
                                 上一页
                             </button>
@@ -508,7 +986,7 @@ const KnowledgeBaseTab = () => {
                             </span>
                             <button
                                 disabled={pagination.page >= pagination.totalPages - 1}
-                                onClick={() => loadDocuments(selectedFolderId, pagination.page + 1)}
+                                onClick={() => loadDocuments(selectedFolderId, pagination.page + 1, searchQuery)}
                             >
                                 下一页
                             </button>
@@ -550,7 +1028,7 @@ const KnowledgeBaseTab = () => {
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
                             notify({ text: '上传成功', type: 'success', source: '管理员-知识库' });
                             setUploadProgress(0);
-                            await loadDocuments(selectedFolderId, 0);
+                            await loadDocuments(selectedFolderId, 0, searchQuery);
                         } catch (error) {
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
                             notify({ text: '上传失败: ' + error.message, type: 'error', source: '管理员-知识库' });
@@ -558,6 +1036,16 @@ const KnowledgeBaseTab = () => {
                         }
                     }}
                     uploadProgress={uploadProgress}
+                />
+            )}
+
+            {showUrlImportDialog && (
+                <UrlImportDialog
+                    embeddingModels={embeddingModels}
+                    folders={folders}
+                    defaultFolderId={selectedFolderId}
+                    onClose={() => setShowUrlImportDialog(false)}
+                    onSubmit={handleCreateUrlImport}
                 />
             )}
 
@@ -571,6 +1059,20 @@ const KnowledgeBaseTab = () => {
                         setChunkPageData(null);
                         setChunkDocumentInfo(null);
                     }}
+                />
+            )}
+
+            {showImportPreviewDialog && selectedImportItem && (
+                <UrlImportPreviewDialog
+                    item={selectedImportItem}
+                    folders={folders}
+                    defaultFolderId={selectedFolderId}
+                    onClose={() => {
+                        setShowImportPreviewDialog(false);
+                        setSelectedImportItem(null);
+                    }}
+                    onConfirm={payload => handleConfirmImportItem(selectedImportItem.id, payload)}
+                    onReject={() => handleRejectImportItem(selectedImportItem.id)}
                 />
             )}
 
@@ -589,6 +1091,16 @@ const KnowledgeBaseTab = () => {
                             notify({ text: '保存失败: ' + error.message, type: 'error', source: '管理员-知识库' });
                         }
                     }}
+                />
+            )}
+
+            {showBatchMoveDialog && (
+                <BatchMoveDialog
+                    folders={folders}
+                    selectedCount={selectedDocumentIds.length}
+                    defaultFolderId={selectedFolderId}
+                    onClose={() => setShowBatchMoveDialog(false)}
+                    onSubmit={handleBatchMoveDocuments}
                 />
             )}
         </div>
@@ -645,6 +1157,309 @@ const ChunkPreviewDialog = ({ documentInfo, chunkPageData, loading, onClose }) =
                         关闭
                     </button>
                 </div>
+            </div>
+        </div>
+    );
+};
+
+const UrlImportDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onSubmit }) => {
+    const [formData, setFormData] = useState({
+        url: 'http://commerce.shandong.gov.cn/col/col352659/index.html',
+        folderId: defaultFolderId,
+        embeddingModel: embeddingModels.find(model => model.isDefault)?.id || '',
+        titleOverride: '',
+        remark: ''
+    });
+
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        onSubmit({
+            ...formData,
+            folderId: formData.folderId || null
+        });
+    };
+
+    return (
+        <div className="dialog-overlay" onClick={onClose}>
+            <div className="dialog upload-dialog" onClick={event => event.stopPropagation()}>
+                <div className="dialog-header">
+                    <h3>网站链接导入</h3>
+                    <button className="btn-close" onClick={onClose}>
+                        <X size={20} />
+                    </button>
+                </div>
+                <form className="dialog-body" onSubmit={handleSubmit}>
+                    <div className="form-group">
+                        <label>网站链接</label>
+                        <input
+                            type="url"
+                            value={formData.url}
+                            onChange={event => setFormData(prev => ({ ...prev, url: event.target.value }))}
+                            placeholder="请输入公开政策栏目链接"
+                            required
+                        />
+                    </div>
+
+                    <div className="form-grid">
+                        <div className="form-group">
+                            <label>目标文件夹</label>
+                            <select
+                                value={formData.folderId || ''}
+                                onChange={event => setFormData(prev => ({
+                                    ...prev,
+                                    folderId: event.target.value ? Number(event.target.value) : null
+                                }))}
+                            >
+                                <option value="">根目录</option>
+                                {flattenFoldersTree(folders).map(folder => (
+                                    <option key={folder.id} value={folder.id}>
+                                        {' '.repeat(folder.depth * 2)}{folder.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label>嵌入模型</label>
+                            <select
+                                value={formData.embeddingModel}
+                                onChange={event => setFormData(prev => ({ ...prev, embeddingModel: event.target.value }))}
+                            >
+                                {embeddingModels.map(model => (
+                                    <option key={model.id} value={model.id}>
+                                        {model.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label>标题覆盖</label>
+                        <input
+                            type="text"
+                            value={formData.titleOverride}
+                            onChange={event => setFormData(prev => ({ ...prev, titleOverride: event.target.value }))}
+                            placeholder="可选，用于任务展示"
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label>备注</label>
+                        <textarea
+                            value={formData.remark}
+                            onChange={event => setFormData(prev => ({ ...prev, remark: event.target.value }))}
+                            rows={3}
+                            placeholder="可选，用于记录导入目的"
+                        />
+                    </div>
+
+                    <div className="url-import-hint">
+                        首期仅支持山东省商务厅指定以旧换新栏目链接，系统会自动抓取页面正文及政策附件，并将高质量内容放入待入库列表。
+                    </div>
+
+                    <div className="dialog-footer">
+                        <button type="button" className="btn-secondary" onClick={onClose}>
+                            取消
+                        </button>
+                        <button type="submit" className="btn-primary">
+                            开始抓取
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const UrlImportPreviewDialog = ({ item, folders, defaultFolderId, onClose, onConfirm, onReject }) => {
+    const [formData, setFormData] = useState({
+        folderId: defaultFolderId || item.defaultFolderId || '',
+        title: item.title || '',
+        category: item.category || '',
+        tags: Array.isArray(item.tags) ? item.tags.join(', ') : '',
+        summary: item.summary || ''
+    });
+
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        onConfirm({
+            folderId: formData.folderId ? Number(formData.folderId) : null,
+            title: formData.title,
+            category: formData.category,
+            tags: formData.tags
+                .split(',')
+                .map(tag => tag.trim())
+                .filter(Boolean),
+            summary: formData.summary,
+            publishDate: item.publishDate,
+            source: item.sourceSite
+        });
+    };
+
+    return (
+        <div className="dialog-overlay" onClick={onClose}>
+            <div className="dialog import-preview-dialog" onClick={event => event.stopPropagation()}>
+                <div className="dialog-header">
+                    <h3>待入库内容预览</h3>
+                    <button className="btn-close" onClick={onClose}>
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <form className="dialog-body import-preview-body" onSubmit={handleSubmit}>
+                    <div className="import-preview-meta">
+                        <div><strong>标题：</strong>{item.title || '-'}</div>
+                        <div><strong>发布时间：</strong>{item.publishDate || '-'}</div>
+                        <div><strong>质量评分：</strong>{item.qualityScore ?? '-'}</div>
+                        <div><strong>来源站点：</strong>{item.sourceSite || '-'}</div>
+                        <div><strong>默认目录：</strong>{item.defaultFolderPath || '/'}</div>
+                        <div>
+                            <strong>原文链接：</strong>
+                            <a href={item.sourceUrl} target="_blank" rel="noreferrer">{item.sourceUrl}</a>
+                        </div>
+                        {item.reviewComment && <div><strong>备注：</strong>{item.reviewComment}</div>}
+                    </div>
+
+                    {item.attachments?.length > 0 && (
+                        <div className="import-preview-attachments">
+                            <h4>附件</h4>
+                            {item.attachments.map(attachment => (
+                                <a
+                                    key={attachment.id || attachment.attachmentUrl}
+                                    href={attachment.attachmentUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    <ExternalLink size={14} />
+                                    {attachment.fileName || attachment.attachmentUrl}
+                                </a>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="form-grid">
+                        <div className="form-group">
+                            <label>目标文件夹</label>
+                            <select
+                                value={formData.folderId}
+                                onChange={event => setFormData(prev => ({ ...prev, folderId: event.target.value }))}
+                            >
+                                <option value="">沿用导入任务配置</option>
+                                {flattenFoldersTree(folders).map(folder => (
+                                    <option key={folder.id} value={folder.id}>
+                                        {' '.repeat(folder.depth * 2)}{folder.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>分类</label>
+                            <input
+                                type="text"
+                                value={formData.category}
+                                onChange={event => setFormData(prev => ({ ...prev, category: event.target.value }))}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label>标题</label>
+                        <input
+                            type="text"
+                            value={formData.title}
+                            onChange={event => setFormData(prev => ({ ...prev, title: event.target.value }))}
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label>标签</label>
+                        <input
+                            type="text"
+                            value={formData.tags}
+                            onChange={event => setFormData(prev => ({ ...prev, tags: event.target.value }))}
+                            placeholder="多个标签请使用逗号分隔"
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label>摘要</label>
+                        <textarea
+                            value={formData.summary}
+                            onChange={event => setFormData(prev => ({ ...prev, summary: event.target.value }))}
+                            rows={3}
+                        />
+                    </div>
+
+                    <div className="import-preview-content">
+                        <h4>正文预览</h4>
+                        <pre>{item.cleanedText || item.summary || '暂无可预览内容'}</pre>
+                    </div>
+
+                    <div className="dialog-footer">
+                        <button type="button" className="btn-secondary" onClick={onClose}>
+                            关闭
+                        </button>
+                        <button type="button" className="btn-secondary danger-outline" onClick={onReject}>
+                            驳回
+                        </button>
+                        <button type="submit" className="btn-primary">
+                            确认入库
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+const BatchMoveDialog = ({ folders, selectedCount, defaultFolderId, onClose, onSubmit }) => {
+    const [targetFolderId, setTargetFolderId] = useState(defaultFolderId || '');
+
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        onSubmit(targetFolderId ? Number(targetFolderId) : null);
+    };
+
+    return (
+        <div className="dialog-overlay" onClick={onClose}>
+            <div className="dialog upload-dialog" onClick={event => event.stopPropagation()}>
+                <div className="dialog-header">
+                    <h3>批量移动文档</h3>
+                    <button className="btn-close" onClick={onClose}>
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <form className="dialog-body" onSubmit={handleSubmit}>
+                    <div className="form-group">
+                        <label>目标文件夹</label>
+                        <select
+                            value={targetFolderId}
+                            onChange={event => setTargetFolderId(event.target.value)}
+                        >
+                            <option value="">根目录</option>
+                            {flattenFoldersTree(folders).map(folder => (
+                                <option key={folder.id} value={folder.id}>
+                                    {' '.repeat(folder.depth * 2)}{folder.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="url-import-hint">
+                        本次将移动 {selectedCount} 份文档。仅变更知识库目录归属，不会删除原始文件内容。
+                    </div>
+
+                    <div className="dialog-footer">
+                        <button type="button" className="btn-secondary" onClick={onClose}>
+                            取消
+                        </button>
+                        <button type="submit" className="btn-primary">
+                            确认移动
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     );
@@ -777,17 +1592,6 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
         });
     };
 
-    const flattenFolders = (folderList, depth = 0) => {
-        let result = [];
-        for (const folder of folderList) {
-            result.push({ ...folder, depth });
-            if (folder.children) {
-                result = result.concat(flattenFolders(folder.children, depth + 1));
-            }
-        }
-        return result;
-    };
-
     const renderInputWithDropdown = (field, options, placeholder) => {
         const value = formData[field] || '';
         const hasOptions = Array.isArray(options) && options.length > 0;
@@ -889,7 +1693,7 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                                 onChange={e => setFormData(prev => ({ ...prev, folderId: e.target.value ? Number(e.target.value) : null }))}
                             >
                                 <option value="">根目录</option>
-                                {flattenFolders(folders).map(folder => (
+                                {flattenFoldersTree(folders).map(folder => (
                                     <option key={folder.id} value={folder.id}>
                                         {' '.repeat(folder.depth * 2)}{folder.name}
                                     </option>

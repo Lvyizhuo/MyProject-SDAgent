@@ -8,7 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
@@ -41,12 +43,7 @@ public class StorageService {
 
     public String storeFile(MultipartFile file, String folderPath) {
         ensureBucketExists();
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String uuid = UUID.randomUUID().toString().substring(0, 8);
-        String safeFolderPath = folderPath.startsWith("/") ? folderPath.substring(1) : folderPath;
-        safeFolderPath = safeFolderPath.replace("/", "_");
-        String storagePath = String.format("%s/%s_%s_%s",
-                safeFolderPath, timestamp, uuid, file.getOriginalFilename());
+        String storagePath = buildStoragePath(folderPath, file.getOriginalFilename());
 
         try (InputStream inputStream = file.getInputStream()) {
             minioClient.putObject(
@@ -63,6 +60,31 @@ public class StorageService {
             log.error("Failed to store file to MinIO", e);
             throw new RuntimeException("Failed to store file", e);
         }
+    }
+
+    public String storeBytes(byte[] bytes, String folderPath, String fileName, String contentType) {
+        ensureBucketExists();
+        String storagePath = buildStoragePath(folderPath, fileName);
+        try (InputStream inputStream = new ByteArrayInputStream(bytes)) {
+            minioClient.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(minioConfig.getBucketName())
+                            .object(storagePath)
+                            .stream(inputStream, bytes.length, -1)
+                            .contentType(contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType)
+                            .build()
+            );
+            log.info("Stored bytes to MinIO: {}", storagePath);
+            return storagePath;
+        } catch (Exception e) {
+            log.error("Failed to store bytes to MinIO", e);
+            throw new RuntimeException("Failed to store content", e);
+        }
+    }
+
+    public String storeText(String text, String folderPath, String fileName) {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        return storeBytes(bytes, folderPath, fileName, "text/plain; charset=UTF-8");
     }
 
     public InputStream getFile(String storagePath) {
@@ -108,5 +130,15 @@ public class StorageService {
             log.error("Failed to delete file from MinIO: {}", storagePath, e);
             throw new RuntimeException("Failed to delete file", e);
         }
+    }
+
+    private String buildStoragePath(String folderPath, String fileName) {
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String uuid = UUID.randomUUID().toString().substring(0, 8);
+        String safeFolderPath = folderPath == null || folderPath.isBlank() ? "root" : folderPath;
+        safeFolderPath = safeFolderPath.startsWith("/") ? safeFolderPath.substring(1) : safeFolderPath;
+        safeFolderPath = safeFolderPath.replace("/", "_");
+        String safeFileName = fileName == null || fileName.isBlank() ? "document.bin" : fileName;
+        return String.format("%s/%s_%s_%s", safeFolderPath, timestamp, uuid, safeFileName);
     }
 }

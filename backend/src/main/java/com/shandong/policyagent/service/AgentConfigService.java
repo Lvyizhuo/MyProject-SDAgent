@@ -4,11 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.entity.AgentConfig;
+import com.shandong.policyagent.entity.KnowledgeFolder;
 import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.model.admin.AgentConfigRequest;
 import com.shandong.policyagent.model.admin.AgentConfigResponse;
 import com.shandong.policyagent.repository.AgentConfigRepository;
+import com.shandong.policyagent.repository.KnowledgeFolderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ public class AgentConfigService {
     private static final String MASK_PLACEHOLDER = "****";
 
     private final AgentConfigRepository agentConfigRepository;
+    private final KnowledgeFolderRepository knowledgeFolderRepository;
     private final ModelProviderService modelProviderService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -44,6 +47,7 @@ public class AgentConfigService {
         config.setVisionModelId(request.getVisionModelId());
         config.setAudioModelId(request.getAudioModelId());
         config.setEmbeddingModelId(request.getEmbeddingModelId());
+        config.setKnowledgeBaseFolderId(request.getKnowledgeBaseFolderId());
 
         if (request.getLlmModelId() == null) {
             config.setModelProvider(request.getModelProvider());
@@ -65,7 +69,8 @@ public class AgentConfigService {
         }
 
         AgentConfig saved = agentConfigRepository.save(config);
-        log.info("智能体配置更新成功: id={}, llmModelId={}", saved.getId(), saved.getLlmModelId());
+    log.info("智能体配置更新成功: id={}, llmModelId={}, knowledgeBaseFolderId={}",
+        saved.getId(), saved.getLlmModelId(), saved.getKnowledgeBaseFolderId());
         return toResponse(saved, true);
     }
 
@@ -83,6 +88,7 @@ public class AgentConfigService {
         config.setVisionModelId(null);
         config.setAudioModelId(null);
         config.setEmbeddingModelId(null);
+        config.setKnowledgeBaseFolderId(null);
         config.setSystemPrompt("""
                 你是一个专业的山东省以旧换新补贴政策咨询助手。你的任务是：
 
@@ -144,6 +150,7 @@ public class AgentConfigService {
         validateModelSelection(request.getVisionModelId(), ModelType.VISION, "视觉");
         validateModelSelection(request.getAudioModelId(), ModelType.AUDIO, "语音");
         validateModelSelection(request.getEmbeddingModelId(), ModelType.EMBEDDING, "嵌入");
+        validateKnowledgeBaseFolderSelection(request.getKnowledgeBaseFolderId());
 
         if (request.getLlmModelId() == null) {
             if (request.getModelName() == null || request.getModelName().trim().isEmpty()) {
@@ -156,6 +163,14 @@ public class AgentConfigService {
                 throw new IllegalArgumentException("模型提供商不能为空");
             }
         }
+    }
+
+    private void validateKnowledgeBaseFolderSelection(Long folderId) {
+        if (folderId == null) {
+            return;
+        }
+        knowledgeFolderRepository.findById(folderId)
+                .orElseThrow(() -> new IllegalArgumentException("所选知识库文件夹不存在"));
     }
 
     private void validateModelSelection(Long modelId, ModelType type, String label) {
@@ -180,6 +195,7 @@ public class AgentConfigService {
                 AgentConfigResponse.ResolvedModelSnapshot resolvedVisionModel = resolveModelSnapshot(config.getVisionModelId());
                 AgentConfigResponse.ResolvedModelSnapshot resolvedAudioModel = resolveModelSnapshot(config.getAudioModelId());
                 AgentConfigResponse.ResolvedModelSnapshot resolvedEmbeddingModel = resolveModelSnapshot(config.getEmbeddingModelId());
+                KnowledgeFolder knowledgeBaseFolder = resolveKnowledgeBaseFolder(config.getKnowledgeBaseFolderId());
 
                 String effectiveConfigSource = resolvedLlmModel != null ? "MODEL_PROVIDER" : "MANUAL";
                 String effectiveModelProvider = resolvedLlmModel != null ? resolvedLlmModel.getProvider() : config.getModelProvider();
@@ -202,6 +218,9 @@ public class AgentConfigService {
                     .visionModelId(config.getVisionModelId())
                     .audioModelId(config.getAudioModelId())
                     .embeddingModelId(config.getEmbeddingModelId())
+                    .knowledgeBaseFolderId(config.getKnowledgeBaseFolderId())
+                    .knowledgeBaseFolderName(knowledgeBaseFolder != null ? knowledgeBaseFolder.getName() : null)
+                    .knowledgeBaseFolderPath(knowledgeBaseFolder != null ? knowledgeBaseFolder.getPath() : null)
                     .effectiveConfigSource(effectiveConfigSource)
                     .effectiveModelProvider(effectiveModelProvider)
                     .effectiveApiUrl(effectiveApiUrl)
@@ -224,6 +243,13 @@ public class AgentConfigService {
             log.error("无法解析配置 JSON", e);
             throw new IllegalStateException("配置数据格式错误");
         }
+    }
+
+    private KnowledgeFolder resolveKnowledgeBaseFolder(Long folderId) {
+        if (folderId == null) {
+            return null;
+        }
+        return knowledgeFolderRepository.findById(folderId).orElse(null);
     }
 
     private AgentConfigResponse.ResolvedModelSnapshot resolveModelSnapshot(Long modelId) {

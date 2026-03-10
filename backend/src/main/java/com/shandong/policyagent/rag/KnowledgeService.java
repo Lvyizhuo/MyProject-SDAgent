@@ -149,6 +149,58 @@ public class KnowledgeService {
         return document;
     }
 
+    public KnowledgeDocument importTextDocument(
+            String text,
+            Long folderId,
+            String title,
+            String embeddingModelId,
+            String category,
+            List<String> tags,
+            LocalDate publishDate,
+            String source,
+            LocalDate validFrom,
+            LocalDate validTo,
+            String summary,
+            User createdBy) {
+
+        if (text == null || text.isBlank()) {
+            throw new IllegalArgumentException("待入库文本不能为空");
+        }
+
+        KnowledgeFolder folder = folderId != null ? folderRepository.findById(folderId).orElse(null) : null;
+        String folderPath = folder != null ? folder.getPath() : "/";
+        String documentTitle = title == null || title.isBlank() ? "网页导入文档" : title.trim();
+        String fileName = documentTitle.replaceAll("[\\/:*?\"<>|\\s]+", "-") + ".txt";
+
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
+        String storagePath = storageService.storeText(text, folderPath, fileName);
+
+        KnowledgeDocument document = KnowledgeDocument.builder()
+                .folder(folder)
+                .title(documentTitle)
+                .fileName(fileName)
+                .fileSize((long) text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                .fileType("text/plain")
+                .storagePath(storagePath)
+                .storageBucket(minioConfig.getBucketName())
+                .embeddingModel(embeddingModelId)
+                .vectorTableName(modelConfig.getVectorTable())
+                .category(category)
+                .tags(tags)
+                .publishDate(publishDate)
+                .source(source)
+                .validFrom(validFrom)
+                .validTo(validTo)
+                .summary(summary)
+                .status(DocumentStatus.PENDING)
+                .createdBy(createdBy)
+                .build();
+
+        document = documentRepository.save(document);
+        processDocumentAsync(document.getId());
+        return document;
+    }
+
     public DocumentMetadataExtractResponse extractDocumentMetadata(MultipartFile file) {
         String originalName = file.getOriginalFilename() == null ? "未命名文档" : file.getOriginalFilename();
         String normalizedTitle = removeExtension(originalName).trim();
@@ -239,7 +291,10 @@ public class KnowledgeService {
         }
     }
 
-    public Page<KnowledgeDocument> listDocuments(Long folderId, String category, String tag, DocumentStatus status, Pageable pageable) {
+    public Page<KnowledgeDocument> listDocuments(Long folderId, String category, String tag, DocumentStatus status, String keyword, Pageable pageable) {
+        if (keyword != null && !keyword.isBlank()) {
+            return documentRepository.searchDocuments(folderId, status, keyword.trim(), pageable);
+        }
         if (folderId != null) {
             return documentRepository.findByFolderId(folderId, pageable);
         } else if (status != null) {
@@ -250,6 +305,14 @@ public class KnowledgeService {
             return documentRepository.findByTag(tag, pageable);
         }
         return documentRepository.findAll(pageable);
+    }
+
+    public List<Long> listDocumentIds(Long folderId, DocumentStatus status, String keyword) {
+        String normalizedKeyword = keyword != null && !keyword.isBlank() ? keyword.trim() : null;
+        if (normalizedKeyword == null) {
+            return documentRepository.findIdsBySelection(folderId, status);
+        }
+        return documentRepository.searchIdsBySelection(folderId, status, normalizedKeyword);
     }
 
     public Optional<KnowledgeDocument> getDocument(Long id) {
@@ -287,12 +350,45 @@ public class KnowledgeService {
         KnowledgeDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
 
+        deleteDocument(document);
+    }
+
+    @Transactional
+    public void batchDeleteDocuments(List<Long> ids) {
+        List<KnowledgeDocument> documents = documentRepository.findAllById(ids);
+        if (documents.size() != ids.size()) {
+            throw new IllegalArgumentException("部分文档不存在，无法批量删除");
+        }
+        for (KnowledgeDocument document : documents) {
+            deleteDocument(document);
+        }
+    }
+
+    @Transactional
+    public void batchMoveDocuments(List<Long> ids, Long targetFolderId) {
+        List<KnowledgeDocument> documents = documentRepository.findAllById(ids);
+        if (documents.size() != ids.size()) {
+            throw new IllegalArgumentException("部分文档不存在，无法批量移动");
+        }
+
+        KnowledgeFolder targetFolder = targetFolderId != null
+                ? folderRepository.findById(targetFolderId).orElseThrow(() -> new IllegalArgumentException("目标文件夹不存在"))
+                : null;
+
+        for (KnowledgeDocument document : documents) {
+            document.setFolder(targetFolder);
+            documentRepository.save(document);
+        }
+    }
+
+    private void deleteDocument(KnowledgeDocument document) {
+
         List<String> vectorIds = new ArrayList<>();
         multiVectorStoreService.deleteDocuments(document.getEmbeddingModel(), vectorIds);
 
         storageService.deleteFile(document.getStoragePath());
 
-        documentRepository.deleteById(id);
+        documentRepository.delete(document);
     }
 
     @Transactional

@@ -204,6 +204,27 @@
     background: hsl(var(--color-bg-elevated) / 0.75);
 }
 
+.kb-batch-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+    padding: var(--space-sm) var(--space-xl);
+    border-bottom: 1px solid hsl(var(--color-border) / 0.7);
+    background: hsl(var(--color-bg-elevated) / 0.5);
+}
+
+.kb-batch-toolbar .btn-secondary,
+.kb-batch-toolbar .btn-primary {
+    align-self: center;
+}
+
+.kb-batch-count {
+    font-size: 0.84rem;
+    color: hsl(var(--color-text-secondary));
+    line-height: 1.4;
+}
+
 .toolbar-search {
     flex: 1;
     min-width: 0;
@@ -274,6 +295,13 @@
     box-shadow: none;
 }
 
+.btn-icon.success:hover {
+    color: hsl(142 67% 36%);
+    border-color: hsl(142 67% 44% / 0.35);
+    background: hsl(142 67% 44% / 0.1);
+    box-shadow: none;
+}
+
 .document-list {
     flex: 1;
     min-height: 0;
@@ -296,7 +324,7 @@
 
 .document-item {
     display: grid;
-    grid-template-columns: 50px minmax(0, 1fr) auto;
+    grid-template-columns: 40px 50px minmax(0, 1fr) auto;
     align-items: center;
     gap: var(--space-md);
     padding: var(--space-md);
@@ -307,6 +335,17 @@
     box-shadow: 0 10px 22px -24px hsl(var(--color-title) / 0.85);
     transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
     animation: docFadeIn 360ms ease-out both;
+}
+
+.doc-selection {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon.select-toggle {
+    width: 32px;
+    height: 32px;
 }
 
 .document-item:hover {
@@ -356,6 +395,23 @@
     color: hsl(var(--color-text-muted));
 }
 
+.doc-import-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: hsl(var(--color-primary-light) / 0.55);
+    color: hsl(var(--color-primary));
+    font-size: 0.74rem;
+    font-weight: 600;
+}
+
+.doc-import-badge.warning {
+    background: hsl(35 100% 60% / 0.16);
+    color: hsl(28 85% 42%);
+}
+
 .doc-status {
     display: inline-flex;
     align-items: center;
@@ -388,6 +444,23 @@
     border: 1px solid hsl(0 84% 60% / 0.22);
     background: hsl(0 84% 60% / 0.08);
     color: hsl(0 74% 47%);
+}
+
+.doc-source-link {
+    margin-top: 6px;
+}
+
+.doc-source-link a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: hsl(var(--color-primary));
+    font-size: 0.8rem;
+    text-decoration: none;
+}
+
+.doc-source-link a:hover {
+    text-decoration: underline;
 }
 
 .doc-status-bar {
@@ -905,6 +978,96 @@
     display: flex;
     justify-content: flex-end;
     gap: var(--space-xs);
+}
+
+.url-import-hint {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: hsl(var(--color-primary-light) / 0.42);
+    color: hsl(var(--color-text-secondary));
+    font-size: 0.84rem;
+    line-height: 1.6;
+}
+
+.import-preview-dialog {
+    max-width: 980px;
+}
+
+.import-preview-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.import-preview-meta {
+    display: grid;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: hsl(var(--color-bg-elevated));
+    border: 1px solid hsl(var(--color-border));
+    font-size: 0.88rem;
+    color: hsl(var(--color-text-secondary));
+}
+
+.import-preview-meta a,
+.import-preview-attachments a {
+    color: hsl(var(--color-primary));
+    text-decoration: none;
+}
+
+.import-preview-meta a:hover,
+.import-preview-attachments a:hover {
+    text-decoration: underline;
+}
+
+.import-preview-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: hsl(var(--color-bg-elevated));
+    border: 1px solid hsl(var(--color-border));
+}
+
+.import-preview-attachments h4,
+.import-preview-content h4 {
+    margin: 0;
+    font-size: 0.92rem;
+    color: hsl(var(--color-title));
+}
+
+.import-preview-attachments a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.86rem;
+}
+
+.import-preview-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.import-preview-content pre {
+    margin: 0;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid hsl(var(--color-border));
+    background: hsl(var(--color-bg-elevated));
+    color: hsl(var(--color-text-main));
+    font-size: 0.86rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    max-height: 360px;
+    overflow: auto;
+}
+
+.danger-outline {
+    color: hsl(0 75% 48%);
+    border-color: hsl(0 84% 60% / 0.35);
 }
 
 .kb-toast {

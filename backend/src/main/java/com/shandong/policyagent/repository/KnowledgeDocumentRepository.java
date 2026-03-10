@@ -14,6 +14,22 @@ import java.util.List;
 @Repository
 public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocument, Long> {
 
+        @Query("""
+                        SELECT d FROM KnowledgeDocument d
+                        WHERE (:folderId IS NULL OR d.folder.id = :folderId)
+                            AND (:status IS NULL OR d.status = :status)
+                            AND (
+                                        LOWER(d.title) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                                 OR LOWER(d.fileName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                                 OR LOWER(COALESCE(d.source, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                                 OR LOWER(COALESCE(d.summary, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                            )
+                        """)
+        Page<KnowledgeDocument> searchDocuments(@Param("folderId") Long folderId,
+                                                                                        @Param("status") DocumentStatus status,
+                                                                                        @Param("keyword") String keyword,
+                                                                                        Pageable pageable);
+
     Page<KnowledgeDocument> findByFolderId(Long folderId, Pageable pageable);
 
     Page<KnowledgeDocument> findByStatus(DocumentStatus status, Pageable pageable);
@@ -22,6 +38,31 @@ public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocu
 
     @Query("SELECT d FROM KnowledgeDocument d WHERE d.embeddingModel = :embeddingModel")
     List<KnowledgeDocument> findByEmbeddingModel(@Param("embeddingModel") String embeddingModel);
+
+        @Query("""
+                        SELECT d.id FROM KnowledgeDocument d
+                        WHERE (:folderId IS NULL OR d.folder.id = :folderId)
+                            AND (:status IS NULL OR d.status = :status)
+                        ORDER BY d.createdAt DESC
+                        """)
+        List<Long> findIdsBySelection(@Param("folderId") Long folderId,
+                                                                    @Param("status") DocumentStatus status);
+
+        @Query("""
+                        SELECT d.id FROM KnowledgeDocument d
+                        WHERE (:folderId IS NULL OR d.folder.id = :folderId)
+                            AND (:status IS NULL OR d.status = :status)
+                            AND (
+                                        LOWER(d.title) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                                        OR LOWER(d.fileName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                                        OR LOWER(COALESCE(d.source, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                                        OR LOWER(COALESCE(d.summary, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+                            )
+                        ORDER BY d.createdAt DESC
+                        """)
+        List<Long> searchIdsBySelection(@Param("folderId") Long folderId,
+                                                                        @Param("status") DocumentStatus status,
+                                                                        @Param("keyword") String keyword);
 
     @Query(value = "SELECT * FROM knowledge_documents WHERE ?1 = ANY(tags)",
            nativeQuery = true)

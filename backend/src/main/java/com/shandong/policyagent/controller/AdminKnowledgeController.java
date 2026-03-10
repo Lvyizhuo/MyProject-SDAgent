@@ -9,6 +9,7 @@ import com.shandong.policyagent.entity.User;
 import com.shandong.policyagent.model.dto.*;
 import com.shandong.policyagent.rag.EmbeddingService;
 import com.shandong.policyagent.rag.KnowledgeService;
+import com.shandong.policyagent.service.UrlImportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ public class AdminKnowledgeController {
 
     private final KnowledgeService knowledgeService;
     private final EmbeddingService embeddingService;
+    private final UrlImportService urlImportService;
 
     @PostMapping("/folders")
     public ResponseEntity<FolderTreeResponse> createFolder(
@@ -122,6 +124,7 @@ public class AdminKnowledgeController {
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "tag", required = false) String tag,
             @RequestParam(value = "status", required = false) DocumentStatus status,
+            @RequestParam(value = "q", required = false) String keyword,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
@@ -129,7 +132,7 @@ public class AdminKnowledgeController {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
         Page<KnowledgeDocument> documentPage = knowledgeService.listDocuments(
-                folderId, category, tag, status, pageable);
+                folderId, category, tag, status, keyword, pageable);
 
         Map<String, Object> result = new HashMap<>();
         result.put("content", documentPage.getContent().stream()
@@ -139,6 +142,18 @@ public class AdminKnowledgeController {
         result.put("totalElements", documentPage.getTotalElements());
         result.put("totalPages", documentPage.getTotalPages());
 
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/documents/selection")
+    public ResponseEntity<Map<String, Object>> listDocumentSelection(
+            @RequestParam(value = "folderId", required = false) Long folderId,
+            @RequestParam(value = "status", required = false) DocumentStatus status,
+            @RequestParam(value = "q", required = false) String keyword) {
+        List<Long> ids = knowledgeService.listDocumentIds(folderId, status, keyword);
+        Map<String, Object> result = new HashMap<>();
+        result.put("ids", ids);
+        result.put("count", ids.size());
         return ResponseEntity.ok(result);
     }
 
@@ -199,11 +214,14 @@ public class AdminKnowledgeController {
     }
 
     @PostMapping("/documents/batch-delete")
-    public ResponseEntity<Void> batchDeleteDocuments(@RequestBody Map<String, List<Long>> request) {
-        List<Long> ids = request.get("ids");
-        for (Long id : ids) {
-            knowledgeService.deleteDocument(id);
-        }
+    public ResponseEntity<Void> batchDeleteDocuments(@Valid @RequestBody BatchDocumentOperationRequest request) {
+        knowledgeService.batchDeleteDocuments(request.getIds());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/documents/batch-move")
+    public ResponseEntity<Void> batchMoveDocuments(@Valid @RequestBody BatchDocumentOperationRequest request) {
+        knowledgeService.batchMoveDocuments(request.getIds(), request.getTargetFolderId());
         return ResponseEntity.noContent().build();
     }
 
@@ -243,6 +261,58 @@ public class AdminKnowledgeController {
         Map<String, Object> result = new HashMap<>();
         result.put("models", models);
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/url-imports")
+    public ResponseEntity<UrlImportJobResponse> createUrlImport(
+            @Valid @RequestBody UrlImportCreateRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(urlImportService.createImport(request, currentUser));
+    }
+
+    @GetMapping("/url-imports")
+    public ResponseEntity<UrlImportListResponse> listUrlImports() {
+        return ResponseEntity.ok(urlImportService.listImports());
+    }
+
+    @GetMapping("/url-imports/{id}")
+    public ResponseEntity<UrlImportItemResponse> getUrlImportItem(@PathVariable Long id) {
+        return ResponseEntity.ok(urlImportService.getImportItem(id));
+    }
+
+    @PostMapping("/url-imports/{id}/confirm")
+    public ResponseEntity<DocumentResponse> confirmUrlImport(
+            @PathVariable Long id,
+            @RequestBody UrlImportConfirmRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(urlImportService.confirmImport(id, request, currentUser));
+    }
+
+    @PostMapping("/url-imports/batch-confirm")
+    public ResponseEntity<BatchUrlImportConfirmResponse> batchConfirmUrlImports(
+            @RequestBody BatchUrlImportConfirmRequest request,
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(urlImportService.batchConfirmImports(request, currentUser));
+    }
+
+    @PostMapping("/url-imports/{id}/reject")
+    public ResponseEntity<Void> rejectUrlImport(
+            @PathVariable Long id,
+            @Valid @RequestBody UrlImportRejectRequest request) {
+        urlImportService.rejectImport(id, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/url-imports/{id}/cancel")
+    public ResponseEntity<Void> cancelUrlImport(@PathVariable Long id) {
+        urlImportService.cancelImportJob(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/url-imports/{id}")
+    public ResponseEntity<Void> deleteUrlImport(@PathVariable Long id) {
+        urlImportService.deleteImportJob(id);
+        return ResponseEntity.noContent().build();
     }
 
     private FolderTreeResponse toFolderTreeResponse(KnowledgeFolder folder) {

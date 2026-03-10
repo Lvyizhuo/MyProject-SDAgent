@@ -73,6 +73,22 @@ const adminKnowledgeApi = {
         return response.json();
     },
 
+    async listDocumentSelection(params = {}) {
+        const searchParams = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value != null) {
+                searchParams.append(key, value);
+            }
+        });
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/documents/selection?${searchParams}`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            throw new Error('获取文档选择范围失败');
+        }
+        return response.json();
+    },
+
     async getDocument(id) {
         const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/documents/${id}`, {
             headers: getAuthHeaders()
@@ -217,6 +233,21 @@ const adminKnowledgeApi = {
         }
     },
 
+    async batchMoveDocuments(ids, targetFolderId) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/documents/batch-move`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify({ ids, targetFolderId })
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '批量移动文档失败');
+        }
+    },
+
     async getConfig() {
         const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/config`, {
             headers: getAuthHeaders()
@@ -250,6 +281,111 @@ const adminKnowledgeApi = {
             throw new Error('获取嵌入模型列表失败');
         }
         return response.json();
+    },
+
+    async createUrlImport(data) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '创建网站导入任务失败');
+        }
+        return response.json();
+    },
+
+    async listUrlImports() {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            throw new Error('获取网站导入任务失败');
+        }
+        return response.json();
+    },
+
+    async getUrlImportItem(id) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports/${id}`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            throw new Error('获取待入库内容详情失败');
+        }
+        return response.json();
+    },
+
+    async confirmUrlImport(id, data) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports/${id}/confirm`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '确认入库失败');
+        }
+        return response.json();
+    },
+
+    async batchConfirmUrlImports(data) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports/batch-confirm`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '批量确认入库失败');
+        }
+        return response.json();
+    },
+
+    async rejectUrlImport(id, data) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports/${id}/reject`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...getAuthHeaders()
+            },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '驳回待入库内容失败');
+        }
+    },
+
+    async cancelUrlImport(id) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports/${id}/cancel`, {
+            method: 'POST',
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '取消网站导入任务失败');
+        }
+    },
+
+    async deleteUrlImport(id) {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/url-imports/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '删除网站导入任务失败');
+        }
     }
 };
 

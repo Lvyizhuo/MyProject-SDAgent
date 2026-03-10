@@ -28,6 +28,9 @@ public class AgentConfigResponse {
     private Long visionModelId;
     private Long audioModelId;
     private Long embeddingModelId;
+    private Long knowledgeBaseFolderId;
+    private String knowledgeBaseFolderName;
+    private String knowledgeBaseFolderPath;
     private String effectiveConfigSource;
     private String effectiveModelProvider;
     private String effectiveApiUrl;

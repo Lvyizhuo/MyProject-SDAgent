@@ -32,7 +32,6 @@ public class MultiVectorStoreService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final DataSource dataSource;
-    private final EmbeddingModelConfig embeddingModelConfig;
     private final EmbeddingService embeddingService;
 
     private final Map<String, VectorStore> vectorStoreCache = new ConcurrentHashMap<>();
@@ -64,6 +63,37 @@ public class MultiVectorStoreService {
                 .topK(topK)
                 .build();
         return vectorStore.similaritySearch(searchRequest);
+    }
+
+    public List<Document> similaritySearchInFolderScope(String modelId, String query, int topK, String folderPath) {
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(modelId);
+        initializeVectorTable(modelConfig.getVectorTable(), modelConfig.getDimensions());
+
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        String safeTableName = sanitizeTableName(modelConfig.getVectorTable());
+        float[] queryEmbedding = embeddingService.embedTexts(modelId, List.of(query)).get(0);
+        String embeddingStr = "[" + arrayToString(queryEmbedding) + "]";
+        String normalizedFolderPath = normalizeFolderPath(folderPath);
+
+        String sql = String.format("""
+            SELECT v.id, v.content, v.metadata
+            FROM %s v
+            JOIN knowledge_documents d
+              ON d.id = CAST(v.metadata->>'knowledgeDocumentId' AS BIGINT)
+            LEFT JOIN knowledge_folders f
+              ON f.id = d.folder_id
+            WHERE COALESCE(f.path, '/') = ?
+               OR COALESCE(f.path, '/') LIKE ?
+            ORDER BY v.embedding <=> ?::vector
+            LIMIT ?
+            """, safeTableName);
+
+        return jdbcTemplate.query(sql,
+                (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
+                normalizedFolderPath,
+                buildFolderDescendantPattern(normalizedFolderPath),
+                embeddingStr,
+                topK);
     }
 
     public DocumentChunksPageResponse listDocumentChunks(String tableName, Long documentId, int page, int size) {
@@ -230,7 +260,40 @@ public class MultiVectorStoreService {
         return tableName;
     }
 
-    private Map<String, Object> parseMetadata(String metadataJson) {
+    private String normalizeFolderPath(String folderPath) {
+        if (folderPath == null || folderPath.isBlank() || "/".equals(folderPath.trim())) {
+            return "/";
+        }
+        String normalized = folderPath.trim();
+        if (!normalized.startsWith("/")) {
+            normalized = "/" + normalized;
+        }
+        while (normalized.endsWith("/") && normalized.length() > 1) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
+    private String buildFolderDescendantPattern(String folderPath) {
+        return "/".equals(folderPath) ? "/%" : folderPath + "/%";
+    }
+
+    private static Document mapDocument(String id, String content, String metadataJson) {
+        return new Document(id, content, parseMetadata(metadataJson));
+    }
+
+    private static String arrayToString(float[] array) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < array.length; i++) {
+            if (i > 0) {
+                sb.append(",");
+            }
+            sb.append(array[i]);
+        }
+        return sb.toString();
+    }
+
+    private static Map<String, Object> parseMetadata(String metadataJson) {
         if (metadataJson == null || metadataJson.isBlank()) {
             return new java.util.HashMap<>();
         }
@@ -286,7 +349,7 @@ public class MultiVectorStoreService {
                             tableName, dimensions, embedding.length
                     ));
                 }
-                String embeddingStr = "[" + arrayToString(embedding) + "]";
+                String embeddingStr = "[" + MultiVectorStoreService.arrayToString(embedding) + "]";
 
                 String metadataJson;
                 try {
@@ -327,7 +390,7 @@ public class MultiVectorStoreService {
         public List<Document> similaritySearch(SearchRequest request) {
             JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
             float[] queryEmbedding = embeddingModel.embed(request.getQuery());
-            String embeddingStr = "[" + arrayToString(queryEmbedding) + "]";
+            String embeddingStr = "[" + MultiVectorStoreService.arrayToString(queryEmbedding) + "]";
 
             String sql = String.format("""
                 SELECT id, content, metadata
@@ -336,34 +399,10 @@ public class MultiVectorStoreService {
                 LIMIT ?
                 """, tableName);
 
-            return jdbcTemplate.query(sql, (rs, rowNum) -> {
-                String id = rs.getString("id");
-                String content = rs.getString("content");
-                String metadataJson = rs.getString("metadata");
-
-                Map<String, Object> metadata = new java.util.HashMap<>();
-                if (metadataJson != null) {
-                    try {
-                        metadata = new com.fasterxml.jackson.databind.ObjectMapper().readValue(
-                                metadataJson,
-                                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}
-                        );
-                    } catch (Exception e) {
-                        // ignore
-                    }
-                }
-
-                return new Document(id, content, metadata);
-            }, embeddingStr, request.getTopK());
-        }
-
-        private String arrayToString(float[] array) {
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < array.length; i++) {
-                if (i > 0) sb.append(",");
-                sb.append(array[i]);
-            }
-            return sb.toString();
+            return jdbcTemplate.query(sql,
+                    (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
+                    embeddingStr,
+                    request.getTopK());
         }
     }
 }

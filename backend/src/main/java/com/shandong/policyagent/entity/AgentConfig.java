@@ -55,6 +55,9 @@ public class AgentConfig {
     @Column(name = "embedding_model_id")
     private Long embeddingModelId;
 
+    @Column(name = "knowledge_base_folder_id")
+    private Long knowledgeBaseFolderId;
+
     // 系统提示词
     @Column(nullable = false, columnDefinition = "TEXT")
     private String systemPrompt;
