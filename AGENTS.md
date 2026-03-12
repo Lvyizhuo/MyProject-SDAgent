@@ -18,6 +18,7 @@
 │       ├── controller/    # REST API 控制器 (含 admin 配置、知识库、模型管理、公开配置接口)
 │       ├── entity/        # JPA 实体类（含 AgentConfig / ModelProvider / ModelType）
 │       ├── exception/     # 全局异常处理器
+│       ├── ingestion/     # 多源知识导入（网站爬取/附件提取等）
 │       ├── model/         # 数据传输对象和领域模型
 │       ├── multimodal/    # 多模态能力 (ASR/视觉)
 │       ├── rag/           # RAG 相关服务 (文档加载、切片、检索、运行时嵌入模型路由)
@@ -84,7 +85,10 @@ npm run preview
 ```bash
 cd backend
 
-# 启动 PostgreSQL (pgvector) + Redis + MinIO
+# 启动依赖：PostgreSQL (pgvector) + Redis + MinIO + Ollama（嵌入）
+docker compose up -d postgres redis minio ollama ollama-init
+
+# 或：启动全部（包含 backend 容器）
 docker compose up -d
 
 # 停止服务
@@ -236,7 +240,7 @@ docker compose --env-file .env up -d --build
 | GET | `/api/chat/health` | 健康检查 |
 | POST | `/api/documents/load` | 加载默认文档 |
 | POST | `/api/documents/load-directory` | 加载指定目录文档 |
-| DELETE | `/api/documents` | 按 id 删除文档 |
+| DELETE | `/api/documents` | 按 ids 删除文档向量 |
 | POST | `/api/auth/register` | 用户注册 |
 | POST | `/api/auth/login` | 用户登录 |
 | GET | `/api/auth/me` | 当前用户信息 |
@@ -258,11 +262,33 @@ docker compose --env-file .env up -d --build
 | POST | `/api/admin/models/{id}/test` | 测试模型连接 |
 | GET | `/api/admin/models/options` | 获取模型下拉选项 |
 | GET | `/api/admin/knowledge/folders` | 知识库目录树 |
+| POST | `/api/admin/knowledge/folders` | 创建知识库文件夹 |
+| PUT | `/api/admin/knowledge/folders/{id}` | 更新知识库文件夹 |
+| DELETE | `/api/admin/knowledge/folders/{id}` | 删除知识库文件夹 |
 | POST | `/api/admin/knowledge/documents` | 上传知识库文档 |
+| POST | `/api/admin/knowledge/documents/extract-metadata` | 智能提取文档元数据 |
 | GET | `/api/admin/knowledge/documents` | 分页查询知识库文档 |
+| GET | `/api/admin/knowledge/documents/selection` | 获取当前筛选范围文档 id 列表 |
+| GET | `/api/admin/knowledge/documents/{id}` | 获取文档详情 |
 | GET | `/api/admin/knowledge/documents/{id}/chunks` | 查询文档切片结果 |
+| GET | `/api/admin/knowledge/documents/{id}/download` | 下载原始文档 |
+| GET | `/api/admin/knowledge/documents/{id}/preview` | 获取预览地址（MinIO 或外部链接） |
+| DELETE | `/api/admin/knowledge/documents/{id}` | 删除文档 |
 | POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
+| POST | `/api/admin/knowledge/documents/batch-delete` | 批量删除文档 |
+| POST | `/api/admin/knowledge/documents/batch-move` | 批量移动文档 |
 | GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
+| GET | `/api/admin/knowledge/config` | 获取知识库配置 |
+| PUT | `/api/admin/knowledge/config` | 更新知识库配置 |
+| POST | `/api/admin/knowledge/url-imports` | 创建网站导入任务 |
+| GET | `/api/admin/knowledge/url-imports` | 查询网站导入任务与待处理条目 |
+| GET | `/api/admin/knowledge/url-imports/{id}` | 获取待入库内容详情 |
+| POST | `/api/admin/knowledge/url-imports/{id}/confirm` | 确认入库（生成文档并切片） |
+| POST | `/api/admin/knowledge/url-imports/batch-confirm` | 批量确认入库 |
+| POST | `/api/admin/knowledge/url-imports/{id}/reject` | 驳回待入库内容 |
+| POST | `/api/admin/knowledge/url-imports/{id}/cancel` | 取消网站导入任务 |
+| DELETE | `/api/admin/knowledge/url-imports/{id}` | 删除网站导入任务 |
+| DELETE | `/api/admin/knowledge/url-import-items/{id}` | 删除待入库内容 |
 | GET | `/api/public/config/agent` | 获取公开智能体配置（当前返回开场白） |
 | POST | `/api/multimodal/transcribe` | 语音识别 |
 | POST | `/api/multimodal/analyze-image` | 图像分析 |

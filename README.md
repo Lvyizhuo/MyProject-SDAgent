@@ -98,7 +98,7 @@ vi deploy/.env
 至少需要正确配置：
 - `DASHSCOPE_API_KEY`
 - `APP_JWT_SECRET`
-- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET`（启用模型管理时建议配置）
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET`（可选但推荐：模型管理 API Key 加密主密钥）
 - `POSTGRES_PASSWORD`
 - `MINIO_PASSWORD`
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`
@@ -109,7 +109,7 @@ vi deploy/.env
 当前管理员控制台包含 4 个主模块：
 
 - 智能体：配置系统提示词、开场白、技能开关，并可绑定大语言/视觉/语音/嵌入模型
-- 知识库：管理文件夹、上传文档、查看切片结果、重新入库
+- 知识库：管理文件夹、上传文档/网站导入、批量移动/删除、查看切片结果、重新入库
 - 工具：展示统一工具治理的信息架构与后续接入方向
 - 模型：维护 LLM、视觉、语音、嵌入四类模型，支持新增、编辑、删除、设为默认、连接测试
 
@@ -195,7 +195,7 @@ docker compose --env-file .env up -d --build
 | GET | `/api/chat/health` | 健康检查 |
 | POST | `/api/documents/load` | 加载默认文档 |
 | POST | `/api/documents/load-directory` | 加载指定目录文档 |
-| DELETE | `/api/documents` | 删除文档 |
+| DELETE | `/api/documents` | 删除文档向量（`ids=...`） |
 
 ### 用户认证与会话
 
@@ -227,10 +227,33 @@ docker compose --env-file .env up -d --build
 | POST | `/api/admin/models/{id}/test` | 测试模型连接 |
 | GET | `/api/admin/models/options` | 获取模型下拉选项 |
 | GET | `/api/admin/knowledge/folders` | 获取知识库目录树 |
+| POST | `/api/admin/knowledge/folders` | 创建知识库文件夹 |
+| PUT | `/api/admin/knowledge/folders/{id}` | 更新知识库文件夹 |
+| DELETE | `/api/admin/knowledge/folders/{id}` | 删除知识库文件夹 |
 | POST | `/api/admin/knowledge/documents` | 上传知识文档 |
+| POST | `/api/admin/knowledge/documents/extract-metadata` | 智能提取文档元数据 |
 | GET | `/api/admin/knowledge/documents` | 分页查询文档 |
+| GET | `/api/admin/knowledge/documents/selection` | 获取当前筛选范围文档 id 列表 |
+| GET | `/api/admin/knowledge/documents/{id}` | 获取文档详情 |
+| GET | `/api/admin/knowledge/documents/{id}/chunks` | 查询文档切片结果 |
+| GET | `/api/admin/knowledge/documents/{id}/download` | 下载原始文档 |
+| GET | `/api/admin/knowledge/documents/{id}/preview` | 获取预览地址（MinIO 或外部链接） |
+| DELETE | `/api/admin/knowledge/documents/{id}` | 删除文档 |
 | POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
+| POST | `/api/admin/knowledge/documents/batch-delete` | 批量删除文档 |
+| POST | `/api/admin/knowledge/documents/batch-move` | 批量移动文档 |
 | GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
+| GET | `/api/admin/knowledge/config` | 获取知识库配置 |
+| PUT | `/api/admin/knowledge/config` | 更新知识库配置 |
+| POST | `/api/admin/knowledge/url-imports` | 创建网站导入任务 |
+| GET | `/api/admin/knowledge/url-imports` | 查询网站导入任务与待处理条目 |
+| GET | `/api/admin/knowledge/url-imports/{id}` | 获取待入库内容详情 |
+| POST | `/api/admin/knowledge/url-imports/{id}/confirm` | 确认入库（生成文档并切片） |
+| POST | `/api/admin/knowledge/url-imports/batch-confirm` | 批量确认入库 |
+| POST | `/api/admin/knowledge/url-imports/{id}/reject` | 驳回待入库内容 |
+| POST | `/api/admin/knowledge/url-imports/{id}/cancel` | 取消网站导入任务 |
+| DELETE | `/api/admin/knowledge/url-imports/{id}` | 删除网站导入任务 |
+| DELETE | `/api/admin/knowledge/url-import-items/{id}` | 删除待入库内容 |
 | GET | `/api/public/config/agent` | 获取公开智能体配置（当前包含开场白） |
 
 ### 多模态

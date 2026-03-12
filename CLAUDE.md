@@ -28,6 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 │   │   ├── controller/         # Chat/Auth/Conversation/Admin/Knowledge/Model/PublicConfig/MultiModal API
 │   │   ├── entity/             # JPA 实体（含 AgentConfig/ModelProvider/ModelType）
 │   │   ├── exception/          # 全局异常处理器
+│   │   ├── ingestion/          # 多源知识导入（网站爬取/附件提取等）
 │   │   ├── model/              # DTO 和领域模型
 │   │   ├── multimodal/         # ASR 与视觉能力
 │   │   ├── rag/                # 文档加载、切片、检索、运行时嵌入模型路由
@@ -51,7 +52,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cd backend
 
 # 启动基础设施
-# 推荐：docker compose up -d
+# 仅启动依赖：PostgreSQL + Redis + MinIO + Ollama（嵌入）
+# 推荐：docker compose up -d postgres redis minio ollama ollama-init
 # 兼容：docker-compose up -d
 
 # 构建项目
@@ -141,10 +143,6 @@ docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
 - `DELETE /api/conversations/{sessionId}` - 删除会话（需 JWT）
 - `POST /api/admin/auth/login` - 管理员登录
 - `POST /api/admin/auth/change-password` - 管理员修改密码（需管理员 JWT）
-- `GET /api/admin/agent-config` - 获取智能体配置（需管理员 JWT）
-- `PUT /api/admin/agent-config` - 更新智能体配置（需管理员 JWT）
-- `POST /api/admin/agent-config/reset` - 重置智能体配置（需管理员 JWT）
-- `POST /api/admin/agent-config/test` - 配置测试对话（需管理员 JWT）
 - `GET /api/admin/models` - 获取模型列表（需管理员 JWT）
 - `GET /api/admin/models/{id}` - 获取模型详情（需管理员 JWT）
 - `POST /api/admin/models` - 新增模型（需管理员 JWT）
@@ -153,10 +151,35 @@ docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
 - `PUT /api/admin/models/{id}/set-default` - 设为默认模型（需管理员 JWT）
 - `POST /api/admin/models/{id}/test` - 测试模型连接（需管理员 JWT）
 - `GET /api/admin/models/options` - 获取模型下拉选项（需管理员 JWT）
+- `GET /api/admin/agent-config` - 获取智能体配置（需管理员 JWT）
+- `PUT /api/admin/agent-config` - 更新智能体配置（需管理员 JWT）
+- `POST /api/admin/agent-config/reset` - 重置智能体配置（需管理员 JWT）
+- `POST /api/admin/agent-config/test` - 配置测试对话（需管理员 JWT）
 - `GET /api/admin/knowledge/folders` - 获取知识库目录树（需管理员 JWT）
+- `POST /api/admin/knowledge/folders` - 创建知识库文件夹（需管理员 JWT）
+- `PUT /api/admin/knowledge/folders/{id}` - 更新知识库文件夹（需管理员 JWT）
+- `DELETE /api/admin/knowledge/folders/{id}` - 删除知识库文件夹（需管理员 JWT）
 - `POST /api/admin/knowledge/documents` - 上传知识库文档（需管理员 JWT）
+- `POST /api/admin/knowledge/documents/extract-metadata` - 智能提取文档元数据（需管理员 JWT）
 - `GET /api/admin/knowledge/documents/{id}/chunks` - 查询文档切片（需管理员 JWT）
+- `GET /api/admin/knowledge/documents/{id}/download` - 下载原始文档（需管理员 JWT）
+- `GET /api/admin/knowledge/documents/{id}/preview` - 获取预览地址（需管理员 JWT）
+- `DELETE /api/admin/knowledge/documents/{id}` - 删除文档（需管理员 JWT）
 - `POST /api/admin/knowledge/documents/{id}/reingest` - 重新入库文档（需管理员 JWT）
+- `POST /api/admin/knowledge/documents/batch-delete` - 批量删除文档（需管理员 JWT）
+- `POST /api/admin/knowledge/documents/batch-move` - 批量移动文档（需管理员 JWT）
+- `GET /api/admin/knowledge/embedding-models` - 获取可用嵌入模型（需管理员 JWT）
+- `GET /api/admin/knowledge/config` - 获取知识库配置（需管理员 JWT）
+- `PUT /api/admin/knowledge/config` - 更新知识库配置（需管理员 JWT）
+- `POST /api/admin/knowledge/url-imports` - 创建网站导入任务（需管理员 JWT）
+- `GET /api/admin/knowledge/url-imports` - 查询网站导入任务与待处理条目（需管理员 JWT）
+- `GET /api/admin/knowledge/url-imports/{id}` - 获取待入库内容详情（需管理员 JWT）
+- `POST /api/admin/knowledge/url-imports/{id}/confirm` - 确认入库（需管理员 JWT）
+- `POST /api/admin/knowledge/url-imports/batch-confirm` - 批量确认入库（需管理员 JWT）
+- `POST /api/admin/knowledge/url-imports/{id}/reject` - 驳回待入库内容（需管理员 JWT）
+- `POST /api/admin/knowledge/url-imports/{id}/cancel` - 取消网站导入任务（需管理员 JWT）
+- `DELETE /api/admin/knowledge/url-imports/{id}` - 删除网站导入任务（需管理员 JWT）
+- `DELETE /api/admin/knowledge/url-import-items/{id}` - 删除待入库内容（需管理员 JWT）
 - `POST /api/multimodal/transcribe` - 语音识别
 - `POST /api/multimodal/analyze-image` - 图像分析
 - `POST /api/multimodal/analyze-invoice` - 发票识别

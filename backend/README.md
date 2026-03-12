@@ -7,9 +7,14 @@
 - PostgreSQL 16 + pgvector（向量检索）
 - Redis 7（会话/记忆）
 - MinIO（知识库原始文件存储）
+- Ollama（本地嵌入模型服务，可选但 `docker-compose.yml` 默认包含）
 
 ```bash
 cd backend
+# 仅启动依赖（用于本地 ./mvnw spring-boot:run）
+docker compose up -d postgres redis minio ollama ollama-init
+
+# 或：启动全部（包含 backend 容器）
 docker compose up -d
 ```
 
@@ -19,6 +24,7 @@ docker compose up -d
 - `6379` Redis
 - `9000` MinIO API
 - `9001` MinIO Console
+- `11434` Ollama
 
 ## 服务器部署（通过项目根目录 deploy）
 
@@ -110,10 +116,32 @@ export APP_MODEL_PROVIDER_ENCRYPTION_SECRET="your-model-provider-secret"
 - `POST /api/admin/models/{id}/test`
 - `GET /api/admin/models/options`
 - `GET /api/admin/knowledge/folders`
+- `POST /api/admin/knowledge/folders`
+- `PUT /api/admin/knowledge/folders/{id}`
+- `DELETE /api/admin/knowledge/folders/{id}`
 - `POST /api/admin/knowledge/documents`
+- `POST /api/admin/knowledge/documents/extract-metadata`
 - `GET /api/admin/knowledge/documents`
+- `GET /api/admin/knowledge/documents/selection`
+- `GET /api/admin/knowledge/documents/{id}`
 - `GET /api/admin/knowledge/documents/{id}/chunks`
+- `GET /api/admin/knowledge/documents/{id}/download`
+- `GET /api/admin/knowledge/documents/{id}/preview`
+- `DELETE /api/admin/knowledge/documents/{id}`
 - `POST /api/admin/knowledge/documents/{id}/reingest`
+- `POST /api/admin/knowledge/documents/batch-delete`
+- `POST /api/admin/knowledge/documents/batch-move`
+- `GET /api/admin/knowledge/embedding-models`
+- `GET|PUT /api/admin/knowledge/config`
+- `POST /api/admin/knowledge/url-imports`
+- `GET /api/admin/knowledge/url-imports`
+- `GET /api/admin/knowledge/url-imports/{id}`
+- `POST /api/admin/knowledge/url-imports/{id}/confirm`
+- `POST /api/admin/knowledge/url-imports/batch-confirm`
+- `POST /api/admin/knowledge/url-imports/{id}/reject`
+- `POST /api/admin/knowledge/url-imports/{id}/cancel`
+- `DELETE /api/admin/knowledge/url-imports/{id}`
+- `DELETE /api/admin/knowledge/url-import-items/{id}`
 
 公开配置接口：
 - `GET /api/public/config/agent`
