@@ -56,32 +56,47 @@ vi .env
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS=http://mmgg.dpdns.org,https://mmgg.dpdns.org`
 - 如需平滑轮换模型密钥，可配置 `APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS`
 
-## 4. 启动整套容器（含 Ollama）
+## 4. 一键启动整套容器（推荐）
 
 ```bash
 cd /opt/MyProject-SDAgent/deploy
-docker compose up -d --build
-docker compose ps
+./deploy.sh
 ```
 
 关键说明：
+- `deploy.sh` 会自动执行 `docker compose up -d --build --remove-orphans`
+- `deploy.sh` 会等待 `postgres / redis / minio / ollama / backend / frontend` 全部就绪
+- `deploy.sh` 会检查 `nomic-embed-text:latest` 是否已拉取
+- `deploy.sh` 会检查 `/actuator/health` 中 `knowledgeMigration=UP`，确认知识库迁移和重入库已完成
+- 如果任何一步失败，脚本会自动打印 `ollama-init / backend / frontend` 的关键日志并退出非 0
 - `ollama-init` 会自动执行 `ollama pull nomic-embed-text:latest`
 - 后端启动后会自动把旧知识库文档迁移到 `ollama:nomic-embed-text` 并重新入库，健康检查会等迁移结束再通过
 - 前端仅监听 `127.0.0.1:5173`
 - 后端仅监听 `127.0.0.1:8080`
 - 若启用了管理员“模型管理”，生产环境应显式配置模型密钥加密主密钥，避免依赖默认回退逻辑
 
-## 5. 校验模型是否成功拉取
+如果你只想看 Compose 状态，可再执行：
+
+```bash
+docker compose ps
+```
+
+## 5. 如需手工复核（通常不用）
+
+脚本已经自动校验以下项目：
+- `ollama-init` 成功退出
+- `policy-agent-ollama` 中存在 `nomic-embed-text:latest`
+- `http://127.0.0.1:8080/actuator/health` 返回 `status=UP`
+- `knowledgeMigration.status=UP`
+- `http://127.0.0.1:5173/health` 返回成功
+
+只有在脚本失败时，才建议手工查看：
 
 ```bash
 docker compose logs ollama-init --tail=200
+docker compose logs backend --tail=200
+docker compose logs frontend --tail=100
 docker exec -it policy-agent-ollama ollama list
-```
-
-若未成功：
-
-```bash
-docker exec -it policy-agent-ollama ollama pull nomic-embed-text:latest
 ```
 
 ## 6. 宝塔站点与反向代理
@@ -108,13 +123,9 @@ curl https://mmgg.dpdns.org/actuator/health
 ## 8. 验收清单
 
 ```bash
-# 容器都应为 Up/healthy
+# 如果 deploy.sh 成功返回，这三项应该已经成立
 docker compose ps
-
-# 本机健康
 curl http://127.0.0.1:8080/actuator/health
-
-# 域名健康（经宝塔反代）
 curl http://mmgg.dpdns.org/actuator/health
 ```
 
@@ -133,7 +144,7 @@ docker compose logs -f ollama
 
 # 更新
 git pull
-docker compose up -d --build
+./deploy.sh
 
 # 重启
 docker compose restart backend frontend
