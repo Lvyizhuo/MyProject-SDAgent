@@ -141,6 +141,7 @@ app:
           model-name: nomic-embed-text:latest
           dimensions: 768
           vector-table: vector_store_ollama_nomic_768
+          max-input-chars: 900
         - id: dashscope:text-embedding-v3
           provider: dashscope
           base-url: https://dashscope.aliyuncs.com/compatible-mode
@@ -148,16 +149,17 @@ app:
           model-name: text-embedding-v3
           dimensions: 1024
           vector-table: vector_store_dashscope_v3
+          max-input-chars: 6000
     migration:
       enabled: ${APP_KNOWLEDGE_MIGRATION_ENABLED:false}
       target-model: ${APP_KNOWLEDGE_MIGRATION_TARGET_MODEL:ollama:nomic-embed-text}
     chunking:
-      default-chunk-size: 1600
-      min-chunk-size-chars: 350
+      default-chunk-size: 900
+      min-chunk-size-chars: 250
       min-chunk-length-to-embed: 5
-      chunk-overlap: 300
+      chunk-overlap: 150
       keep-separator: true
-      no-split-max-chars: 6000
+      no-split-max-chars: 900
     retrieval:
       top-k: 5
       similarity-threshold: 0.7

@@ -24,5 +24,6 @@ public class EmbeddingModelConfig {
         private String apiKey;
         private Integer dimensions;
         private String vectorTable;
+        private Integer maxInputChars;
     }
 }

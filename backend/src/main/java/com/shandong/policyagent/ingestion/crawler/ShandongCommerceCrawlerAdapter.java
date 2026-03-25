@@ -18,6 +18,7 @@ import java.net.URLDecoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -55,8 +56,8 @@ public class ShandongCommerceCrawlerAdapter implements SiteCrawlerAdapter {
     private static final Set<String> LOW_PRIORITY_KEYWORDS = Set.of("启动仪式", "圆满成功", "接力赛", "消费季", "走进", "活动现场", "宣贯活动");
     private static final Set<String> ATTACHMENT_EXTENSIONS = Set.of("pdf", "doc", "docx");
 
-        private final DocumentLoaderService documentLoaderService;
-        private final HttpClient httpClient = HttpClient.newBuilder()
+    private final DocumentLoaderService documentLoaderService;
+    private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(CONNECT_TIMEOUT)
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
@@ -432,6 +433,7 @@ public class ShandongCommerceCrawlerAdapter implements SiteCrawlerAdapter {
     }
 
     private org.jsoup.nodes.Document fetchHtmlDocument(String url) {
+        IOException jsoupException = null;
         try {
             return Jsoup.connect(url)
                     .userAgent(USER_AGENT)
@@ -439,8 +441,46 @@ public class ShandongCommerceCrawlerAdapter implements SiteCrawlerAdapter {
                     .maxBodySize(0)
                     .get();
         } catch (IOException e) {
-            throw new IllegalArgumentException("抓取网页失败: " + url);
+            jsoupException = e;
+            log.warn("Jsoup 抓取网页失败，切换为 HttpClient 兜底 | url={} | error={}", url, e.getMessage());
         }
+
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("User-Agent", USER_AGENT)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() >= 400) {
+                throw new IOException("status=" + response.statusCode());
+            }
+            Charset charset = resolveHtmlCharset(response.headers().firstValue("Content-Type").orElse(null));
+            return Jsoup.parse(new String(response.body(), charset), url);
+        } catch (Exception fallbackException) {
+            String detail = jsoupException == null
+                    ? fallbackException.getMessage()
+                    : "jsoup=" + jsoupException.getMessage() + ", fallback=" + fallbackException.getMessage();
+            throw new IllegalArgumentException("抓取网页失败: " + url + " | " + detail, fallbackException);
+        }
+    }
+
+    private Charset resolveHtmlCharset(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return StandardCharsets.UTF_8;
+        }
+        String[] parts = contentType.split(";");
+        for (String part : parts) {
+            String normalized = part.trim().toLowerCase(Locale.ROOT);
+            if (normalized.startsWith("charset=")) {
+                try {
+                    return Charset.forName(normalized.substring("charset=".length()).trim());
+                } catch (Exception ignored) {
+                    return StandardCharsets.UTF_8;
+                }
+            }
+        }
+        return StandardCharsets.UTF_8;
     }
 
     private String extractTitle(org.jsoup.nodes.Document detailDoc, String fallback) {

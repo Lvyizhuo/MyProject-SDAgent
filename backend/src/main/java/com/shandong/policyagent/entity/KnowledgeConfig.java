@@ -21,19 +21,19 @@ public class KnowledgeConfig {
 
     @Column(name = "chunk_size")
     @Builder.Default
-    private Integer chunkSize = 1600;
+    private Integer chunkSize = 900;
 
     @Column(name = "chunk_overlap")
     @Builder.Default
-    private Integer chunkOverlap = 300;
+    private Integer chunkOverlap = 150;
 
     @Column(name = "min_chunk_size_chars")
     @Builder.Default
-    private Integer minChunkSizeChars = 350;
+    private Integer minChunkSizeChars = 250;
 
     @Column(name = "no_split_max_chars")
     @Builder.Default
-    private Integer noSplitMaxChars = 6000;
+    private Integer noSplitMaxChars = 900;
 
     @Column(name = "default_embedding_model", length = 200)
     @Builder.Default

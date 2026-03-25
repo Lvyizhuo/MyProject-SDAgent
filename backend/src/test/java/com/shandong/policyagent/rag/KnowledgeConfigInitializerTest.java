@@ -38,6 +38,7 @@ class KnowledgeConfigInitializerTest {
 
         when(configRepository.findById(1L)).thenReturn(Optional.of(existingConfig));
         when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:nomic-embed-text");
+        when(embeddingService.resolveMaxInputChars("ollama:nomic-embed-text")).thenReturn(900);
 
         KnowledgeConfigInitializer initializer = new KnowledgeConfigInitializer(
                 configRepository,
@@ -62,6 +63,7 @@ class KnowledgeConfigInitializerTest {
 
         when(configRepository.findById(1L)).thenReturn(Optional.of(existingConfig));
         when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:nomic-embed-text");
+        when(embeddingService.resolveMaxInputChars("ollama:nomic-embed-text")).thenReturn(900);
 
         KnowledgeConfigInitializer initializer = new KnowledgeConfigInitializer(
                 configRepository,

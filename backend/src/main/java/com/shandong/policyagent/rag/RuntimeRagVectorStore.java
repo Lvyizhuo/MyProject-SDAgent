@@ -15,6 +15,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.stereotype.Component;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,7 @@ public class RuntimeRagVectorStore implements VectorStore {
     private final KnowledgeService knowledgeService;
     private final MultiVectorStoreService multiVectorStoreService;
     private final EmbeddingService embeddingService;
+    private final RagConfig ragConfig;
 
     @Override
     public void add(List<Document> documents) {
@@ -59,15 +61,15 @@ public class RuntimeRagVectorStore implements VectorStore {
         if (knowledgeBaseScope.enabled()) {
             log.debug("RAG 检索按知识库目录范围收敛: folderId={} | folderPath={}",
                     knowledgeBaseScope.folderId(), knowledgeBaseScope.folderPath());
-            return multiVectorStoreService.similaritySearchInFolderScope(
+            return sanitizeRetrievedDocuments(multiVectorStoreService.similaritySearchInFolderScope(
                     embeddingModelId,
                     request.getQuery(),
                     request.getTopK(),
                     knowledgeBaseScope.folderPath()
-            );
+            ));
         }
 
-        return multiVectorStoreService.getVectorStore(embeddingModelId).similaritySearch(request);
+        return sanitizeRetrievedDocuments(multiVectorStoreService.getVectorStore(embeddingModelId).similaritySearch(request));
     }
 
     private ScopeResolution resolveKnowledgeBaseScope() {
@@ -117,5 +119,26 @@ public class RuntimeRagVectorStore implements VectorStore {
         }
 
         return embeddingService.resolveDefaultModelId(knowledgeService.getConfig().getDefaultEmbeddingModel());
+    }
+
+    private List<Document> sanitizeRetrievedDocuments(List<Document> documents) {
+        int promptMaxDocChars = Math.max(200, ragConfig.getRetrieval().getPromptMaxDocChars());
+        return documents.stream()
+                .map(document -> truncateForPrompt(document, promptMaxDocChars))
+                .toList();
+    }
+
+    private Document truncateForPrompt(Document source, int promptMaxDocChars) {
+        String text = source.getText();
+        if (text == null || text.length() <= promptMaxDocChars) {
+            return source;
+        }
+
+        HashMap<String, Object> metadata = source.getMetadata() == null
+                ? new HashMap<>()
+                : new HashMap<>(source.getMetadata());
+        metadata.put("truncatedForPrompt", true);
+        metadata.put("promptChars", promptMaxDocChars);
+        return new Document(source.getId(), text.substring(0, promptMaxDocChars).trim(), metadata);
     }
 }

@@ -69,8 +69,9 @@ public class ChatService {
         }
         String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
+        boolean enableRag = shouldEnableRag(webSearchResponse);
 
-        String response = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks);
+        String response = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
         response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
 
         long duration = System.currentTimeMillis() - startTime;
@@ -106,11 +107,12 @@ public class ChatService {
         }
         String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
-        ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, true);
+        boolean enableRag = shouldEnableRag(webSearchResponse);
+        ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, enableRag);
 
         if (plan.needToolCall()) {
             log.info("检测到工具调用计划，直接使用非流式执行以规避流式工具调用缺陷 | conversationId={}", conversationId);
-            return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks);
+            return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks, enableRag);
         }
 
         return chatClient.prompt()
@@ -124,12 +126,12 @@ public class ChatService {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(executionPrompt, conversationId, null, enableToolCallbacks);
+                        return fallbackToNonStreaming(executionPrompt, conversationId, null, enableToolCallbacks, enableRag);
                     }
                     if (ragFailureDetector.isRecoverable(e)) {
                         log.warn("流式 RAG 检索失败，降级为无检索非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks);
+                        return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks, false);
                     }
                     return Flux.error(e);
                 })
@@ -338,6 +340,10 @@ public class ChatService {
                 .anyMatch(this::requiresRuntimeToolCallback);
     }
 
+    private boolean shouldEnableRag(WebSearchTool.SearchResponse webSearchResponse) {
+        return webSearchResponse == null;
+    }
+
     private boolean requiresRuntimeToolCallback(String toolHint) {
         return "calculateSubsidy".equals(toolHint)
                 || "parseFile".equals(toolHint)
@@ -360,7 +366,8 @@ public class ChatService {
         }
 
         builder.append("结果列表：\n");
-        for (int index = 0; index < response.results().size(); index++) {
+        int resultCount = Math.min(response.results().size(), 3);
+        for (int index = 0; index < resultCount; index++) {
             WebSearchTool.SearchResult result = response.results().get(index);
             builder.append(index + 1)
                     .append(". 标题：")
@@ -370,7 +377,7 @@ public class ChatService {
                     .append(result.url())
                     .append("\n")
                     .append("   摘要：")
-                    .append(result.snippet())
+                    .append(truncate(result.snippet(), 220))
                     .append("\n");
         }
         return builder.toString().trim();
@@ -482,12 +489,13 @@ public class ChatService {
     private Flux<String> fallbackToNonStreaming(String userMessage,
                                                 String conversationId,
                                                 WebSearchTool.SearchResponse webSearchResponse,
-                                                boolean enableToolCallbacks) {
+                                                boolean enableToolCallbacks,
+                                                boolean enableRag) {
         try {
             log.info("执行非流式降级调用 | conversationId={}", conversationId);
             long startTime = System.currentTimeMillis();
 
-            String response = executeChatWithFallback(userMessage, conversationId, enableToolCallbacks);
+            String response = executeChatWithFallback(userMessage, conversationId, enableToolCallbacks, enableRag);
             response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
 
             long duration = System.currentTimeMillis() - startTime;
@@ -534,11 +542,12 @@ public class ChatService {
 
     private String executeChatWithFallback(String userMessage,
                                            String conversationId,
-                                           boolean enableToolCallbacks) {
+                                           boolean enableToolCallbacks,
+                                           boolean enableRag) {
         try {
-            return executePrompt(dynamicChatClientFactory.create(enableToolCallbacks, true), userMessage, conversationId);
+            return executePrompt(dynamicChatClientFactory.create(enableToolCallbacks, enableRag), userMessage, conversationId);
         } catch (Exception exception) {
-            if (ragFailureDetector.isRecoverable(exception)) {
+            if (enableRag && ragFailureDetector.isRecoverable(exception)) {
                 log.warn("RAG 检索链路异常，关闭知识库增强后重试 | conversationId={} | error={}",
                         conversationId, exception.getMessage());
                 try {
@@ -646,5 +655,12 @@ public class ChatService {
             current = current.getCause();
         }
         return false;
+    }
+
+    private String truncate(String value, int maxChars) {
+        if (value == null || value.length() <= maxChars) {
+            return value;
+        }
+        return value.substring(0, maxChars).trim() + "...";
     }
 }

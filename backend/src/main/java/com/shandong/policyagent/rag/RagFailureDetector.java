@@ -15,6 +15,8 @@ public class RagFailureDetector {
 
     private static final List<String> RECOVERABLE_RAG_MARKERS = List.of(
             "model requires more system memory",
+            "input length exceeds the context length",
+            "context length",
             "/api/embed",
             "embedding",
             "vector store",

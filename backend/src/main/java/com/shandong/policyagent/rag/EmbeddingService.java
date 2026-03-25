@@ -23,6 +23,8 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class EmbeddingService {
     public static final String BUILT_IN_DEFAULT_MODEL_ID = "ollama:nomic-embed-text";
+    private static final int DEFAULT_OLLAMA_MAX_INPUT_CHARS = 900;
+    private static final int DEFAULT_REMOTE_MAX_INPUT_CHARS = 6000;
 
     private final EmbeddingModelConfig embeddingModelConfig;
     private final ObjectMapper objectMapper;
@@ -39,11 +41,12 @@ public class EmbeddingService {
 
     public List<float[]> embedTexts(String modelId, List<String> texts) {
         EmbeddingModelConfig.EmbeddingModel modelConfig = getModelConfig(modelId);
+        List<String> sanitizedTexts = sanitizeTextsForEmbedding(modelConfig, texts);
 
         if ("ollama".equalsIgnoreCase(modelConfig.getProvider())) {
-            return embedWithOllama(modelConfig, texts);
+            return embedWithOllama(modelConfig, sanitizedTexts);
         } else if ("dashscope".equalsIgnoreCase(modelConfig.getProvider())) {
-            return embedWithDashScope(modelConfig, texts);
+            return embedWithDashScope(modelConfig, sanitizedTexts);
         }
 
         throw new IllegalArgumentException("Unsupported embedding provider: " + modelConfig.getProvider());
@@ -85,6 +88,11 @@ public class EmbeddingService {
         }
         return getAvailableModels().stream()
                 .anyMatch(model -> normalizedModelId.equals(model.getId()));
+    }
+
+    public int resolveMaxInputChars(String preferredModelId) {
+        String resolvedModelId = resolveDefaultModelId(preferredModelId);
+        return getSafeMaxInputChars(getModelConfig(resolvedModelId));
     }
 
     public String resolveDefaultModelId(String preferredModelId) {
@@ -174,6 +182,29 @@ public class EmbeddingService {
         return embeddings;
     }
 
+    private List<String> sanitizeTextsForEmbedding(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
+        int maxInputChars = getSafeMaxInputChars(modelConfig);
+        List<String> sanitized = new ArrayList<>(texts.size());
+        for (int index = 0; index < texts.size(); index++) {
+            sanitized.add(sanitizeTextForEmbedding(modelConfig, texts.get(index), maxInputChars, index));
+        }
+        return sanitized;
+    }
+
+    private String sanitizeTextForEmbedding(EmbeddingModelConfig.EmbeddingModel modelConfig,
+                                            String text,
+                                            int maxInputChars,
+                                            int index) {
+        String normalized = text == null ? "" : text.trim();
+        if (normalized.length() <= maxInputChars) {
+            return normalized;
+        }
+
+        log.warn("Embedding text exceeds configured limit and will be truncated | model={} | textIndex={} | length={} | maxInputChars={}",
+                modelConfig.getId(), index, normalized.length(), maxInputChars);
+        return normalized.substring(0, maxInputChars);
+    }
+
     private List<float[]> embedWithDashScope(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
         RestClient restClient = restClientBuilder.build();
         List<float[]> embeddings = new ArrayList<>();
@@ -252,6 +283,17 @@ public class EmbeddingService {
                     modelConfig.getId(), expectedDimensions, actualDimensions
             ));
         }
+    }
+
+    private int getSafeMaxInputChars(EmbeddingModelConfig.EmbeddingModel modelConfig) {
+        Integer configuredMaxInputChars = modelConfig.getMaxInputChars();
+        if (configuredMaxInputChars != null && configuredMaxInputChars > 0) {
+            return configuredMaxInputChars;
+        }
+        if ("ollama".equalsIgnoreCase(modelConfig.getProvider())) {
+            return DEFAULT_OLLAMA_MAX_INPUT_CHARS;
+        }
+        return DEFAULT_REMOTE_MAX_INPUT_CHARS;
     }
 
     private boolean matchesConfiguredModel(EmbeddingModelConfig.EmbeddingModel model,

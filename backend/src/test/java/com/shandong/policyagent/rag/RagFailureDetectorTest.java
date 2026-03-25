@@ -19,6 +19,15 @@ class RagFailureDetectorTest {
     }
 
     @Test
+    void shouldDetectContextLengthFailureAsRecoverable() {
+        RuntimeException error = new RuntimeException(
+                "400 Bad Request: {\"error\":\"the input length exceeds the context length\"}"
+        );
+
+        assertTrue(detector.isRecoverable(error));
+    }
+
+    @Test
     void shouldIgnoreUnrelatedErrors() {
         RuntimeException error = new RuntimeException("401 Unauthorized");
 

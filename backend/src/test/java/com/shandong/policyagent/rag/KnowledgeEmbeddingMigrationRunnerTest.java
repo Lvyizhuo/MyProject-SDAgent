@@ -2,6 +2,7 @@ package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.config.KnowledgeMigrationProperties;
+import com.shandong.policyagent.entity.DocumentStatus;
 import com.shandong.policyagent.entity.KnowledgeDocument;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
 import org.junit.jupiter.api.Test;
@@ -44,22 +45,35 @@ class KnowledgeEmbeddingMigrationRunnerTest {
                 .id(1L)
                 .embeddingModel("dashscope:text-embedding-v3")
                 .vectorTableName("vector_store_dashscope_v3")
+                .status(DocumentStatus.COMPLETED)
+                .chunkCount(3)
                 .build();
         KnowledgeDocument alreadyMigrated = KnowledgeDocument.builder()
                 .id(2L)
                 .embeddingModel("ollama:nomic-embed-text")
                 .vectorTableName("vector_store_ollama_nomic_768")
+                .status(DocumentStatus.COMPLETED)
+                .chunkCount(2)
                 .build();
         KnowledgeDocument tableMismatch = KnowledgeDocument.builder()
                 .id(3L)
                 .embeddingModel("ollama:nomic-embed-text")
                 .vectorTableName("vector_store_legacy")
+                .status(DocumentStatus.COMPLETED)
+                .chunkCount(2)
+                .build();
+        KnowledgeDocument failedDocument = KnowledgeDocument.builder()
+                .id(4L)
+                .embeddingModel("ollama:nomic-embed-text")
+                .vectorTableName("vector_store_ollama_nomic_768")
+                .status(DocumentStatus.FAILED)
+                .chunkCount(0)
                 .build();
 
         when(migrationProperties.isEnabled()).thenReturn(true);
         when(migrationProperties.getTargetModel()).thenReturn("ollama:nomic-embed-text");
         when(embeddingService.getModelConfig("ollama:nomic-embed-text")).thenReturn(targetModel);
-        when(knowledgeDocumentRepository.findAll()).thenReturn(List.of(legacyDocument, alreadyMigrated, tableMismatch));
+        when(knowledgeDocumentRepository.findAll()).thenReturn(List.of(legacyDocument, alreadyMigrated, tableMismatch, failedDocument));
 
         KnowledgeEmbeddingMigrationRunner runner = new KnowledgeEmbeddingMigrationRunner(
                 migrationProperties,
@@ -74,6 +88,7 @@ class KnowledgeEmbeddingMigrationRunnerTest {
 
         verify(knowledgeService).reingestDocument(1L, "ollama:nomic-embed-text");
         verify(knowledgeService).reingestDocument(3L, "ollama:nomic-embed-text");
+        verify(knowledgeService).reingestDocument(4L, "ollama:nomic-embed-text");
         verify(knowledgeService, never()).reingestDocument(2L, "ollama:nomic-embed-text");
     }
 

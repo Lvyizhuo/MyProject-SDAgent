@@ -1,6 +1,7 @@
 package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.KnowledgeMigrationProperties;
+import com.shandong.policyagent.entity.DocumentStatus;
 import com.shandong.policyagent.entity.KnowledgeDocument;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
 import jakarta.annotation.PostConstruct;
@@ -88,6 +89,9 @@ public class KnowledgeEmbeddingMigrationRunner implements ApplicationRunner {
         return document != null
                 && document.getId() != null
                 && (!targetModel.equals(document.getEmbeddingModel())
-                || !targetVectorTable.equals(document.getVectorTableName()));
+                || !targetVectorTable.equals(document.getVectorTableName())
+                || document.getStatus() != DocumentStatus.COMPLETED
+                || document.getChunkCount() == null
+                || document.getChunkCount() <= 0);
     }
 }

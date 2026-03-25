@@ -261,7 +261,7 @@ public class KnowledgeService {
 
             List<Document> loadedDocs = documentLoaderService.loadDocumentFromResource(resource, document.getFileName());
 
-            List<Document> splitDocs = textSplitterService.splitDocuments(loadedDocs);
+            List<Document> splitDocs = textSplitterService.splitDocuments(loadedDocs, document.getEmbeddingModel());
 
             for (int i = 0; i < splitDocs.size(); i++) {
                 Document doc = splitDocs.get(i);
@@ -456,10 +456,12 @@ public class KnowledgeService {
     public KnowledgeConfig getConfig() {
         KnowledgeConfig config = configRepository.findById(1L)
                 .orElseGet(() -> configRepository.save(KnowledgeConfig.builder().build()));
-        String resolvedDefaultModelId = embeddingService.resolveDefaultModelId(config.getDefaultEmbeddingModel());
-        if (!resolvedDefaultModelId.equals(config.getDefaultEmbeddingModel())) {
-            config.setDefaultEmbeddingModel(resolvedDefaultModelId);
-            config = configRepository.save(config);
+        KnowledgeConfig originalSnapshot = copyConfig(config);
+        KnowledgeConfig normalizedConfig = normalizeConfig(config);
+        if (configChanged(originalSnapshot, normalizedConfig)) {
+            config = configRepository.save(normalizedConfig);
+        } else {
+            config = normalizedConfig;
         }
         return config;
     }
@@ -467,7 +469,77 @@ public class KnowledgeService {
     @Transactional
     public KnowledgeConfig updateConfig(KnowledgeConfig config) {
         config.setId(1L);
-        return configRepository.save(config);
+        return configRepository.save(normalizeConfig(config));
+    }
+
+    private KnowledgeConfig normalizeConfig(KnowledgeConfig source) {
+        KnowledgeConfig config = source == null ? KnowledgeConfig.builder().build() : source;
+
+        String resolvedDefaultModelId = embeddingService.resolveDefaultModelId(config.getDefaultEmbeddingModel());
+        int maxInputChars = embeddingService.resolveMaxInputChars(resolvedDefaultModelId);
+        int recommendedChunkSize = Math.min(900, maxInputChars);
+        int recommendedOverlap = Math.min(150, Math.max(0, recommendedChunkSize / 3));
+        int recommendedMinChunkSize = Math.min(250, recommendedChunkSize);
+
+        config.setDefaultEmbeddingModel(resolvedDefaultModelId);
+        config.setChunkSize(normalizeChunkSize(config.getChunkSize(), recommendedChunkSize, maxInputChars));
+        config.setChunkOverlap(normalizeChunkOverlap(config.getChunkOverlap(), config.getChunkSize(), recommendedOverlap));
+        config.setMinChunkSizeChars(normalizeMinChunkSize(config.getMinChunkSizeChars(), config.getChunkSize(), recommendedMinChunkSize));
+        config.setNoSplitMaxChars(normalizeNoSplitMaxChars(config.getNoSplitMaxChars(), config.getChunkSize(), maxInputChars));
+        return config;
+    }
+
+    private KnowledgeConfig copyConfig(KnowledgeConfig source) {
+        return KnowledgeConfig.builder()
+                .id(source.getId())
+                .chunkSize(source.getChunkSize())
+                .chunkOverlap(source.getChunkOverlap())
+                .minChunkSizeChars(source.getMinChunkSizeChars())
+                .noSplitMaxChars(source.getNoSplitMaxChars())
+                .defaultEmbeddingModel(source.getDefaultEmbeddingModel())
+                .minioEndpoint(source.getMinioEndpoint())
+                .minioAccessKey(source.getMinioAccessKey())
+                .minioSecretKey(source.getMinioSecretKey())
+                .minioBucketName(source.getMinioBucketName())
+                .createdAt(source.getCreatedAt())
+                .updatedAt(source.getUpdatedAt())
+                .build();
+    }
+
+    private boolean configChanged(KnowledgeConfig before, KnowledgeConfig after) {
+        return !Objects.equals(before.getDefaultEmbeddingModel(), after.getDefaultEmbeddingModel())
+                || !Objects.equals(before.getChunkSize(), after.getChunkSize())
+                || !Objects.equals(before.getChunkOverlap(), after.getChunkOverlap())
+                || !Objects.equals(before.getMinChunkSizeChars(), after.getMinChunkSizeChars())
+                || !Objects.equals(before.getNoSplitMaxChars(), after.getNoSplitMaxChars());
+    }
+
+    private Integer normalizeChunkSize(Integer currentValue, int recommendedValue, int maxInputChars) {
+        if (currentValue == null || currentValue <= 0) {
+            return recommendedValue;
+        }
+        return Math.min(currentValue, maxInputChars);
+    }
+
+    private Integer normalizeChunkOverlap(Integer currentValue, int chunkSize, int recommendedValue) {
+        if (currentValue == null || currentValue < 0) {
+            return recommendedValue;
+        }
+        return Math.min(currentValue, Math.max(0, chunkSize / 3));
+    }
+
+    private Integer normalizeMinChunkSize(Integer currentValue, int chunkSize, int recommendedValue) {
+        if (currentValue == null || currentValue <= 0) {
+            return recommendedValue;
+        }
+        return Math.min(currentValue, chunkSize);
+    }
+
+    private Integer normalizeNoSplitMaxChars(Integer currentValue, int chunkSize, int maxInputChars) {
+        if (currentValue == null || currentValue <= 0) {
+            return Math.min(maxInputChars, chunkSize);
+        }
+        return Math.max(chunkSize, Math.min(currentValue, maxInputChars));
     }
 
     private String removeExtension(String fileName) {

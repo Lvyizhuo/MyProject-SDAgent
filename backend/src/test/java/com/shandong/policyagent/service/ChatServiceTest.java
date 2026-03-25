@@ -121,4 +121,44 @@ class ChatServiceTest {
         verify(dynamicChatClientFactory).create(false, false);
         verify(modelProviderService, never()).executeChatCompletion(any(), anyString(), anyString());
     }
+
+    @Test
+    void shouldDisableRagWhenRealtimeWebSearchAlreadyRan() {
+        ChatClient directSearchClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "先联网搜索商品价格再回答",
+                true,
+                List.of(
+                        new AgentExecutionPlan.AgentStep(1, "调用 webSearch 获取最新价格", "webSearch"),
+                        new AgentExecutionPlan.AgentStep(2, "整理检索结果并回答", "none")
+                )
+        );
+        ToolIntentClassifier.IntentDecision decision =
+                new ToolIntentClassifier.IntentDecision(true, "webSearch", "", "需要联网搜索");
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class)))
+                .thenReturn(new SessionFactCacheService.SessionFacts());
+        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
+        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
+        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
+        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
+        when(webSearchTool.webSearch()).thenReturn(request -> new WebSearchTool.SearchResponse(
+                request.query(),
+                List.of(new WebSearchTool.SearchResult("示例价格", "https://example.com", "价格 2999 元")),
+                1,
+                "示例价格 2999 元"
+        ));
+        when(dynamicChatClientFactory.create(false, false)).thenReturn(directSearchClient);
+        when(directSearchClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().content())
+                .thenReturn("已根据联网搜索结果回答。");
+
+        ChatResponse response = chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-2")
+                .message("帮我查一下欧克 Pro m5Pro 的价格")
+                .build());
+
+        assertEquals("已根据联网搜索结果回答。", response.getContent());
+        verify(dynamicChatClientFactory).create(false, false);
+        verify(dynamicChatClientFactory, never()).create(false, true);
+    }
 }

@@ -1,5 +1,7 @@
 package com.shandong.policyagent.rag;
 
+import com.shandong.policyagent.entity.KnowledgeConfig;
+import com.shandong.policyagent.repository.KnowledgeConfigRepository;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -16,18 +18,25 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class TextSplitterService {
     private static final String SPLIT_STRATEGY = "SMART_SEMANTIC_V1";
+    private static final int MIN_CHUNK_SIZE = 100;
 
     private final RagConfig ragConfig;
+    private final KnowledgeConfigRepository knowledgeConfigRepository;
+    private final EmbeddingService embeddingService;
 
     public List<Document> splitDocuments(List<Document> documents) {
-        RagConfig.Chunking chunkConfig = ragConfig.getChunking();
+        return splitDocuments(documents, null);
+    }
+
+    public List<Document> splitDocuments(List<Document> documents, String embeddingModelId) {
+        ChunkingSettings chunkConfig = resolveChunkingSettings(embeddingModelId);
 
         TokenTextSplitter splitter = new TokenTextSplitter(
-                chunkConfig.getDefaultChunkSize(),
-                chunkConfig.getMinChunkSizeChars(),
-                chunkConfig.getMinChunkLengthToEmbed(),
-                chunkConfig.getChunkOverlap(),
-                chunkConfig.isKeepSeparator()
+                chunkConfig.defaultChunkSize(),
+                chunkConfig.minChunkSizeChars(),
+                chunkConfig.minChunkLengthToEmbed(),
+                chunkConfig.chunkOverlap(),
+                chunkConfig.keepSeparator()
         );
 
         List<Document> splitDocs = new ArrayList<>();
@@ -39,7 +48,7 @@ public class TextSplitterService {
             if (text == null || text.isBlank()) {
                 continue;
             }
-            if (text.length() <= chunkConfig.getNoSplitMaxChars()) {
+            if (text.length() <= chunkConfig.noSplitMaxChars()) {
                 splitDocs.add(withMetadata(document, Map.of(
                         "splitStrategy", "NO_SPLIT_SHORT_DOC",
                         "chunkChars", text.length()
@@ -64,34 +73,41 @@ public class TextSplitterService {
     }
 
     public List<Document> splitDocument(Document document) {
-        return splitDocuments(List.of(document));
+        return splitDocuments(List.of(document), null);
     }
 
     private List<Document> splitBySemantics(Document document,
-                                            RagConfig.Chunking chunkConfig,
+                                            ChunkingSettings chunkConfig,
                                             TokenTextSplitter fallbackSplitter) {
         String normalizedText = normalizeText(document.getText());
-        int targetChunkChars = Math.max(chunkConfig.getDefaultChunkSize(), chunkConfig.getMinChunkSizeChars());
-        int overlapChars = Math.max(0, chunkConfig.getChunkOverlap());
+        int targetChunkChars = Math.max(chunkConfig.defaultChunkSize(), chunkConfig.minChunkSizeChars());
+        int overlapChars = Math.max(0, chunkConfig.chunkOverlap());
 
         List<String> segments = splitToSegments(normalizedText);
-        List<String> baseChunks = assembleChunks(segments, targetChunkChars, chunkConfig.getMinChunkSizeChars());
+        List<String> baseChunks = assembleChunks(
+                segments,
+                targetChunkChars,
+                chunkConfig.minChunkSizeChars(),
+                chunkConfig.noSplitMaxChars()
+        );
 
         if (baseChunks.isEmpty()) {
             return fallbackSplitter.apply(List.of(document));
         }
 
-        List<String> overlappedChunks = applyOverlap(baseChunks, overlapChars);
+        List<String> overlappedChunks = applyOverlap(baseChunks, overlapChars, chunkConfig.noSplitMaxChars());
         List<Document> result = new ArrayList<>();
         for (String chunk : overlappedChunks) {
             String cleanChunk = chunk == null ? "" : chunk.trim();
             if (cleanChunk.isBlank()) {
                 continue;
             }
-            result.add(withMetadata(document, Map.of(
-                    "splitStrategy", SPLIT_STRATEGY,
-                    "chunkChars", cleanChunk.length()
-            ), cleanChunk));
+            for (String normalizedChunk : enforceHardLimit(cleanChunk, chunkConfig.noSplitMaxChars())) {
+                result.add(withMetadata(document, Map.of(
+                        "splitStrategy", SPLIT_STRATEGY,
+                        "chunkChars", normalizedChunk.length()
+                ), normalizedChunk));
+            }
         }
 
         return result.isEmpty() ? fallbackSplitter.apply(List.of(document)) : result;
@@ -119,13 +135,16 @@ public class TextSplitterService {
         return segments;
     }
 
-    private List<String> assembleChunks(List<String> segments, int targetChunkChars, int minChunkChars) {
+    private List<String> assembleChunks(List<String> segments,
+                                        int targetChunkChars,
+                                        int minChunkChars,
+                                        int hardMaxChars) {
         List<String> chunks = new ArrayList<>();
         StringBuilder current = new StringBuilder();
 
         for (String segment : segments) {
             if (segment.length() > targetChunkChars * 1.4) {
-                List<String> sentenceChunks = splitLongSegmentBySentence(segment, targetChunkChars);
+                List<String> sentenceChunks = splitLongSegmentBySentence(segment, targetChunkChars, hardMaxChars);
                 for (String sentenceChunk : sentenceChunks) {
                     appendWithPacking(chunks, current, sentenceChunk, targetChunkChars);
                 }
@@ -157,7 +176,7 @@ public class TextSplitterService {
         current.append(segment);
     }
 
-    private List<String> splitLongSegmentBySentence(String segment, int targetChunkChars) {
+    private List<String> splitLongSegmentBySentence(String segment, int targetChunkChars, int hardMaxChars) {
         List<String> sentenceChunks = new ArrayList<>();
         String[] sentences = segment.split("(?<=[。！？；.!?;])\\s*");
         StringBuilder current = new StringBuilder();
@@ -182,7 +201,11 @@ public class TextSplitterService {
         if (sentenceChunks.isEmpty()) {
             sentenceChunks.add(segment);
         }
-        return sentenceChunks;
+        List<String> normalizedChunks = new ArrayList<>();
+        for (String sentenceChunk : sentenceChunks) {
+            normalizedChunks.addAll(enforceHardLimit(sentenceChunk, hardMaxChars));
+        }
+        return normalizedChunks;
     }
 
     private List<String> mergeTinyChunks(List<String> chunks, int minChunkChars) {
@@ -201,7 +224,7 @@ public class TextSplitterService {
         return merged;
     }
 
-    private List<String> applyOverlap(List<String> chunks, int overlapChars) {
+    private List<String> applyOverlap(List<String> chunks, int overlapChars, int hardMaxChars) {
         if (overlapChars <= 0 || chunks.size() <= 1) {
             return chunks;
         }
@@ -215,10 +238,120 @@ public class TextSplitterService {
             if (overlap.isBlank()) {
                 result.add(current);
             } else {
-                result.add(overlap + "\n" + current);
+                String merged = overlap + "\n" + current;
+                if (merged.length() <= hardMaxChars) {
+                    result.add(merged);
+                } else {
+                    result.add(current);
+                }
             }
         }
         return result;
+    }
+
+    private List<String> enforceHardLimit(String text, int hardMaxChars) {
+        String normalized = text == null ? "" : text.trim();
+        if (normalized.isBlank()) {
+            return List.of();
+        }
+        if (normalized.length() <= hardMaxChars) {
+            return List.of(normalized);
+        }
+
+        List<String> parts = new ArrayList<>();
+        String remaining = normalized;
+        while (remaining.length() > hardMaxChars) {
+            int splitIndex = findSplitIndex(remaining, hardMaxChars);
+            String part = remaining.substring(0, splitIndex).trim();
+            if (!part.isBlank()) {
+                parts.add(part);
+            }
+            remaining = remaining.substring(splitIndex).trim();
+        }
+        if (!remaining.isBlank()) {
+            parts.add(remaining);
+        }
+        return parts;
+    }
+
+    private int findSplitIndex(String text, int hardMaxChars) {
+        int minBoundary = Math.max(MIN_CHUNK_SIZE, hardMaxChars / 2);
+        for (int index = hardMaxChars; index >= minBoundary; index--) {
+            char current = text.charAt(index - 1);
+            if (Character.isWhitespace(current)
+                    || current == '\n'
+                    || current == '。'
+                    || current == '！'
+                    || current == '？'
+                    || current == '；'
+                    || current == ','
+                    || current == '，'
+                    || current == '.'
+                    || current == ';') {
+                return index;
+            }
+        }
+        return hardMaxChars;
+    }
+
+    private ChunkingSettings resolveChunkingSettings(String preferredEmbeddingModelId) {
+        RagConfig.Chunking defaults = ragConfig.getChunking();
+        KnowledgeConfig persistedConfig = knowledgeConfigRepository.findById(1L).orElse(null);
+        String resolvedEmbeddingModelId = resolveEmbeddingModelId(preferredEmbeddingModelId, persistedConfig);
+        int embeddingMaxChars = embeddingService.resolveMaxInputChars(resolvedEmbeddingModelId);
+
+        int baseChunkSize = persistedConfig != null && persistedConfig.getChunkSize() != null
+                ? persistedConfig.getChunkSize()
+                : defaults.getDefaultChunkSize();
+        int baseMinChunkSize = persistedConfig != null && persistedConfig.getMinChunkSizeChars() != null
+                ? persistedConfig.getMinChunkSizeChars()
+                : defaults.getMinChunkSizeChars();
+        int baseOverlap = persistedConfig != null && persistedConfig.getChunkOverlap() != null
+                ? persistedConfig.getChunkOverlap()
+                : defaults.getChunkOverlap();
+        int baseNoSplitMaxChars = persistedConfig != null && persistedConfig.getNoSplitMaxChars() != null
+                ? persistedConfig.getNoSplitMaxChars()
+                : defaults.getNoSplitMaxChars();
+
+        int safeChunkSize = clamp(baseChunkSize, MIN_CHUNK_SIZE, embeddingMaxChars);
+        int safeMinChunkSize = clamp(baseMinChunkSize, Math.min(50, safeChunkSize), safeChunkSize);
+        int safeOverlap = clamp(baseOverlap, 0, Math.max(0, safeChunkSize / 3));
+        int safeNoSplitMaxChars = clamp(baseNoSplitMaxChars, safeChunkSize, embeddingMaxChars);
+
+        if (baseChunkSize != safeChunkSize || baseNoSplitMaxChars != safeNoSplitMaxChars) {
+            log.info("知识库切片参数已按嵌入模型安全阈值收敛 | model={} | chunkSize={} -> {} | noSplitMaxChars={} -> {}",
+                    resolvedEmbeddingModelId,
+                    baseChunkSize,
+                    safeChunkSize,
+                    baseNoSplitMaxChars,
+                    safeNoSplitMaxChars);
+        }
+
+        return new ChunkingSettings(
+                safeChunkSize,
+                safeMinChunkSize,
+                defaults.getMinChunkLengthToEmbed(),
+                safeOverlap,
+                defaults.isKeepSeparator(),
+                safeNoSplitMaxChars
+        );
+    }
+
+    private String resolveEmbeddingModelId(String preferredEmbeddingModelId, KnowledgeConfig persistedConfig) {
+        if (preferredEmbeddingModelId != null && !preferredEmbeddingModelId.isBlank()) {
+            return embeddingService.resolveDefaultModelId(preferredEmbeddingModelId);
+        }
+        if (persistedConfig != null && persistedConfig.getDefaultEmbeddingModel() != null) {
+            return embeddingService.resolveDefaultModelId(persistedConfig.getDefaultEmbeddingModel());
+        }
+        return embeddingService.resolveDefaultModelId(null);
+    }
+
+    private int clamp(int value, int min, int max) {
+        if (max < min) {
+            return min;
+        }
+        return Math.max(min, Math.min(value, max));
     }
 
     private Document withMetadata(Document source, Map<String, Object> extraMetadata) {
@@ -231,5 +364,15 @@ public class TextSplitterService {
                 : new HashMap<>(source.getMetadata());
         metadata.putAll(extraMetadata);
         return new Document(source.getId(), text, metadata);
+    }
+
+    private record ChunkingSettings(
+            int defaultChunkSize,
+            int minChunkSizeChars,
+            int minChunkLengthToEmbed,
+            int chunkOverlap,
+            boolean keepSeparator,
+            int noSplitMaxChars
+    ) {
     }
 }

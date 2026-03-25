@@ -115,6 +115,11 @@ public class RagConfig {
          * 发送给 rerank 的单条文档最大字符数
          */
         private int rerankMaxDocChars = 3000;
+
+        /**
+         * 注入到最终对话提示词中的单条知识库文档最大字符数
+         */
+        private int promptMaxDocChars = 1200;
     }
 
     @Data

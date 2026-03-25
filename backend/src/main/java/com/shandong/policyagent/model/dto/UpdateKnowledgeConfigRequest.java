@@ -19,8 +19,8 @@ public class UpdateKnowledgeConfigRequest {
     @Max(2000)
     private Integer minChunkSizeChars;
 
-    @Min(1000)
-    @Max(50000)
+    @Min(100)
+    @Max(10000)
     private Integer noSplitMaxChars;
 
     @Size(max = 200)
