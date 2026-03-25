@@ -56,6 +56,24 @@ public class MultiVectorStoreService {
         log.info("Deleted {} documents from vector store for model: {}", documentIds.size(), modelId);
     }
 
+    public int deleteDocumentChunks(String tableName, Long documentId) {
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        String safeTableName = sanitizeTableName(tableName);
+
+        if (!tableExists(jdbcTemplate, safeTableName)) {
+            log.info("Skip deleting chunks for document {} because vector table {} does not exist", documentId, safeTableName);
+            return 0;
+        }
+
+        String sql = String.format("""
+                DELETE FROM %s
+                WHERE metadata->>'knowledgeDocumentId' = ?
+                """, safeTableName);
+        int deleted = jdbcTemplate.update(sql, String.valueOf(documentId));
+        log.info("Deleted {} chunks for knowledge document {} from table {}", deleted, documentId, safeTableName);
+        return deleted;
+    }
+
     public List<Document> similaritySearch(String modelId, String query, int topK) {
         VectorStore vectorStore = getVectorStore(modelId);
         SearchRequest searchRequest = SearchRequest.builder()
@@ -156,8 +174,7 @@ public class MultiVectorStoreService {
     private void initializeVectorTable(String tableName, int dimensions) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 
-        String checkTableSql = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = ?)";
-        Boolean tableExists = jdbcTemplate.queryForObject(checkTableSql, Boolean.class, tableName);
+        Boolean tableExists = tableExists(jdbcTemplate, tableName);
 
         if (Boolean.FALSE.equals(tableExists)) {
             log.info("Creating vector table: {} with dimensions: {}", tableName, dimensions);
@@ -195,6 +212,11 @@ public class MultiVectorStoreService {
                     tableName, dimensions, existingDimensions
             ));
         }
+    }
+
+    private Boolean tableExists(JdbcTemplate jdbcTemplate, String tableName) {
+        String checkTableSql = "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = ?)";
+        return jdbcTemplate.queryForObject(checkTableSql, Boolean.class, tableName);
     }
 
     private Integer getExistingVectorDimensions(JdbcTemplate jdbcTemplate, String tableName) {

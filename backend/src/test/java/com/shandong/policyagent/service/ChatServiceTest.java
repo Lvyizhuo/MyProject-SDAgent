@@ -1,0 +1,124 @@
+package com.shandong.policyagent.service;
+
+import com.shandong.policyagent.agent.AgentExecutionPlan;
+import com.shandong.policyagent.agent.ReActPlanningService;
+import com.shandong.policyagent.agent.ToolIntentClassifier;
+import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.model.ChatRequest;
+import com.shandong.policyagent.model.ChatResponse;
+import com.shandong.policyagent.multimodal.service.VisionService;
+import com.shandong.policyagent.rag.RagFailureDetector;
+import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
+import com.shandong.policyagent.tool.WebSearchTool;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.client.ChatClient;
+
+import java.util.List;
+import java.util.function.Consumer;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class ChatServiceTest {
+
+    @Mock
+    private DynamicChatClientFactory dynamicChatClientFactory;
+
+    @Mock
+    private DynamicAgentConfigHolder dynamicAgentConfigHolder;
+
+    @Mock
+    private VisionService visionService;
+
+    @Mock
+    private ReActPlanningService planningService;
+
+    @Mock
+    private ToolIntentClassifier toolIntentClassifier;
+
+    @Mock
+    private SessionFactCacheService sessionFactCacheService;
+
+    @Mock
+    private ToolFailurePolicyCenter toolFailurePolicyCenter;
+
+    @Mock
+    private ModelProviderService modelProviderService;
+
+    @Mock
+    private WebSearchTool webSearchTool;
+
+    @Mock
+    private RagFailureDetector ragFailureDetector;
+
+    private ChatService chatService;
+
+    @BeforeEach
+    void setUp() {
+        chatService = new ChatService(
+                dynamicChatClientFactory,
+                dynamicAgentConfigHolder,
+                visionService,
+                planningService,
+                toolIntentClassifier,
+                sessionFactCacheService,
+                toolFailurePolicyCenter,
+                modelProviderService,
+                webSearchTool,
+                ragFailureDetector
+        );
+    }
+
+    @Test
+    void shouldRetryWithoutRagWhenEmbeddingModelRunsOutOfMemory() {
+        ChatClient primaryClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        ChatClient degradedClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        RuntimeException ragFailure = new RuntimeException(
+                "500 Internal Server Error: {\"error\":\"model requires more system memory (1.3 GiB) than is available (1.2 GiB)\"}"
+        );
+
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "直接回答用户问题",
+                false,
+                List.of(new AgentExecutionPlan.AgentStep(1, "基于已有信息回答", "rag"))
+        );
+        ToolIntentClassifier.IntentDecision decision =
+                new ToolIntentClassifier.IntentDecision(true, "none", "", "无需工具");
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class)))
+                .thenReturn(new SessionFactCacheService.SessionFacts());
+        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
+        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
+        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
+        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
+        when(dynamicChatClientFactory.create(false, true)).thenReturn(primaryClient);
+        when(dynamicChatClientFactory.create(false, false)).thenReturn(degradedClient);
+        when(primaryClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().content())
+                .thenThrow(ragFailure);
+        when(degradedClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().content())
+                .thenReturn("已自动关闭知识库检索并完成回答。");
+        when(ragFailureDetector.isRecoverable(ragFailure)).thenReturn(true);
+
+        ChatResponse response = chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-1")
+                .message("山东家电以旧换新政策有哪些重点？")
+                .build());
+
+        assertEquals("已自动关闭知识库检索并完成回答。", response.getContent());
+        verify(dynamicChatClientFactory).create(false, true);
+        verify(dynamicChatClientFactory).create(false, false);
+        verify(modelProviderService, never()).executeChatCompletion(any(), anyString(), anyString());
+    }
+}

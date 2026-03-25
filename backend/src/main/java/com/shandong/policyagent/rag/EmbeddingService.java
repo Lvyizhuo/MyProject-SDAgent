@@ -2,6 +2,7 @@ package com.shandong.policyagent.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.config.EmbeddingModelConfig;
+import com.shandong.policyagent.entity.ModelProvider;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,7 @@ import org.springframework.web.client.RestClient;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -73,6 +75,28 @@ public class EmbeddingService {
                 .filter(m -> modelId.equals(m.getId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Embedding model not found: " + modelId));
+    }
+
+    public String findMappedModelId(ModelProvider provider) {
+        if (provider == null) {
+            return null;
+        }
+        return findMappedModelId(provider.getModelName(), provider.getApiUrl());
+    }
+
+    public String findMappedModelId(String modelName, String apiUrl) {
+        String normalizedModelName = normalize(modelName);
+        String normalizedApiUrl = normalizeBaseUrl(apiUrl);
+
+        return getAvailableModels().stream()
+                .filter(model -> matchesConfiguredModel(model, normalizedModelName, normalizedApiUrl))
+                .map(EmbeddingModelConfig.EmbeddingModel::getId)
+                .findFirst()
+                .orElseGet(() -> getAvailableModels().stream()
+                        .filter(model -> normalize(model.getModelName()).equals(normalizedModelName))
+                        .map(EmbeddingModelConfig.EmbeddingModel::getId)
+                        .findFirst()
+                        .orElse(null));
     }
 
     private List<float[]> embedWithOllama(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
@@ -186,6 +210,35 @@ public class EmbeddingService {
                     modelConfig.getId(), expectedDimensions, actualDimensions
             ));
         }
+    }
+
+    private boolean matchesConfiguredModel(EmbeddingModelConfig.EmbeddingModel model,
+                                           String normalizedModelName,
+                                           String normalizedApiUrl) {
+        return normalize(model.getModelName()).equals(normalizedModelName)
+                && normalizeBaseUrl(model.getBaseUrl()).equals(normalizedApiUrl);
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeBaseUrl(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+
+        String normalized = value.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.endsWith("/v1")) {
+            normalized = normalized.substring(0, normalized.length() - 3);
+        }
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     @Data

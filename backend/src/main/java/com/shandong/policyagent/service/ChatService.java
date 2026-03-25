@@ -9,8 +9,9 @@ import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.multimodal.service.VisionService;
-import com.shandong.policyagent.tool.WebSearchTool;
+import com.shandong.policyagent.rag.RagFailureDetector;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
+import com.shandong.policyagent.tool.WebSearchTool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -44,6 +45,7 @@ public class ChatService {
     private final ToolFailurePolicyCenter toolFailurePolicyCenter;
     private final ModelProviderService modelProviderService;
     private final WebSearchTool webSearchTool;
+    private final RagFailureDetector ragFailureDetector;
 
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
@@ -66,9 +68,9 @@ public class ChatService {
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
         String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
-        ChatClient chatClient = dynamicChatClientFactory.create(shouldEnableToolCallbacks(plan, webSearchResponse));
+        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
 
-        String response = executeChatWithFallback(chatClient, executionPrompt, conversationId);
+        String response = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks);
         response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
 
         long duration = System.currentTimeMillis() - startTime;
@@ -103,11 +105,12 @@ public class ChatService {
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
         String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
-        ChatClient chatClient = dynamicChatClientFactory.create(shouldEnableToolCallbacks(plan, webSearchResponse));
+        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
+        ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, true);
 
         if (plan.needToolCall()) {
             log.info("检测到工具调用计划，直接使用非流式执行以规避流式工具调用缺陷 | conversationId={}", conversationId);
-            return fallbackToNonStreaming(chatClient, executionPrompt, conversationId, webSearchResponse);
+            return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks);
         }
 
         return chatClient.prompt()
@@ -121,7 +124,12 @@ public class ChatService {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(chatClient, executionPrompt, conversationId, null);
+                        return fallbackToNonStreaming(executionPrompt, conversationId, null, enableToolCallbacks);
+                    }
+                    if (ragFailureDetector.isRecoverable(e)) {
+                        log.warn("流式 RAG 检索失败，降级为无检索非流式调用 | conversationId={} | error={}",
+                                conversationId, e.getMessage());
+                        return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks);
                     }
                     return Flux.error(e);
                 })
@@ -471,15 +479,15 @@ public class ChatService {
                 || message.contains("Stream processing failed");
     }
 
-    private Flux<String> fallbackToNonStreaming(ChatClient chatClient,
-                                                String userMessage,
+    private Flux<String> fallbackToNonStreaming(String userMessage,
                                                 String conversationId,
-                                                WebSearchTool.SearchResponse webSearchResponse) {
+                                                WebSearchTool.SearchResponse webSearchResponse,
+                                                boolean enableToolCallbacks) {
         try {
             log.info("执行非流式降级调用 | conversationId={}", conversationId);
             long startTime = System.currentTimeMillis();
 
-            String response = executeChatWithFallback(chatClient, userMessage, conversationId);
+            String response = executeChatWithFallback(userMessage, conversationId, enableToolCallbacks);
             response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
 
             long duration = System.currentTimeMillis() - startTime;
@@ -524,29 +532,58 @@ public class ChatService {
         return conversationId;
     }
 
-    private String executeChatWithFallback(ChatClient chatClient, String userMessage, String conversationId) {
+    private String executeChatWithFallback(String userMessage,
+                                           String conversationId,
+                                           boolean enableToolCallbacks) {
         try {
-            return chatClient.prompt()
-                    .system(dynamicAgentConfigHolder.getSystemPrompt())
-                    .user(userMessage)
-                    .advisors(advisorSpec -> advisorSpec
-                            .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
-                    .call()
-                    .content();
+            return executePrompt(dynamicChatClientFactory.create(enableToolCallbacks, true), userMessage, conversationId);
         } catch (Exception exception) {
-            ModelProvider runtimeModel = resolveManagedLlmModel();
-            if (runtimeModel == null || !shouldUseDirectRestFallback(exception, runtimeModel)) {
-                throw exception;
+            if (ragFailureDetector.isRecoverable(exception)) {
+                log.warn("RAG 检索链路异常，关闭知识库增强后重试 | conversationId={} | error={}",
+                        conversationId, exception.getMessage());
+                try {
+                    return executePrompt(dynamicChatClientFactory.create(enableToolCallbacks, false), userMessage, conversationId);
+                } catch (Exception degradedException) {
+                    return fallbackToDirectRestIfNeeded(degradedException, userMessage, conversationId);
+                }
             }
 
-            log.warn("Spring AI 调用模型失败，切换为原生 REST 降级 | conversationId={} | provider={} | model={} | error={}",
-                    conversationId, runtimeModel.getProvider(), runtimeModel.getModelName(), exception.getMessage());
-            return modelProviderService.executeChatCompletion(
-                    runtimeModel,
-                    dynamicAgentConfigHolder.getSystemPrompt(),
-                    userMessage
-            );
+            return fallbackToDirectRestIfNeeded(exception, userMessage, conversationId);
         }
+    }
+
+    private String executePrompt(ChatClient chatClient, String userMessage, String conversationId) {
+        return chatClient.prompt()
+                .system(dynamicAgentConfigHolder.getSystemPrompt())
+                .user(userMessage)
+                .advisors(advisorSpec -> advisorSpec
+                        .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
+                .call()
+                .content();
+    }
+
+    private String fallbackToDirectRestIfNeeded(Exception exception,
+                                                String userMessage,
+                                                String conversationId) {
+        ModelProvider runtimeModel = resolveManagedLlmModel();
+        if (runtimeModel == null || !shouldUseDirectRestFallback(exception, runtimeModel)) {
+            throw asRuntimeException(exception);
+        }
+
+        log.warn("Spring AI 调用模型失败，切换为原生 REST 降级 | conversationId={} | provider={} | model={} | error={}",
+                conversationId, runtimeModel.getProvider(), runtimeModel.getModelName(), exception.getMessage());
+        return modelProviderService.executeChatCompletion(
+                runtimeModel,
+                dynamicAgentConfigHolder.getSystemPrompt(),
+                userMessage
+        );
+    }
+
+    private RuntimeException asRuntimeException(Exception exception) {
+        if (exception instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        return new IllegalStateException(exception.getMessage(), exception);
     }
 
     private String ensureNonBlankResponse(String response,

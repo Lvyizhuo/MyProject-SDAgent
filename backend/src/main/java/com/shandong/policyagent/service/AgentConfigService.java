@@ -9,6 +9,7 @@ import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.model.admin.AgentConfigRequest;
 import com.shandong.policyagent.model.admin.AgentConfigResponse;
+import com.shandong.policyagent.rag.EmbeddingService;
 import com.shandong.policyagent.repository.AgentConfigRepository;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -30,6 +32,7 @@ public class AgentConfigService {
     private final AgentConfigRepository agentConfigRepository;
     private final KnowledgeFolderRepository knowledgeFolderRepository;
     private final ModelProviderService modelProviderService;
+    private final EmbeddingService embeddingService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AgentConfigResponse getCurrentConfig() {
@@ -177,7 +180,18 @@ public class AgentConfigService {
         if (modelId == null) {
             return;
         }
-        modelProviderService.getModelEntityForRuntime(modelId, type);
+        ModelProvider model = modelProviderService.getModelEntityForRuntime(modelId, type);
+        if (type == ModelType.EMBEDDING) {
+            String mappedModelId = embeddingService.findMappedModelId(model);
+            if (mappedModelId == null) {
+                String supportedModels = embeddingService.getAvailableModels().stream()
+                        .map(item -> item.getProvider() + ":" + item.getModelName())
+                        .collect(Collectors.joining("，"));
+                throw new IllegalArgumentException("所选嵌入模型尚未映射到知识库向量配置，请选择已支持的嵌入模型：" + supportedModels);
+            }
+            log.debug("{}模型选择校验通过: modelId={} -> mappedModelId={}", label, modelId, mappedModelId);
+            return;
+        }
         log.debug("{}模型选择校验通过: modelId={}", label, modelId);
     }
 

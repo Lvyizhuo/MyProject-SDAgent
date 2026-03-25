@@ -37,7 +37,7 @@ public class KnowledgeConfig {
 
     @Column(name = "default_embedding_model", length = 200)
     @Builder.Default
-    private String defaultEmbeddingModel = "ollama:qwen3-embedding";
+    private String defaultEmbeddingModel = "ollama:nomic-embed-text";
 
     @Column(name = "minio_endpoint", length = 500)
     private String minioEndpoint;

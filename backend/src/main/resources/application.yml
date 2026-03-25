@@ -133,14 +133,14 @@ app:
       bucket-name: policy-documents
 
     embedding:
-      default-model: ollama:qwen3-embedding
+      default-model: ollama:nomic-embed-text
       models:
-        - id: ollama:qwen3-embedding
+        - id: ollama:nomic-embed-text
           provider: ollama
           base-url: ${APP_EMBEDDING_OLLAMA_BASE_URL:http://localhost:11434}
-          model-name: qwen3-embedding:0.6b
-          dimensions: 1024
-          vector-table: vector_store_ollama_qwen3_1024
+          model-name: nomic-embed-text:latest
+          dimensions: 768
+          vector-table: vector_store_ollama_nomic_768
         - id: dashscope:text-embedding-v3
           provider: dashscope
           base-url: https://dashscope.aliyuncs.com/compatible-mode
@@ -148,6 +148,9 @@ app:
           model-name: text-embedding-v3
           dimensions: 1024
           vector-table: vector_store_dashscope_v3
+    migration:
+      enabled: ${APP_KNOWLEDGE_MIGRATION_ENABLED:false}
+      target-model: ${APP_KNOWLEDGE_MIGRATION_TARGET_MODEL:ollama:nomic-embed-text}
     chunking:
       default-chunk-size: 1600
       min-chunk-size-chars: 350

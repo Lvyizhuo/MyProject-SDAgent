@@ -17,7 +17,6 @@ import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 @Slf4j
@@ -106,7 +105,7 @@ public class RuntimeRagVectorStore implements VectorStore {
             try {
                 ModelProvider provider = modelProviderService.getModelEntity(config.getEmbeddingModelId());
                 if (provider.getType() == ModelType.EMBEDDING && Boolean.TRUE.equals(provider.getIsEnabled())) {
-                    String matchedModelId = matchConfiguredEmbeddingModel(provider);
+                    String matchedModelId = embeddingService.findMappedModelId(provider);
                     if (matchedModelId != null) {
                         return matchedModelId;
                     }
@@ -121,47 +120,5 @@ public class RuntimeRagVectorStore implements VectorStore {
         return Optional.ofNullable(knowledgeService.getConfig().getDefaultEmbeddingModel())
                 .filter(value -> !value.isBlank())
                 .orElseGet(() -> embeddingService.getDefaultModel().getId());
-    }
-
-    private String matchConfiguredEmbeddingModel(ModelProvider provider) {
-        String modelName = normalize(provider.getModelName());
-        String apiUrl = normalizeBaseUrl(provider.getApiUrl());
-
-        return embeddingService.getAvailableModels().stream()
-                .filter(model -> matchesEmbeddingModel(model, modelName, apiUrl))
-                .map(EmbeddingModelConfig.EmbeddingModel::getId)
-                .findFirst()
-                .orElseGet(() -> embeddingService.getAvailableModels().stream()
-                        .filter(model -> normalize(model.getModelName()).equals(modelName))
-                        .map(EmbeddingModelConfig.EmbeddingModel::getId)
-                        .findFirst()
-                        .orElse(null));
-    }
-
-    private boolean matchesEmbeddingModel(EmbeddingModelConfig.EmbeddingModel model, String modelName, String apiUrl) {
-        return normalize(model.getModelName()).equals(modelName)
-                && normalizeBaseUrl(model.getBaseUrl()).equals(apiUrl);
-    }
-
-    private String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private String normalizeBaseUrl(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
-        }
-
-        String normalized = value.trim();
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        if (normalized.endsWith("/v1")) {
-            normalized = normalized.substring(0, normalized.length() - 3);
-        }
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized.toLowerCase(Locale.ROOT);
     }
 }

@@ -409,10 +409,8 @@ public class KnowledgeService {
     }
 
     private void deleteDocument(KnowledgeDocument document) {
-
-        List<String> vectorIds = new ArrayList<>();
-        if (!vectorIds.isEmpty()) {
-            multiVectorStoreService.deleteDocuments(document.getEmbeddingModel(), vectorIds);
+        if (document.getVectorTableName() != null && !document.getVectorTableName().isBlank()) {
+            multiVectorStoreService.deleteDocumentChunks(document.getVectorTableName(), document.getId());
         }
 
         storageService.deleteFile(document.getStoragePath());
@@ -430,10 +428,27 @@ public class KnowledgeService {
 
     @Transactional
     public void reingestDocument(Long id) {
+        reingestDocument(id, null);
+    }
+
+    @Transactional
+    public void reingestDocument(Long id, String targetEmbeddingModelId) {
         KnowledgeDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        String resolvedEmbeddingModelId = targetEmbeddingModelId == null || targetEmbeddingModelId.isBlank()
+                ? document.getEmbeddingModel()
+                : targetEmbeddingModelId.trim();
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(resolvedEmbeddingModelId);
+
+        if (document.getVectorTableName() != null && !document.getVectorTableName().isBlank()) {
+            multiVectorStoreService.deleteDocumentChunks(document.getVectorTableName(), document.getId());
+        }
+
+        document.setEmbeddingModel(resolvedEmbeddingModelId);
+        document.setVectorTableName(modelConfig.getVectorTable());
         document.setStatus(DocumentStatus.PENDING);
         document.setErrorMessage(null);
+        document.setChunkCount(0);
         documentRepository.save(document);
         processDocumentAsync(id);
     }

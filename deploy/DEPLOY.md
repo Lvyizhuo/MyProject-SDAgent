@@ -5,7 +5,7 @@
 - 域名：`mmgg.dpdns.org`
 - 部署方式：Docker Compose + 宝塔 Nginx 反向代理
 - 数据策略：不迁移历史数据（全新部署）
-- Ollama 模型：`qwen3-embedding:0.6b`
+- Ollama 模型：`nomic-embed-text:latest`
 
 ## 1. 先做 DNS 与安全组
 
@@ -65,7 +65,8 @@ docker compose ps
 ```
 
 关键说明：
-- `ollama-init` 会自动执行 `ollama pull qwen3-embedding:0.6b`
+- `ollama-init` 会自动执行 `ollama pull nomic-embed-text:latest`
+- 后端启动后会自动把旧知识库文档迁移到 `ollama:nomic-embed-text` 并重新入库，健康检查会等迁移结束再通过
 - 前端仅监听 `127.0.0.1:5173`
 - 后端仅监听 `127.0.0.1:8080`
 - 若启用了管理员“模型管理”，生产环境应显式配置模型密钥加密主密钥，避免依赖默认回退逻辑
@@ -80,7 +81,7 @@ docker exec -it policy-agent-ollama ollama list
 若未成功：
 
 ```bash
-docker exec -it policy-agent-ollama ollama pull qwen3-embedding:0.6b
+docker exec -it policy-agent-ollama ollama pull nomic-embed-text:latest
 ```
 
 ## 6. 宝塔站点与反向代理
@@ -144,3 +145,4 @@ docker compose down
 注意：
 - `docker compose down -v` 会删除数据库、对象存储、Ollama 模型等卷数据。
 - 默认管理员账号初始化后请立即改密。
+- 若要确认知识库迁移已完成，可执行 `docker compose logs backend | grep "Knowledge embedding migration"` 查看迁移汇总日志。

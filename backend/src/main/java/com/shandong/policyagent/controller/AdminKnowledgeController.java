@@ -265,14 +265,18 @@ public class AdminKnowledgeController {
 
     @GetMapping("/embedding-models")
     public ResponseEntity<Map<String, Object>> getEmbeddingModels() {
-        EmbeddingModelConfig.EmbeddingModel defaultModel = embeddingService.getDefaultModel();
+        String defaultModelId = knowledgeService.getConfig().getDefaultEmbeddingModel();
+        if (defaultModelId == null || defaultModelId.isBlank()) {
+            defaultModelId = embeddingService.getDefaultModel().getId();
+        }
+        final String resolvedDefaultModelId = defaultModelId;
         List<EmbeddingModelResponse> models = embeddingService.getAvailableModels().stream()
                 .map(m -> EmbeddingModelResponse.builder()
                         .id(m.getId())
                         .name(m.getProvider() + " - " + m.getModelName())
                         .provider(m.getProvider())
                         .dimensions(m.getDimensions())
-                        .isDefault(m.getId().equals(defaultModel.getId()))
+                        .isDefault(m.getId().equals(resolvedDefaultModelId))
                         .build())
                 .toList();
 

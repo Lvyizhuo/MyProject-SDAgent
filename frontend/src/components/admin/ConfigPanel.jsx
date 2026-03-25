@@ -19,7 +19,7 @@ const MODEL_TYPE_META = [
     { key: 'LLM', field: 'llmModelId', label: '大语言模型', description: '负责主对话与推理输出。' },
     { key: 'VISION', field: 'visionModelId', label: '视觉模型', description: '用于图片、票据和设备识别。' },
     { key: 'AUDIO', field: 'audioModelId', label: '语音模型', description: '用于语音识别和音频转写。' },
-    { key: 'EMBEDDING', field: 'embeddingModelId', label: '嵌入模型', description: '用于知识库检索与向量召回。' }
+    { key: 'EMBEDDING', field: 'embeddingModelId', label: '嵌入模型', description: '用于知识库检索与向量召回，需与知识库已配置的嵌入模型一致。' }
 ];
 
 const SKILL_META = [

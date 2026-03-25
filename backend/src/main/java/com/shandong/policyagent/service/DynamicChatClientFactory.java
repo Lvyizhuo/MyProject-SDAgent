@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -20,6 +21,7 @@ import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -44,10 +46,14 @@ public class DynamicChatClientFactory {
     private int readTimeoutSeconds;
 
     public ChatClient create() {
-        return create(true);
+        return create(true, true);
     }
 
     public ChatClient create(boolean enableTools) {
+        return create(enableTools, true);
+    }
+
+    public ChatClient create(boolean enableTools, boolean enableRag) {
         ResolvedChatModelConfig runtimeConfig = resolveRuntimeConfig();
 
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -75,14 +81,17 @@ public class DynamicChatClientFactory {
                 .defaultOptions(optionsBuilder.build())
                 .build();
 
+        List<Advisor> advisors = new ArrayList<>();
+        advisors.add(securityAdvisor);
+        advisors.add(messageChatMemoryAdvisor);
+        advisors.add(reReadingAdvisor);
+        if (enableRag) {
+            advisors.add(questionAnswerAdvisor);
+        }
+        advisors.add(loggingAdvisor);
+
         ChatClient.Builder builder = ChatClient.builder(chatModel)
-                .defaultAdvisors(
-                        securityAdvisor,
-                        messageChatMemoryAdvisor,
-                        reReadingAdvisor,
-                        questionAnswerAdvisor,
-                        loggingAdvisor
-            );
+                .defaultAdvisors(advisors.toArray(Advisor[]::new));
 
         if (enableTools) {
             builder.defaultToolCallbacks(toolCallbackProviders.toArray(ToolCallbackProvider[]::new));

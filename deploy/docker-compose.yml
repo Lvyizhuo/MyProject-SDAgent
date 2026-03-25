@@ -65,7 +65,10 @@ services:
       - ollama_data:/root/.ollama
     environment:
       OLLAMA_HOST: 0.0.0.0:11434
-      OLLAMA_KEEP_ALIVE: 24h
+      OLLAMA_KEEP_ALIVE: 10m
+      OLLAMA_MAX_LOADED_MODELS: 1
+      OLLAMA_NUM_PARALLEL: 1
+      OLLAMA_MAX_QUEUE: 64
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 20s
@@ -84,7 +87,7 @@ services:
         condition: service_healthy
     volumes:
       - ollama_data:/root/.ollama
-    command: ["pull", "qwen3-embedding:0.6b"]
+    command: ["pull", "nomic-embed-text:latest"]
 
   backend:
     build:
@@ -110,6 +113,8 @@ services:
       APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       APP_EMBEDDING_OLLAMA_BASE_URL: http://ollama:11434
+      APP_KNOWLEDGE_MIGRATION_ENABLED: "true"
+      APP_KNOWLEDGE_MIGRATION_TARGET_MODEL: ollama:nomic-embed-text
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,7 +129,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s
+      start_period: 180s
 
   frontend:
     build:
@@ -136,7 +141,7 @@ services:
       - "127.0.0.1:5173:80"
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s

@@ -54,6 +54,7 @@ public class ToolFailurePolicyCenter {
             case "webSearch" -> "联网搜索暂时不可用（" + detail + "）。我可以先基于已知政策和历史信息给出参考结论。";
             case "amap-mcp" -> "地图服务暂时不可用（" + detail + "）。请提供更具体的区县/地标，我先给出人工兜底方案。";
             case "calculateSubsidy" -> "补贴计算工具暂时不可用（" + detail + "）。请提供商品类型和价格，我将按规则手动估算。";
+            case "chat" -> "当前回答服务暂时不可用（" + detail + "）。请稍后重试，或把问题简化后再试。";
             default -> "工具调用失败（" + detail + "）。我将切换为保守回答并提示你补充关键信息。";
         };
     }
