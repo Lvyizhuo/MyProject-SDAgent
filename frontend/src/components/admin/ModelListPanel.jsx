@@ -68,7 +68,7 @@ const ModelListPanel = ({
                     <div className="model-card-grid">
                         {models.map((model) => (
                             <article
-                                key={model.id}
+                                key={model.id ?? model.builtinCode}
                                 className={`model-card ${model.isDefault ? 'default' : ''}`}
                             >
                                 <div className="model-card-top">
@@ -76,6 +76,9 @@ const ModelListPanel = ({
                                         <span className="model-name" title={model.name}>{model.name}</span>
                                         {model.isDefault && (
                                             <span className="default-badge">默认模型</span>
+                                        )}
+                                        {model.builtIn && (
+                                            <span className="default-badge">系统内置</span>
                                         )}
                                     </div>
                                 </div>
@@ -97,6 +100,13 @@ const ModelListPanel = ({
                                             {model.isEnabled ? '已启用' : '未启用'}
                                         </span>
                                     </div>
+
+                                    {model.dimensions ? (
+                                        <div className="model-card-field">
+                                            <span className="model-card-label">向量维度</span>
+                                            <span>{model.dimensions}</span>
+                                        </div>
+                                    ) : null}
                                 </div>
 
                                 <div className="action-buttons">
@@ -104,24 +114,25 @@ const ModelListPanel = ({
                                         className="action-btn"
                                         title="测试连接"
                                         onClick={() => onTest(model.id)}
-                                        disabled={testingId === model.id}
+                                        disabled={model.builtIn || testingId === model.id}
                                     >
                                         <Zap size={14} />
-                                        {testingId === model.id ? '测试中' : '测试连接'}
+                                        {model.builtIn ? '系统内置' : testingId === model.id ? '测试中' : '测试连接'}
                                     </button>
                                     <button
                                         className="action-btn"
                                         title={model.isDefault ? '已是默认' : '设为默认'}
                                         onClick={() => onSetDefault(model.id)}
-                                        disabled={model.isDefault}
+                                        disabled={model.builtIn || model.isDefault}
                                     >
                                         <Star size={14} />
-                                        {model.isDefault ? '默认模型' : '设为默认'}
+                                        {model.builtIn ? '内置默认' : model.isDefault ? '默认模型' : '设为默认'}
                                     </button>
                                     <button
                                         className="action-btn"
                                         title="编辑"
                                         onClick={() => onEdit(model)}
+                                        disabled={model.builtIn}
                                     >
                                         <Edit size={14} />
                                         编辑
@@ -130,6 +141,7 @@ const ModelListPanel = ({
                                         className="action-btn delete"
                                         title="删除"
                                         onClick={() => onDelete(model.id)}
+                                        disabled={model.builtIn}
                                     >
                                         <Trash2 size={14} />
                                         删除

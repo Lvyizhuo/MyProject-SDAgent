@@ -454,8 +454,14 @@ public class KnowledgeService {
     }
 
     public KnowledgeConfig getConfig() {
-        return configRepository.findById(1L)
+        KnowledgeConfig config = configRepository.findById(1L)
                 .orElseGet(() -> configRepository.save(KnowledgeConfig.builder().build()));
+        String resolvedDefaultModelId = embeddingService.resolveDefaultModelId(config.getDefaultEmbeddingModel());
+        if (!resolvedDefaultModelId.equals(config.getDefaultEmbeddingModel())) {
+            config.setDefaultEmbeddingModel(resolvedDefaultModelId);
+            config = configRepository.save(config);
+        }
+        return config;
     }
 
     @Transactional

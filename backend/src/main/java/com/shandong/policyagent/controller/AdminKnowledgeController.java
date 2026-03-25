@@ -255,7 +255,9 @@ public class AdminKnowledgeController {
         if (request.getChunkOverlap() != null) config.setChunkOverlap(request.getChunkOverlap());
         if (request.getMinChunkSizeChars() != null) config.setMinChunkSizeChars(request.getMinChunkSizeChars());
         if (request.getNoSplitMaxChars() != null) config.setNoSplitMaxChars(request.getNoSplitMaxChars());
-        if (request.getDefaultEmbeddingModel() != null) config.setDefaultEmbeddingModel(request.getDefaultEmbeddingModel());
+        if (request.getDefaultEmbeddingModel() != null) {
+            config.setDefaultEmbeddingModel(embeddingService.validateOrDefaultModelId(request.getDefaultEmbeddingModel()));
+        }
         if (request.getMinioEndpoint() != null) config.setMinioEndpoint(request.getMinioEndpoint());
         if (request.getMinioAccessKey() != null) config.setMinioAccessKey(request.getMinioAccessKey());
         if (request.getMinioSecretKey() != null) config.setMinioSecretKey(request.getMinioSecretKey());
@@ -265,10 +267,7 @@ public class AdminKnowledgeController {
 
     @GetMapping("/embedding-models")
     public ResponseEntity<Map<String, Object>> getEmbeddingModels() {
-        String defaultModelId = knowledgeService.getConfig().getDefaultEmbeddingModel();
-        if (defaultModelId == null || defaultModelId.isBlank()) {
-            defaultModelId = embeddingService.getDefaultModel().getId();
-        }
+        String defaultModelId = embeddingService.resolveDefaultModelId(knowledgeService.getConfig().getDefaultEmbeddingModel());
         final String resolvedDefaultModelId = defaultModelId;
         List<EmbeddingModelResponse> models = embeddingService.getAvailableModels().stream()
                 .map(m -> EmbeddingModelResponse.builder()

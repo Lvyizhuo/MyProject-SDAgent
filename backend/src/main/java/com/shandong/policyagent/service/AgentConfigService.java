@@ -32,11 +32,12 @@ public class AgentConfigService {
     private final AgentConfigRepository agentConfigRepository;
     private final KnowledgeFolderRepository knowledgeFolderRepository;
     private final ModelProviderService modelProviderService;
+    private final AgentConfigBindingSanitizer agentConfigBindingSanitizer;
     private final EmbeddingService embeddingService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AgentConfigResponse getCurrentConfig() {
-        AgentConfig config = getCurrentEntity();
+        AgentConfig config = agentConfigBindingSanitizer.sanitizeAndPersistIfNeeded(getCurrentEntity());
         return toResponse(config, true);
     }
 

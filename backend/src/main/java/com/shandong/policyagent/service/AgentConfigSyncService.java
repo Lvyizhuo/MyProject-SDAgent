@@ -20,6 +20,7 @@ public class AgentConfigSyncService {
 
     private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
     private final AgentConfigRepository agentConfigRepository;
+    private final AgentConfigBindingSanitizer agentConfigBindingSanitizer;
 
     /**
      * 将指定的 AgentConfig 同步到运行时。
@@ -29,10 +30,11 @@ public class AgentConfigSyncService {
      */
     public void syncConfigToRuntime(AgentConfig config) {
         try {
-            dynamicAgentConfigHolder.update(config);
+            AgentConfig sanitizedConfig = agentConfigBindingSanitizer.sanitizeAndPersistIfNeeded(config);
+            dynamicAgentConfigHolder.update(sanitizedConfig);
             log.info("配置同步完成 | modelName={} | systemPromptLen={}",
-                    config.getModelName(),
-                    config.getSystemPrompt() != null ? config.getSystemPrompt().length() : 0);
+                    sanitizedConfig.getModelName(),
+                    sanitizedConfig.getSystemPrompt() != null ? sanitizedConfig.getSystemPrompt().length() : 0);
         } catch (Exception e) {
             log.error("配置同步到运行时失败，将从数据库重新加载: {}", e.getMessage(), e);
             // 兜底：从数据库重新加载最新记录
@@ -46,8 +48,9 @@ public class AgentConfigSyncService {
     public void reloadFromDatabase() {
         agentConfigRepository.findFirstByOrderByIdAsc().ifPresentOrElse(
                 config -> {
-                    dynamicAgentConfigHolder.update(config);
-                    log.info("从数据库重新加载配置成功 | modelName={}", config.getModelName());
+                    AgentConfig sanitizedConfig = agentConfigBindingSanitizer.sanitizeAndPersistIfNeeded(config);
+                    dynamicAgentConfigHolder.update(sanitizedConfig);
+                    log.info("从数据库重新加载配置成功 | modelName={}", sanitizedConfig.getModelName());
                 },
                 () -> log.warn("数据库中不存在 agent_config 记录，运行时配置未更新")
         );

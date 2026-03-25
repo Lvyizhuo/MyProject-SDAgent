@@ -27,6 +27,10 @@ public class ModelProviderResponse {
 
     private String modelName;
 
+    private String builtinCode;
+
+    private Integer dimensions;
+
     private BigDecimal temperature;
 
     private Integer maxTokens;
@@ -36,6 +40,8 @@ public class ModelProviderResponse {
     private Boolean isDefault;
 
     private Boolean isEnabled;
+
+    private Boolean builtIn;
 
     private LocalDateTime createdAt;
 
@@ -55,11 +61,14 @@ public class ModelProviderResponse {
                 .provider(entity.getProvider())
                 .apiUrl(entity.getApiUrl())
                 .modelName(entity.getModelName())
+                .builtinCode(null)
+                .dimensions(null)
                 .temperature(entity.getTemperature())
                 .maxTokens(entity.getMaxTokens())
                 .topP(entity.getTopP())
                 .isDefault(entity.getIsDefault())
                 .isEnabled(entity.getIsEnabled())
+                .builtIn(false)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

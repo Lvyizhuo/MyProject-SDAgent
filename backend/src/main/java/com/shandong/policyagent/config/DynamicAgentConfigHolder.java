@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.repository.AgentConfigRepository;
+import com.shandong.policyagent.service.AgentConfigBindingSanitizer;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class DynamicAgentConfigHolder {
 
     private final AgentConfigRepository agentConfigRepository;
+    private final AgentConfigBindingSanitizer agentConfigBindingSanitizer;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final AtomicReference<AgentConfig> currentConfig = new AtomicReference<>();
@@ -35,10 +37,11 @@ public class DynamicAgentConfigHolder {
     public void init() {
         agentConfigRepository.findFirstByOrderByIdAsc().ifPresentOrElse(
                 config -> {
-                    currentConfig.set(config);
+                    AgentConfig sanitizedConfig = agentConfigBindingSanitizer.sanitizeAndPersistIfNeeded(config);
+                    currentConfig.set(sanitizedConfig);
                     log.info("DynamicAgentConfigHolder 初始化成功 | modelName={} | systemPromptLen={}",
-                            config.getModelName(),
-                            config.getSystemPrompt() != null ? config.getSystemPrompt().length() : 0);
+                            sanitizedConfig.getModelName(),
+                            sanitizedConfig.getSystemPrompt() != null ? sanitizedConfig.getSystemPrompt().length() : 0);
                 },
                 () -> log.warn("DynamicAgentConfigHolder 初始化：数据库中尚无 agent_config 记录，等待 AdminInitializer 创建")
         );

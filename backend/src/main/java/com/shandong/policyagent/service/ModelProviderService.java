@@ -1,9 +1,11 @@
 package com.shandong.policyagent.service;
 
+import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.model.ModelProviderRequest;
 import com.shandong.policyagent.model.ModelProviderResponse;
+import com.shandong.policyagent.rag.EmbeddingService;
 import com.shandong.policyagent.repository.ModelProviderRepository;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -35,6 +37,7 @@ public class ModelProviderService {
     private final ModelProviderRepository modelProviderRepository;
     private final ApiKeyCipherService apiKeyCipherService;
     private final RestClient.Builder restClientBuilder;
+    private final EmbeddingService embeddingService;
 
     @Value("${app.model-provider.direct.connect-timeout-seconds:10}")
     private int directConnectTimeoutSeconds;
@@ -47,11 +50,19 @@ public class ModelProviderService {
                 ? modelProviderRepository.findByType(type)
                 : modelProviderRepository.findAll();
 
-        return models.stream()
+        List<ModelProviderResponse> managedModels = models.stream()
                 .sorted(Comparator.comparing(ModelProvider::getIsDefault, Comparator.nullsLast(Boolean::compareTo)).reversed()
                         .thenComparing(ModelProvider::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(ModelProviderResponse::fromEntity)
                 .toList();
+
+        if (type != null && type != ModelType.EMBEDDING) {
+            return managedModels;
+        }
+
+        List<ModelProviderResponse> result = new java.util.ArrayList<>(managedModels);
+        result.addAll(getBuiltInEmbeddingModels());
+        return result;
     }
 
     public ModelProviderResponse getModelById(Long id) {
@@ -193,11 +204,63 @@ public class ModelProviderService {
                             .id(model.getId())
                             .name(model.getName())
                             .isDefault(model.getIsDefault())
+                            .builtIn(false)
+                            .builtinCode(null)
                             .build())
                     .toList();
+            if (type == ModelType.EMBEDDING) {
+                options = mergeBuiltInEmbeddingOption(options);
+            }
             result.put(type.name(), options);
         }
         return result;
+    }
+
+    private List<ModelOption> mergeBuiltInEmbeddingOption(List<ModelOption> managedOptions) {
+        String builtInDefaultModelId = embeddingService.resolveDefaultModelId(null);
+        EmbeddingModelConfig.EmbeddingModel builtInDefaultModel = embeddingService.getModelConfig(builtInDefaultModelId);
+
+        ModelOption builtInOption = ModelOption.builder()
+                .id(null)
+                .name("系统内置默认 · " + builtInDefaultModel.getProvider() + " - " + builtInDefaultModel.getModelName())
+                .isDefault(true)
+                .builtIn(true)
+                .builtinCode(builtInDefaultModelId)
+                .build();
+
+        List<ModelOption> result = new java.util.ArrayList<>();
+        result.add(builtInOption);
+        result.addAll(managedOptions);
+        return result;
+    }
+
+    private List<ModelProviderResponse> getBuiltInEmbeddingModels() {
+        String builtInDefaultModelId = embeddingService.resolveDefaultModelId(null);
+        return embeddingService.getAvailableModels().stream()
+                .map(model -> toBuiltInEmbeddingModel(model, builtInDefaultModelId))
+                .toList();
+    }
+
+    private ModelProviderResponse toBuiltInEmbeddingModel(EmbeddingModelConfig.EmbeddingModel model,
+                                                          String builtInDefaultModelId) {
+        return ModelProviderResponse.builder()
+                .id(null)
+                .name("系统内置 · " + model.getModelName())
+                .type(ModelType.EMBEDDING)
+                .provider(model.getProvider())
+                .apiUrl(model.getBaseUrl())
+                .modelName(model.getModelName())
+                .builtinCode(model.getId())
+                .dimensions(model.getDimensions())
+                .temperature(null)
+                .maxTokens(null)
+                .topP(null)
+                .isDefault(model.getId().equals(builtInDefaultModelId))
+                .isEnabled(true)
+                .builtIn(true)
+                .createdAt(null)
+                .updatedAt(null)
+                .build();
     }
 
     @Transactional
@@ -448,5 +511,7 @@ public class ModelProviderService {
         private Long id;
         private String name;
         private Boolean isDefault;
+        private Boolean builtIn;
+        private String builtinCode;
     }
 }

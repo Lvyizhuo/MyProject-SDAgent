@@ -43,6 +43,35 @@ const SKILL_META = [
     }
 ];
 
+const sanitizeSelectionState = (sourceData, options, folders) => {
+    const next = JSON.parse(JSON.stringify(sourceData || {}));
+    let changed = false;
+
+    MODEL_TYPE_META.forEach(({ key, field }) => {
+        if (next[field] == null) {
+            return;
+        }
+
+        const validIds = (options[key] || [])
+            .map((model) => model.id)
+            .filter((id) => id != null);
+
+        if (!validIds.includes(next[field])) {
+            next[field] = null;
+            changed = true;
+        }
+    });
+
+    if (next.knowledgeBaseFolderId != null && !folders.some((folder) => folder.id === next.knowledgeBaseFolderId)) {
+        next.knowledgeBaseFolderId = null;
+        next.knowledgeBaseFolderName = null;
+        next.knowledgeBaseFolderPath = null;
+        changed = true;
+    }
+
+    return { data: next, changed };
+};
+
 const formatDateTime = (value) => {
     if (!value) {
         return '尚未保存';
@@ -147,31 +176,41 @@ const ConfigPanel = ({ config, onSave, onReset }) => {
     const handleSaveClick = async () => {
         setSaving(true);
 
-        if (!formData.systemPrompt?.trim()) {
+        const { data: sanitizedFormData, changed: sanitized } = sanitizeSelectionState(formData, modelOptions, knowledgeFolders);
+        if (sanitized) {
+            setFormData(sanitizedFormData);
+            notify({
+                text: '检测到失效的模型或知识库绑定，已自动回退为系统默认/未指定后继续保存',
+                type: 'info',
+                source: '管理员-智能体配置'
+            });
+        }
+
+        if (!sanitizedFormData.systemPrompt?.trim()) {
             notify({ text: '系统提示词不能为空', type: 'warning', source: '管理员-智能体配置' });
             setSaving(false);
             return;
         }
 
-        if (formData.llmModelId == null) {
-            if (!formData.modelName?.trim()) {
+        if (sanitizedFormData.llmModelId == null) {
+            if (!sanitizedFormData.modelName?.trim()) {
                 notify({ text: '未选择已配置模型时，模型名称不能为空', type: 'warning', source: '管理员-智能体配置' });
                 setSaving(false);
                 return;
             }
-            if (!formData.apiUrl?.trim()) {
+            if (!sanitizedFormData.apiUrl?.trim()) {
                 notify({ text: '未选择已配置模型时，API 地址不能为空', type: 'warning', source: '管理员-智能体配置' });
                 setSaving(false);
                 return;
             }
-            if (formData.temperature < 0 || formData.temperature > 1) {
+            if (sanitizedFormData.temperature < 0 || sanitizedFormData.temperature > 1) {
                 notify({ text: '温度必须在 0 到 1 之间', type: 'warning', source: '管理员-智能体配置' });
                 setSaving(false);
                 return;
             }
         }
 
-        const result = await onSave(formData);
+        const result = await onSave(sanitizedFormData);
         if (result.success) {
             notify({ text: '配置已成功保存并生效', type: 'success', source: '管理员-智能体配置' });
             setIsDirty(false);
@@ -214,9 +253,24 @@ const ConfigPanel = ({ config, onSave, onReset }) => {
                 onChange={(e) => handleModelSelectChange(field, e.target.value)}
                 className="model-select"
             >
-                <option value="">{key === 'LLM' ? '系统默认（手动配置）' : '未指定，后续接入时再配置'}</option>
-                {modelOptions[key]?.map((model) => (
-                    <option key={model.id} value={model.id}>
+                {key === 'LLM' ? (
+                    <option value="">系统默认（手动配置）</option>
+                ) : key === 'EMBEDDING' ? (
+                    <>
+                        <option value="">
+                            {modelOptions[key]?.find((model) => model.builtIn)?.name || '系统内置默认 · ollama - nomic-embed-text:latest'}
+                        </option>
+                        {modelOptions[key]?.filter((model) => !model.builtIn).map((model) => (
+                            <option key={model.id} value={model.id}>
+                                {model.name}{model.isDefault ? '（默认）' : ''}
+                            </option>
+                        ))}
+                    </>
+                ) : (
+                    <option value="">未指定，后续接入时再配置</option>
+                )}
+                {key !== 'EMBEDDING' && modelOptions[key]?.map((model) => (
+                    <option key={model.id ?? model.builtinCode ?? model.name} value={model.id ?? ''}>
                         {model.name}{model.isDefault ? '（默认）' : ''}
                     </option>
                 ))}

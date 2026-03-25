@@ -1,6 +1,5 @@
 package com.shandong.policyagent.rag;
 
-import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.config.MinioConfig;
 import com.shandong.policyagent.entity.KnowledgeConfig;
 import com.shandong.policyagent.repository.KnowledgeConfigRepository;
@@ -29,7 +28,7 @@ class KnowledgeConfigInitializerTest {
     private MinioConfig minioConfig;
 
     @Mock
-    private EmbeddingModelConfig embeddingModelConfig;
+    private EmbeddingService embeddingService;
 
     @Test
     void shouldMigrateLegacyDefaultEmbeddingModelToConfiguredTarget() throws Exception {
@@ -38,13 +37,13 @@ class KnowledgeConfigInitializerTest {
                 .build();
 
         when(configRepository.findById(1L)).thenReturn(Optional.of(existingConfig));
-        when(embeddingModelConfig.getDefaultModel()).thenReturn("ollama:nomic-embed-text");
+        when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:nomic-embed-text");
 
         KnowledgeConfigInitializer initializer = new KnowledgeConfigInitializer(
                 configRepository,
                 storageService,
                 minioConfig,
-                embeddingModelConfig
+                embeddingService
         );
 
         initializer.run();
@@ -62,13 +61,13 @@ class KnowledgeConfigInitializerTest {
                 .build();
 
         when(configRepository.findById(1L)).thenReturn(Optional.of(existingConfig));
-        when(embeddingModelConfig.getDefaultModel()).thenReturn("ollama:nomic-embed-text");
+        when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:nomic-embed-text");
 
         KnowledgeConfigInitializer initializer = new KnowledgeConfigInitializer(
                 configRepository,
                 storageService,
                 minioConfig,
-                embeddingModelConfig
+                embeddingService
         );
 
         initializer.run();

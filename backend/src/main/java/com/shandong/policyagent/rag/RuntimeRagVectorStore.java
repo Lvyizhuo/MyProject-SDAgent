@@ -1,7 +1,6 @@
 package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
-import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.KnowledgeFolder;
 import com.shandong.policyagent.entity.ModelProvider;
@@ -117,8 +116,6 @@ public class RuntimeRagVectorStore implements VectorStore {
             }
         }
 
-        return Optional.ofNullable(knowledgeService.getConfig().getDefaultEmbeddingModel())
-                .filter(value -> !value.isBlank())
-                .orElseGet(() -> embeddingService.getDefaultModel().getId());
+        return embeddingService.resolveDefaultModelId(knowledgeService.getConfig().getDefaultEmbeddingModel());
     }
 }

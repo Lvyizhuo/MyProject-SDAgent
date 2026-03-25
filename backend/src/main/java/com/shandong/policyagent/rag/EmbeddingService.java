@@ -22,6 +22,7 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class EmbeddingService {
+    public static final String BUILT_IN_DEFAULT_MODEL_ID = "ollama:nomic-embed-text";
 
     private final EmbeddingModelConfig embeddingModelConfig;
     private final ObjectMapper objectMapper;
@@ -64,7 +65,7 @@ public class EmbeddingService {
     }
 
     public EmbeddingModelConfig.EmbeddingModel getDefaultModel() {
-        return getModelConfig(embeddingModelConfig.getDefaultModel());
+        return getModelConfig(resolveDefaultModelId(null));
     }
 
     public EmbeddingModelConfig.EmbeddingModel getModelConfig(String modelId) {
@@ -75,6 +76,47 @@ public class EmbeddingService {
                 .filter(m -> modelId.equals(m.getId()))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Embedding model not found: " + modelId));
+    }
+
+    public boolean hasModel(String modelId) {
+        String normalizedModelId = normalizeModelId(modelId);
+        if (normalizedModelId.isEmpty()) {
+            return false;
+        }
+        return getAvailableModels().stream()
+                .anyMatch(model -> normalizedModelId.equals(model.getId()));
+    }
+
+    public String resolveDefaultModelId(String preferredModelId) {
+        String normalizedPreferredModelId = normalizeModelId(preferredModelId);
+        if (!normalizedPreferredModelId.isEmpty() && hasModel(normalizedPreferredModelId)) {
+            return normalizedPreferredModelId;
+        }
+
+        String configuredDefaultModelId = normalizeModelId(embeddingModelConfig.getDefaultModel());
+        if (!configuredDefaultModelId.isEmpty() && hasModel(configuredDefaultModelId)) {
+            return configuredDefaultModelId;
+        }
+
+        if (hasModel(BUILT_IN_DEFAULT_MODEL_ID)) {
+            return BUILT_IN_DEFAULT_MODEL_ID;
+        }
+
+        return getAvailableModels().stream()
+                .findFirst()
+                .map(EmbeddingModelConfig.EmbeddingModel::getId)
+                .orElseThrow(() -> new IllegalStateException("No embedding models are configured"));
+    }
+
+    public String validateOrDefaultModelId(String requestedModelId) {
+        String normalizedModelId = normalizeModelId(requestedModelId);
+        if (normalizedModelId.isEmpty()) {
+            return resolveDefaultModelId(null);
+        }
+        if (hasModel(normalizedModelId)) {
+            return normalizedModelId;
+        }
+        throw new IllegalArgumentException("Embedding model not found: " + normalizedModelId);
     }
 
     public String findMappedModelId(ModelProvider provider) {
@@ -221,6 +263,10 @@ public class EmbeddingService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeModelId(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private String normalizeBaseUrl(String value) {

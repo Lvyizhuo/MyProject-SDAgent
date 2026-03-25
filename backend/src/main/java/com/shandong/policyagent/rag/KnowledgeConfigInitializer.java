@@ -1,6 +1,5 @@
 package com.shandong.policyagent.rag;
 
-import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.config.MinioConfig;
 import com.shandong.policyagent.entity.KnowledgeConfig;
 import com.shandong.policyagent.repository.KnowledgeConfigRepository;
@@ -25,7 +24,7 @@ public class KnowledgeConfigInitializer implements CommandLineRunner {
     private final KnowledgeConfigRepository configRepository;
     private final StorageService storageService;
     private final MinioConfig minioConfig;
-    private final EmbeddingModelConfig embeddingModelConfig;
+    private final EmbeddingService embeddingService;
 
     @Override
     public void run(String... args) {
@@ -61,11 +60,7 @@ public class KnowledgeConfigInitializer implements CommandLineRunner {
     }
 
     private String resolveConfiguredDefaultModel() {
-        String defaultModel = embeddingModelConfig.getDefaultModel();
-        if (defaultModel == null || defaultModel.isBlank()) {
-            return "ollama:nomic-embed-text";
-        }
-        return defaultModel.trim();
+        return embeddingService.resolveDefaultModelId(null);
     }
 
     private boolean shouldMigrateDefaultModel(String currentDefaultModel, String configuredDefaultModel) {
