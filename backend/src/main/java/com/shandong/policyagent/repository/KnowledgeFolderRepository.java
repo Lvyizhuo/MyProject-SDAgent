@@ -13,6 +13,8 @@ public interface KnowledgeFolderRepository extends JpaRepository<KnowledgeFolder
 
     List<KnowledgeFolder> findByParentIsNullOrderBySortOrderAsc();
 
+    boolean existsByParentId(Long parentId);
+
     Optional<KnowledgeFolder> findByPath(String path);
 
     @Query("SELECT f FROM KnowledgeFolder f LEFT JOIN FETCH f.children WHERE f.parent IS NULL ORDER BY f.sortOrder ASC")

@@ -9,16 +9,20 @@ import com.shandong.policyagent.repository.KnowledgeConfigRepository;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
 import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
+import com.shandong.policyagent.repository.UrlImportJobRepository;
 import com.shandong.policyagent.repository.UrlImportItemRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -32,6 +36,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,7 +50,10 @@ public class KnowledgeService {
     private final KnowledgeDocumentRepository documentRepository;
     private final KnowledgeConfigRepository configRepository;
     private final KnowledgeDocumentSourceRepository knowledgeDocumentSourceRepository;
+    private final UrlImportJobRepository urlImportJobRepository;
     private final UrlImportItemRepository urlImportItemRepository;
+    @Qualifier("knowledgeIngestTaskExecutor")
+    private final Executor knowledgeIngestTaskExecutor;
 
     private final StorageService storageService;
     private final DocumentLoaderService documentLoaderService;
@@ -103,7 +112,19 @@ public class KnowledgeService {
 
     @Transactional
     public void deleteFolder(Long id) {
-        folderRepository.deleteById(id);
+        KnowledgeFolder folder = folderRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Folder not found"));
+        if (folderRepository.existsByParentId(id)) {
+            throw new IllegalArgumentException("文件夹下仍有子文件夹，请先删除或移动后再删除");
+        }
+        if (documentRepository.existsByFolderId(id)) {
+            throw new IllegalArgumentException("文件夹下仍有文档，请先删除或移动后再删除");
+        }
+        if (urlImportJobRepository.existsByTargetFolderIdAndDeletedAtIsNull(id)) {
+            throw new IllegalArgumentException("文件夹仍被网站导入任务引用，请先删除或调整相关任务后再删除");
+        }
+        urlImportJobRepository.clearTargetFolderReferences(id);
+        folderRepository.delete(folder);
     }
 
     public KnowledgeDocument uploadDocument(
@@ -150,7 +171,7 @@ public class KnowledgeService {
 
         document = documentRepository.save(document);
 
-        processDocumentAsync(document.getId());
+        scheduleDocumentProcessing(document.getId());
 
         return document;
     }
@@ -203,7 +224,7 @@ public class KnowledgeService {
                 .build();
 
         document = documentRepository.save(document);
-        processDocumentAsync(document.getId());
+        scheduleDocumentProcessing(document.getId());
         return document;
     }
 
@@ -258,7 +279,7 @@ public class KnowledgeService {
                 .build();
 
         document = documentRepository.save(document);
-        processDocumentAsync(document.getId());
+        scheduleDocumentProcessing(document.getId());
         return document;
     }
 
@@ -301,6 +322,7 @@ public class KnowledgeService {
     public void processDocumentAsync(Long documentId) {
         KnowledgeDocument document = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        String folderPath = resolveFolderPath(document);
 
         try {
             document.setStatus(DocumentStatus.PROCESSING);
@@ -329,10 +351,10 @@ public class KnowledgeService {
                 metadata.put("documentName", document.getFileName());
                 metadata.put("source", document.getSource() == null ? "" : document.getSource());
                 metadata.put("chunkIndex", i + 1);
-                if (document.getFolder() != null) {
-                    metadata.put("folderPath", document.getFolder().getPath());
+                if (folderPath != null) {
+                    metadata.put("folderPath", folderPath);
                 }
-                splitDocs.set(i, new Document(doc.getId(), doc.getText(), metadata));
+                splitDocs.set(i, new Document(UUID.randomUUID().toString(), doc.getText(), metadata));
             }
 
             if (splitDocs.isEmpty()) {
@@ -353,6 +375,15 @@ public class KnowledgeService {
             document.setErrorMessage(e.getMessage());
             documentRepository.saveAndFlush(document);
         }
+    }
+
+    private String resolveFolderPath(KnowledgeDocument document) {
+        if (document.getFolder() == null || document.getFolder().getId() == null) {
+            return null;
+        }
+        return folderRepository.findById(document.getFolder().getId())
+                .map(KnowledgeFolder::getPath)
+                .orElse(null);
     }
 
     public Page<KnowledgeDocument> listDocuments(Long folderId, Long importJobId, String category, String tag, DocumentStatus status, String keyword, Pageable pageable) {
@@ -426,6 +457,7 @@ public class KnowledgeService {
         KnowledgeDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
 
+        clearDocumentReferences(List.of(id));
         deleteDocument(document);
     }
 
@@ -508,7 +540,29 @@ public class KnowledgeService {
         document.setErrorMessage(null);
         document.setChunkCount(0);
         documentRepository.save(document);
-        processDocumentAsync(id);
+        scheduleDocumentProcessing(id);
+    }
+
+    private void scheduleDocumentProcessing(Long documentId) {
+        Runnable task = () -> {
+            try {
+                processDocumentAsync(documentId);
+            } catch (Exception exception) {
+                log.error("异步处理知识库文档失败: documentId={}", documentId, exception);
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    knowledgeIngestTaskExecutor.execute(task);
+                }
+            });
+            return;
+        }
+
+        knowledgeIngestTaskExecutor.execute(task);
     }
 
     public KnowledgeConfig getConfig() {

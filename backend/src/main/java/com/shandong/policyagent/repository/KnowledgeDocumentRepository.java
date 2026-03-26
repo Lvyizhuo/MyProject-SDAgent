@@ -53,6 +53,8 @@ public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocu
 
     Page<KnowledgeDocument> findByFolderId(Long folderId, Pageable pageable);
 
+    boolean existsByFolderId(Long folderId);
+
         @Query("""
                         SELECT d FROM KnowledgeDocument d
                         WHERE EXISTS (

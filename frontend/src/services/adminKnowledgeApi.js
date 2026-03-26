@@ -119,6 +119,7 @@ const adminKnowledgeApi = {
     async uploadDocument(formData, onProgress) {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
+            const uploadTimeoutMs = 10 * 60 * 1000;
 
             xhr.upload.addEventListener('progress', (e) => {
                 if (e.lengthComputable && onProgress) {
@@ -150,11 +151,11 @@ const adminKnowledgeApi = {
             });
 
             xhr.addEventListener('timeout', () => {
-                reject(new Error('上传超时，请重试'));
+                reject(new Error('上传等待超时。文档可能仍在后台处理中，请稍后刷新列表查看状态。'));
             });
 
             xhr.open('POST', `${ADMIN_KNOWLEDGE_BASE}/documents`);
-            xhr.timeout = 60000;
+            xhr.timeout = uploadTimeoutMs;
             const token = localStorage.getItem('token');
             if (token) {
                 xhr.setRequestHeader('Authorization', `Bearer ${token}`);

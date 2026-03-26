@@ -219,6 +219,19 @@ const KnowledgeBaseTab = () => {
         return () => window.clearInterval(timer);
     }, [loadUrlImports]);
 
+    useEffect(() => {
+        const hasProcessingDocuments = documents.some(doc => doc.status === 'PENDING' || doc.status === 'PROCESSING');
+        if (!hasProcessingDocuments && pendingDocuments.length === 0) {
+            return undefined;
+        }
+
+        const timer = window.setInterval(() => {
+            loadDocuments(selectedFolderId, pagination.page, searchQuery);
+        }, 5000);
+
+        return () => window.clearInterval(timer);
+    }, [documents, loadDocuments, pagination.page, pendingDocuments.length, searchQuery, selectedFolderId]);
+
     const toggleFolder = (folderId) => {
         setExpandedFolders(prev => {
             const next = new Set(prev);
@@ -1227,11 +1240,15 @@ const KnowledgeBaseTab = () => {
                         setShowUploadDialog(false);
                         setUploadProgress(0);
                         try {
-                            await adminKnowledgeApi.uploadDocument(formData, (progress) => {
+                            const uploadedDocument = await adminKnowledgeApi.uploadDocument(formData, (progress) => {
                                 setUploadProgress(progress);
                             });
                             setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
-                            notify({ text: '上传成功', type: 'success', source: '管理员-知识库' });
+                            notify({
+                                text: `上传成功，已转入后台处理：${uploadedDocument?.title || title || fileName}`,
+                                type: 'success',
+                                source: '管理员-知识库'
+                            });
                             setUploadProgress(0);
                             await loadDocuments(selectedFolderId, 0, searchQuery);
                         } catch (error) {
