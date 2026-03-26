@@ -207,6 +207,61 @@ public class KnowledgeService {
         return document;
     }
 
+    public KnowledgeDocument importArchivedDocument(
+            byte[] fileBytes,
+            Long folderId,
+            String title,
+            String fileName,
+            String fileType,
+            String embeddingModelId,
+            String category,
+            List<String> tags,
+            LocalDate publishDate,
+            String source,
+            LocalDate validFrom,
+            LocalDate validTo,
+            String summary,
+            User createdBy) {
+
+        if (fileBytes == null || fileBytes.length == 0) {
+            throw new IllegalArgumentException("导入文件内容不能为空");
+        }
+
+        KnowledgeFolder folder = folderId != null ? folderRepository.findById(folderId).orElse(null) : null;
+        String folderPath = folder != null ? folder.getPath() : "/";
+        String safeFileName = fileName == null || fileName.isBlank() ? "imported-document.bin" : fileName.trim();
+        String safeTitle = title == null || title.isBlank() ? safeFileName : title.trim();
+        String safeFileType = fileType == null || fileType.isBlank() ? "application/octet-stream" : fileType;
+
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
+        String storagePath = storageService.storeBytes(fileBytes, folderPath, safeFileName, safeFileType);
+
+        KnowledgeDocument document = KnowledgeDocument.builder()
+                .folder(folder)
+                .title(safeTitle)
+                .fileName(safeFileName)
+                .fileSize((long) fileBytes.length)
+                .fileType(safeFileType)
+                .storagePath(storagePath)
+                .storageBucket(minioConfig.getBucketName())
+                .embeddingModel(embeddingModelId)
+                .vectorTableName(modelConfig.getVectorTable())
+                .category(category)
+                .tags(tags)
+                .publishDate(publishDate)
+                .source(source)
+                .validFrom(validFrom)
+                .validTo(validTo)
+                .summary(summary)
+                .status(DocumentStatus.PENDING)
+                .createdBy(createdBy)
+                .build();
+
+        document = documentRepository.save(document);
+        processDocumentAsync(document.getId());
+        return document;
+    }
+
     public DocumentMetadataExtractResponse extractDocumentMetadata(MultipartFile file) {
         String originalName = file.getOriginalFilename() == null ? "未命名文档" : file.getOriginalFilename();
         String normalizedTitle = removeExtension(originalName).trim();
@@ -270,6 +325,9 @@ public class KnowledgeService {
                         : new HashMap<>(doc.getMetadata());
                 metadata.put("knowledgeDocumentId", documentId);
                 metadata.put("sourceTitle", document.getTitle());
+                metadata.put("title", document.getTitle());
+                metadata.put("documentName", document.getFileName());
+                metadata.put("source", document.getSource() == null ? "" : document.getSource());
                 metadata.put("chunkIndex", i + 1);
                 if (document.getFolder() != null) {
                     metadata.put("folderPath", document.getFolder().getPath());

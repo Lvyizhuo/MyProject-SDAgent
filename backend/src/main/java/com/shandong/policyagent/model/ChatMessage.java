@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
 
 @Data
 @Builder
@@ -15,5 +16,6 @@ public class ChatMessage implements Serializable {
     private String id;
     private String role;
     private String content;
+    private List<ChatResponse.Reference> references;
     private Long timestamp;
 }

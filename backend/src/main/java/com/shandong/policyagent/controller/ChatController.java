@@ -1,9 +1,12 @@
 package com.shandong.policyagent.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.entity.User;
 import com.shandong.policyagent.model.ChatMessage;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
+import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.service.ChatService;
 import com.shandong.policyagent.service.ConversationService;
 import jakarta.validation.Valid;
@@ -18,6 +21,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 对话控制器
@@ -36,6 +40,7 @@ public class ChatController {
 
     private final ChatService chatService;
     private final ConversationService conversationService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 标准对话接口 - 返回完整响应
@@ -71,6 +76,7 @@ public class ChatController {
                 .id(response.getId())
                 .role("assistant")
                 .content(response.getContent())
+                .references(response.getReferences())
                 .timestamp(System.currentTimeMillis())
                 .build();
         conversationService.addMessage(conversationId, assistantMessage);
@@ -108,14 +114,24 @@ public class ChatController {
         
         final String finalConversationId = conversationId;
         StringBuilder responseContent = new StringBuilder();
-        
+        AtomicReference<List<ChatResponse.Reference>> responseReferences = new AtomicReference<>(List.of());
+
         return chatService.chatStream(request)
-                .doOnNext(chunk -> responseContent.append(chunk))
+                .doOnNext(event -> {
+                    if ("delta".equals(event.getType()) && event.getContent() != null) {
+                        responseContent.append(event.getContent());
+                    }
+                    if ("references".equals(event.getType()) && event.getReferences() != null) {
+                        responseReferences.set(event.getReferences());
+                    }
+                })
+                .map(this::serializeStreamEvent)
                 .doOnComplete(() -> {
                     ChatMessage assistantMessage = ChatMessage.builder()
                             .id(UUID.randomUUID().toString())
                             .role("assistant")
                             .content(responseContent.toString())
+                            .references(responseReferences.get())
                             .timestamp(System.currentTimeMillis())
                             .build();
                     conversationService.addMessage(finalConversationId, assistantMessage);
@@ -185,6 +201,14 @@ public class ChatController {
 
         if (!isJpeg && !isPng && !isWebp) {
             throw new IllegalArgumentException("第" + imageIndex + "张图片格式无效，仅支持JPEG/PNG/WebP");
+        }
+    }
+
+    private String serializeStreamEvent(ChatStreamEvent event) {
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("序列化流式响应失败", exception);
         }
     }
 }

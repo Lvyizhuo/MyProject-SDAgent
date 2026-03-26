@@ -171,6 +171,45 @@ public class MultiVectorStoreService {
                 .build();
     }
 
+    public String loadChunkExcerpt(String tableName, Long documentId, Integer chunkIndex, int radius) {
+        if (tableName == null || documentId == null || chunkIndex == null || chunkIndex < 1) {
+            return null;
+        }
+
+        String safeTableName = sanitizeTableName(tableName);
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        if (!tableExists(jdbcTemplate, safeTableName)) {
+            return null;
+        }
+
+        int safeRadius = Math.max(radius, 0);
+        int startIndex = Math.max(1, chunkIndex - safeRadius);
+        int endIndex = chunkIndex + safeRadius;
+
+        String querySql = String.format("""
+                SELECT content
+                FROM %s
+                WHERE metadata->>'knowledgeDocumentId' = ?
+                  AND COALESCE((metadata->>'chunkIndex')::int, 2147483647) BETWEEN ? AND ?
+                ORDER BY COALESCE((metadata->>'chunkIndex')::int, 2147483647), id
+                """, safeTableName);
+
+        List<String> contents = jdbcTemplate.query(
+                querySql,
+                (rs, rowNum) -> rs.getString("content"),
+                String.valueOf(documentId),
+                startIndex,
+                endIndex
+        );
+        if (contents.isEmpty()) {
+            return null;
+        }
+        return contents.stream()
+                .filter(content -> content != null && !content.isBlank())
+                .reduce((left, right) -> left + "\n\n" + right)
+                .orElse(null);
+    }
+
     private void initializeVectorTable(String tableName, int dimensions) {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 

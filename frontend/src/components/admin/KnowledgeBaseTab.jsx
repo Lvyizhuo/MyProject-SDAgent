@@ -72,6 +72,7 @@ const KnowledgeBaseTab = () => {
     const [filterStatus, setFilterStatus] = useState(null);
     const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
     const [showBatchMoveDialog, setShowBatchMoveDialog] = useState(false);
+    const [archiveBusy, setArchiveBusy] = useState(false);
 
     const loadFolderTree = useCallback(async () => {
         try {
@@ -602,6 +603,71 @@ const KnowledgeBaseTab = () => {
         }
     };
 
+    const handleExportArchive = async () => {
+        try {
+            setArchiveBusy(true);
+            const blob = await adminKnowledgeApi.exportArchive();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `knowledge-archive-${new Date().toISOString().slice(0, 10)}.zip`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+            notify({ text: '知识库导出已开始，请保存生成的 zip 包。', type: 'success', source: '管理员-知识库' });
+        } catch (error) {
+            notify({ text: '导出知识库失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        } finally {
+            setArchiveBusy(false);
+        }
+    };
+
+    const handleImportArchive = async (file) => {
+        if (!file) {
+            return;
+        }
+
+        const confirmed = await confirm({
+            title: '导入知识库归档',
+            message: `确认导入 ${file.name} 吗？系统会自动创建缺失文件夹，并跳过已存在的重复文档。`,
+            confirmText: '开始导入'
+        });
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            setArchiveBusy(true);
+            const result = await adminKnowledgeApi.importArchive(file);
+            const summary = `导入完成：新增 ${result.importedCount || 0}，跳过 ${result.skippedCount || 0}，失败 ${result.failedCount || 0}`;
+            notify({ text: summary, type: result.failedCount > 0 ? 'warning' : 'success', source: '管理员-知识库' });
+            if (Array.isArray(result.messages) && result.messages.length > 0) {
+                console.info('知识库导入详情:', result.messages);
+            }
+            await Promise.all([
+                loadFolderTree(),
+                loadDocuments(selectedFolderId, 0, searchQuery),
+                loadUrlImports()
+            ]);
+        } catch (error) {
+            notify({ text: '导入知识库失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+        } finally {
+            setArchiveBusy(false);
+        }
+    };
+
+    const handleImportArchiveClick = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.zip,application/zip';
+        input.onchange = () => {
+            const file = input.files?.[0];
+            if (file) {
+                handleImportArchive(file);
+            }
+        };
+        input.click();
+    };
+
     const handleViewChunks = async (doc) => {
         setChunkDocumentInfo(doc);
         setChunkLoading(true);
@@ -828,6 +894,14 @@ const KnowledgeBaseTab = () => {
                     <button className="btn-secondary" onClick={() => setShowTaskListDialog(true)}>
                         <Clock size={16} />
                         任务列表
+                    </button>
+                    <button className="btn-secondary" onClick={handleExportArchive} disabled={archiveBusy}>
+                        <Download size={16} />
+                        导出知识库
+                    </button>
+                    <button className="btn-secondary" onClick={handleImportArchiveClick} disabled={archiveBusy}>
+                        <FolderInput size={16} />
+                        导入知识库
                     </button>
                     <button className="btn-primary" onClick={() => setShowUploadDialog(true)}>
                         <Upload size={16} />

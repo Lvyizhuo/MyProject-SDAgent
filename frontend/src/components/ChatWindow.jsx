@@ -37,6 +37,26 @@ const consumeSseEvents = (chunk, onData) => {
     return rest;
 };
 
+const parseStreamPayload = (payload) => {
+    if (!payload) {
+        return { type: 'delta', content: '' };
+    }
+
+    try {
+        const parsed = JSON.parse(payload);
+        if (parsed && typeof parsed === 'object' && parsed.type) {
+            return parsed;
+        }
+    } catch {
+        // 兼容旧版纯文本流式响应
+    }
+
+    return {
+        type: 'delta',
+        content: payload
+    };
+};
+
 const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const [greetingContent, setGreetingContent] = useState(DEFAULT_WELCOME_CONTENT);
     const [messages, setMessages] = useState(() => {
@@ -246,6 +266,8 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let aiContent = '';
+            let references = [];
+            let streamErrorMessage = '';
             let buffer = '';
             const STREAM_TIMEOUT = 5000;
 
@@ -272,22 +294,41 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
 
                 buffer += decoder.decode(value, { stream: true });
                 buffer = consumeSseEvents(buffer, (data) => {
-                    aiContent += data;
+                    const payload = parseStreamPayload(data);
+                    if (payload.type === 'delta' && payload.content) {
+                        aiContent += payload.content;
+                    }
+                    if (payload.type === 'references' && Array.isArray(payload.references)) {
+                        references = payload.references;
+                    }
+                    if (payload.type === 'error' && payload.message) {
+                        streamErrorMessage = payload.message;
+                    }
                 });
             }
 
             // 处理结束时残留事件
             if (buffer) {
                 consumeSseEvents(`${buffer}\n\n`, (data) => {
-                    aiContent += data;
+                    const payload = parseStreamPayload(data);
+                    if (payload.type === 'delta' && payload.content) {
+                        aiContent += payload.content;
+                    }
+                    if (payload.type === 'references' && Array.isArray(payload.references)) {
+                        references = payload.references;
+                    }
+                    if (payload.type === 'error' && payload.message) {
+                        streamErrorMessage = payload.message;
+                    }
                 });
             }
 
-            const finalContent = aiContent || '抱歉，本次未获取到有效回复，请稍后重试。';
+            const finalContent = aiContent || streamErrorMessage || '抱歉，本次未获取到有效回复，请稍后重试。';
             const assistantMsg = {
                 id: `assistant-${Date.now()}`,
                 role: 'assistant',
-                content: finalContent
+                content: finalContent,
+                references
             };
 
             setMessages(prev => [

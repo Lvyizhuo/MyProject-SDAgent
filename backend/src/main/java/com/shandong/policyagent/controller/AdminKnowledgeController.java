@@ -11,6 +11,7 @@ import com.shandong.policyagent.model.dto.*;
 import com.shandong.policyagent.rag.EmbeddingService;
 import com.shandong.policyagent.rag.KnowledgeService;
 import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
+import com.shandong.policyagent.service.KnowledgeArchiveService;
 import com.shandong.policyagent.service.UrlImportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +49,7 @@ public class AdminKnowledgeController {
     private final KnowledgeService knowledgeService;
     private final EmbeddingService embeddingService;
     private final KnowledgeDocumentSourceRepository knowledgeDocumentSourceRepository;
+    private final KnowledgeArchiveService knowledgeArchiveService;
     private final UrlImportService urlImportService;
 
     @PostMapping("/folders")
@@ -214,6 +216,27 @@ public class AdminKnowledgeController {
         result.put("previewUrl", previewUrl);
         result.put("previewMode", sourceMapping != null ? "external" : "file");
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/archive/export")
+    public ResponseEntity<InputStreamResource> exportKnowledgeArchive() {
+        byte[] archiveBytes = knowledgeArchiveService.exportArchive();
+        InputStreamResource resource = new InputStreamResource(new java.io.ByteArrayInputStream(archiveBytes));
+        String fileName = "knowledge-archive-" + java.time.LocalDate.now() + ".zip";
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20"))
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentLength(archiveBytes.length)
+                .body(resource);
+    }
+
+    @PostMapping(value = "/archive/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<KnowledgeArchiveImportResponse> importKnowledgeArchive(
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal User currentUser) {
+        return ResponseEntity.ok(knowledgeArchiveService.importArchive(file, currentUser));
     }
 
     @DeleteMapping("/documents/{id}")

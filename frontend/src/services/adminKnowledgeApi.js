@@ -198,6 +198,32 @@ const adminKnowledgeApi = {
         return response.json();
     },
 
+    async exportArchive() {
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/archive/export`, {
+            headers: getAuthHeaders()
+        });
+        if (!response.ok) {
+            throw new Error('导出知识库失败');
+        }
+        return response.blob();
+    },
+
+    async importArchive(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/archive/import`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: formData
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.message || '导入知识库失败');
+        }
+        return response.json();
+    },
+
     async deleteDocument(id) {
         const response = await fetch(`${ADMIN_KNOWLEDGE_BASE}/documents/${id}`, {
             method: 'DELETE',

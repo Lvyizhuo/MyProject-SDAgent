@@ -40,7 +40,9 @@ public class ModelRouterService {
                     .message(request.getText())
                     .conversationId(request.getConversationId())
                     .build();
-            return chatService.chatStream(chatRequest);
+            return chatService.chatStream(chatRequest)
+                    .filter(event -> "delta".equals(event.getType()) || "error".equals(event.getType()))
+                    .map(event -> "error".equals(event.getType()) ? event.getMessage() : event.getContent());
         }
 
         MultiModalResponse response = route(request);

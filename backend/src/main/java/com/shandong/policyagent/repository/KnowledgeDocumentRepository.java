@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocument, Long> {
@@ -133,4 +134,20 @@ public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocu
     @Query(value = "SELECT * FROM knowledge_documents WHERE ?1 = ANY(tags)",
            nativeQuery = true)
     Page<KnowledgeDocument> findByTag(@Param("tag") String tag, Pageable pageable);
+
+    @Query("""
+            select d
+            from KnowledgeDocument d
+            left join d.folder f
+            where (
+                    (:folderPath = '/' and d.folder is null)
+                    or f.path = :folderPath
+            )
+                and d.title = :title
+                and d.fileName = :fileName
+            order by d.createdAt desc
+            """)
+    Optional<KnowledgeDocument> findFirstByFolderPathAndTitleAndFileName(@Param("folderPath") String folderPath,
+                                                                         @Param("title") String title,
+                                                                         @Param("fileName") String fileName);
 }

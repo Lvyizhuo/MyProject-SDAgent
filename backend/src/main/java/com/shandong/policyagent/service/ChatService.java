@@ -8,6 +8,7 @@ import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
+import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.multimodal.service.VisionService;
 import com.shandong.policyagent.rag.RagFailureDetector;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
@@ -15,13 +16,17 @@ import com.shandong.policyagent.tool.WebSearchTool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 对话服务
@@ -46,6 +51,7 @@ public class ChatService {
     private final ModelProviderService modelProviderService;
     private final WebSearchTool webSearchTool;
     private final RagFailureDetector ragFailureDetector;
+    private final KnowledgeReferenceService knowledgeReferenceService;
 
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
@@ -71,8 +77,8 @@ public class ChatService {
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
         boolean enableRag = shouldEnableRag(webSearchResponse);
 
-        String response = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
-        response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
+        ChatExecutionResult result = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
+        result = ensureNonBlankResponse(result, webSearchResponse, conversationId);
 
         long duration = System.currentTimeMillis() - startTime;
         log.info("对话完成 | conversationId={} | 耗时={}ms", conversationId, duration);
@@ -80,12 +86,13 @@ public class ChatService {
         return ChatResponse.builder()
                 .id(UUID.randomUUID().toString())
                 .conversationId(conversationId)
-                .content(response)
+                .content(result.content())
+                .references(result.references())
                 .timestamp(LocalDateTime.now())
                 .build();
     }
 
-    public Flux<String> chatStream(ChatRequest request) {
+    public Flux<ChatStreamEvent> chatStream(ChatRequest request) {
         String conversationId = getOrCreateConversationId(request.getConversationId());
         log.info("开始流式对话 | conversationId={}", conversationId);
 
@@ -115,13 +122,23 @@ public class ChatService {
             return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks, enableRag);
         }
 
+        AtomicReference<List<ChatResponse.Reference>> referencesRef = new AtomicReference<>(List.of());
+
         return chatClient.prompt()
                 .system(dynamicAgentConfigHolder.getSystemPrompt())
                 .user(executionPrompt)
                 .advisors(advisorSpec -> advisorSpec
                         .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
                 .stream()
-                .content()
+                .chatClientResponse()
+                .doOnNext(response -> {
+                    List<ChatResponse.Reference> references = knowledgeReferenceService.buildReferences(response.context());
+                    if (!references.isEmpty()) {
+                        referencesRef.set(references);
+                    }
+                })
+                .map(this::toStreamDeltaEvent)
+                .filter(Objects::nonNull)
                 .onErrorResume(e -> {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
@@ -139,7 +156,14 @@ public class ChatService {
                     log.warn("流式连接已断开，结束响应 | conversationId={} | error={}",
                             conversationId, e.getMessage());
                     return Flux.empty();
-                });
+                })
+                .concatWith(Mono.defer(() -> {
+                    List<ChatResponse.Reference> references = referencesRef.get();
+                    if (references == null || references.isEmpty()) {
+                        return Mono.empty();
+                    }
+                    return Mono.just(ChatStreamEvent.references(references));
+                }));
     }
 
     private String buildUserMessage(ChatRequest request, SessionFactCacheService.SessionFacts facts) {
@@ -486,29 +510,38 @@ public class ChatService {
                 || message.contains("Stream processing failed");
     }
 
-    private Flux<String> fallbackToNonStreaming(String userMessage,
-                                                String conversationId,
-                                                WebSearchTool.SearchResponse webSearchResponse,
-                                                boolean enableToolCallbacks,
-                                                boolean enableRag) {
+    private Flux<ChatStreamEvent> fallbackToNonStreaming(String userMessage,
+                                                         String conversationId,
+                                                         WebSearchTool.SearchResponse webSearchResponse,
+                                                         boolean enableToolCallbacks,
+                                                         boolean enableRag) {
         try {
             log.info("执行非流式降级调用 | conversationId={}", conversationId);
             long startTime = System.currentTimeMillis();
 
-            String response = executeChatWithFallback(userMessage, conversationId, enableToolCallbacks, enableRag);
-            response = ensureNonBlankResponse(response, webSearchResponse, conversationId);
+            ChatExecutionResult result = executeChatWithFallback(userMessage, conversationId, enableToolCallbacks, enableRag);
+            result = ensureNonBlankResponse(result, webSearchResponse, conversationId);
 
             long duration = System.currentTimeMillis() - startTime;
             log.info("非流式降级调用完成 | conversationId={} | 耗时={}ms", conversationId, duration);
 
-            return response == null || response.isBlank() ? Flux.empty() : Flux.just(response);
+            if (result.content() == null || result.content().isBlank()) {
+                return Flux.empty();
+            }
+            if (result.references() == null || result.references().isEmpty()) {
+                return Flux.just(ChatStreamEvent.delta(result.content()));
+            }
+            return Flux.just(
+                    ChatStreamEvent.delta(result.content()),
+                    ChatStreamEvent.references(result.references())
+            );
         } catch (Exception e) {
             if (isClientAbortError(e)) {
                 log.warn("非流式降级流输出被客户端中断 | conversationId={} | error={}",
                         conversationId, e.getMessage());
                 return Flux.empty();
             }
-            return Flux.just(toolFailurePolicyCenter.fallbackMessage("chat", e.getMessage()));
+            return Flux.just(ChatStreamEvent.error(toolFailurePolicyCenter.fallbackMessage("chat", e.getMessage())));
         }
     }
 
@@ -540,10 +573,10 @@ public class ChatService {
         return conversationId;
     }
 
-    private String executeChatWithFallback(String userMessage,
-                                           String conversationId,
-                                           boolean enableToolCallbacks,
-                                           boolean enableRag) {
+    private ChatExecutionResult executeChatWithFallback(String userMessage,
+                                                        String conversationId,
+                                                        boolean enableToolCallbacks,
+                                                        boolean enableRag) {
         try {
             return executePrompt(dynamicChatClientFactory.create(enableToolCallbacks, enableRag), userMessage, conversationId);
         } catch (Exception exception) {
@@ -561,19 +594,23 @@ public class ChatService {
         }
     }
 
-    private String executePrompt(ChatClient chatClient, String userMessage, String conversationId) {
-        return chatClient.prompt()
+    private ChatExecutionResult executePrompt(ChatClient chatClient, String userMessage, String conversationId) {
+        ChatClientResponse response = chatClient.prompt()
                 .system(dynamicAgentConfigHolder.getSystemPrompt())
                 .user(userMessage)
                 .advisors(advisorSpec -> advisorSpec
                         .param(CHAT_MEMORY_CONVERSATION_ID, conversationId))
                 .call()
-                .content();
+                .chatClientResponse();
+        return new ChatExecutionResult(
+                extractContent(response),
+                knowledgeReferenceService.buildReferences(response.context())
+        );
     }
 
-    private String fallbackToDirectRestIfNeeded(Exception exception,
-                                                String userMessage,
-                                                String conversationId) {
+    private ChatExecutionResult fallbackToDirectRestIfNeeded(Exception exception,
+                                                             String userMessage,
+                                                             String conversationId) {
         ModelProvider runtimeModel = resolveManagedLlmModel();
         if (runtimeModel == null || !shouldUseDirectRestFallback(exception, runtimeModel)) {
             throw asRuntimeException(exception);
@@ -581,10 +618,13 @@ public class ChatService {
 
         log.warn("Spring AI 调用模型失败，切换为原生 REST 降级 | conversationId={} | provider={} | model={} | error={}",
                 conversationId, runtimeModel.getProvider(), runtimeModel.getModelName(), exception.getMessage());
-        return modelProviderService.executeChatCompletion(
-                runtimeModel,
-                dynamicAgentConfigHolder.getSystemPrompt(),
-                userMessage
+        return new ChatExecutionResult(
+                modelProviderService.executeChatCompletion(
+                        runtimeModel,
+                        dynamicAgentConfigHolder.getSystemPrompt(),
+                        userMessage
+                ),
+                List.of()
         );
     }
 
@@ -607,6 +647,18 @@ public class ChatService {
 
         log.warn("模型返回空内容，使用联网搜索结果生成兜底答案 | conversationId={}", conversationId);
         return buildWebSearchFallbackAnswer(webSearchResponse);
+    }
+
+    private ChatExecutionResult ensureNonBlankResponse(ChatExecutionResult result,
+                                                       WebSearchTool.SearchResponse webSearchResponse,
+                                                       String conversationId) {
+        if (result == null) {
+            return new ChatExecutionResult(
+                    ensureNonBlankResponse((String) null, webSearchResponse, conversationId),
+                    List.of()
+            );
+        }
+        return result.withContent(ensureNonBlankResponse(result.content(), webSearchResponse, conversationId));
     }
 
     private ModelProvider resolveManagedLlmModel() {
@@ -662,5 +714,31 @@ public class ChatService {
             return value;
         }
         return value.substring(0, maxChars).trim() + "...";
+    }
+
+    private ChatStreamEvent toStreamDeltaEvent(ChatClientResponse response) {
+        String content = extractContent(response);
+        if (content == null || content.isBlank()) {
+            return null;
+        }
+        return ChatStreamEvent.delta(content);
+    }
+
+    private String extractContent(ChatClientResponse response) {
+        if (response == null || response.chatResponse() == null || response.chatResponse().getResult() == null
+                || response.chatResponse().getResult().getOutput() == null) {
+            return null;
+        }
+        return response.chatResponse().getResult().getOutput().getText();
+    }
+
+    private record ChatExecutionResult(String content, List<ChatResponse.Reference> references) {
+        private ChatExecutionResult {
+            references = references == null ? List.of() : List.copyOf(references);
+        }
+
+        private ChatExecutionResult withContent(String updatedContent) {
+            return new ChatExecutionResult(updatedContent, references);
+        }
     }
 }

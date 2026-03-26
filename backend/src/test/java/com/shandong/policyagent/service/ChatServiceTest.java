@@ -16,7 +16,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.Generation;
 
+import java.util.Map;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -63,6 +67,9 @@ class ChatServiceTest {
     @Mock
     private RagFailureDetector ragFailureDetector;
 
+    @Mock
+    private KnowledgeReferenceService knowledgeReferenceService;
+
     private ChatService chatService;
 
     @BeforeEach
@@ -77,7 +84,8 @@ class ChatServiceTest {
                 toolFailurePolicyCenter,
                 modelProviderService,
                 webSearchTool,
-                ragFailureDetector
+                ragFailureDetector,
+                knowledgeReferenceService
         );
     }
 
@@ -105,11 +113,12 @@ class ChatServiceTest {
         when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
         when(dynamicChatClientFactory.create(false, true)).thenReturn(primaryClient);
         when(dynamicChatClientFactory.create(false, false)).thenReturn(degradedClient);
-        when(primaryClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().content())
+        when(primaryClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
                 .thenThrow(ragFailure);
-        when(degradedClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().content())
-                .thenReturn("已自动关闭知识库检索并完成回答。");
+        when(degradedClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
+                .thenReturn(chatClientResponse("已自动关闭知识库检索并完成回答。"));
         when(ragFailureDetector.isRecoverable(ragFailure)).thenReturn(true);
+        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
 
         ChatResponse response = chatService.chat(ChatRequest.builder()
                 .conversationId("conversation-1")
@@ -149,8 +158,9 @@ class ChatServiceTest {
                 "示例价格 2999 元"
         ));
         when(dynamicChatClientFactory.create(false, false)).thenReturn(directSearchClient);
-        when(directSearchClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().content())
-                .thenReturn("已根据联网搜索结果回答。");
+        when(directSearchClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
+                .thenReturn(chatClientResponse("已根据联网搜索结果回答。"));
+        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
 
         ChatResponse response = chatService.chat(ChatRequest.builder()
                 .conversationId("conversation-2")
@@ -160,5 +170,14 @@ class ChatServiceTest {
         assertEquals("已根据联网搜索结果回答。", response.getContent());
         verify(dynamicChatClientFactory).create(false, false);
         verify(dynamicChatClientFactory, never()).create(false, true);
+    }
+
+    private ChatClientResponse chatClientResponse(String content) {
+        return new ChatClientResponse(
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage(content)))
+                ),
+                Map.of()
+        );
     }
 }

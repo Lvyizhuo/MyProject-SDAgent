@@ -50,6 +50,14 @@ public class ChatResponse {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Reference {
+        private Long documentId;
+        private String title;
+        private String url;
+        private String sourceSite;
+        private String publishedAt;
+        private String scope;
+        private List<String> keywords;
+        private String snippet;
         private String documentName;
         private String content;
         private Integer pageNumber;
