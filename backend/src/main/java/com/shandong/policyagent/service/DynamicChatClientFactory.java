@@ -45,6 +45,18 @@ public class DynamicChatClientFactory {
     @Value("${app.model-provider.openai.read-timeout-seconds:45}")
     private int readTimeoutSeconds;
 
+    @Value("${spring.ai.openai.base-url:https://dashscope.aliyuncs.com/compatible-mode}")
+    private String defaultBaseUrl;
+
+    @Value("${spring.ai.openai.api-key:}")
+    private String defaultApiKey;
+
+    @Value("${spring.ai.openai.chat.options.model:qwen3.5-plus}")
+    private String defaultModelName;
+
+    @Value("${spring.ai.openai.chat.options.temperature:0.7}")
+    private Double defaultTemperature;
+
     public ChatClient create() {
         return create(true, true);
     }
@@ -100,35 +112,56 @@ public class DynamicChatClientFactory {
         return builder.build();
     }
 
-    private ResolvedChatModelConfig resolveRuntimeConfig() {
+    ResolvedChatModelConfig resolveRuntimeConfig() {
         AgentConfig config = dynamicAgentConfigHolder.get();
         if (config == null) {
-            return new ResolvedChatModelConfig(
-                    "https://dashscope.aliyuncs.com/compatible-mode",
-                    "",
-                    "qwen3.5-plus",
-                    0.7,
-                    null,
-                    null
-            );
+            return defaultRuntimeConfig();
         }
 
         if (config.getLlmModelId() != null) {
-            ModelProvider provider = modelProviderService.getModelEntityForRuntime(config.getLlmModelId(), ModelType.LLM);
-            log.debug("使用管理员已配置模型执行对话: modelId={}, name={}", provider.getId(), provider.getName());
-            return new ResolvedChatModelConfig(
-                    provider.getApiUrl(),
-                    provider.getApiKey(),
-                    provider.getModelName(),
-                    provider.getTemperature() != null ? provider.getTemperature().doubleValue() : safeTemperature(config.getTemperature()),
-                    provider.getMaxTokens(),
-                    provider.getTopP()
-            );
+            try {
+                ModelProvider provider = modelProviderService.getModelEntityForRuntime(config.getLlmModelId(), ModelType.LLM);
+                log.debug("使用管理员已配置模型执行对话: modelId={}, name={}", provider.getId(), provider.getName());
+                return managedRuntimeConfig(provider, config);
+            } catch (Exception ex) {
+                if (hasManualRuntimeConfig(config)) {
+                    log.warn("管理员已配置模型不可用，回退到手工模型配置 | modelId={} | error={}",
+                            config.getLlmModelId(), ex.getMessage());
+                    return manualRuntimeConfig(config);
+                }
+
+                log.warn("管理员已配置模型不可用，回退到默认模型配置 | modelId={} | error={}",
+                        config.getLlmModelId(), ex.getMessage());
+                return defaultRuntimeConfig();
+            }
         }
 
+        if (hasManualRuntimeConfig(config)) {
+            return manualRuntimeConfig(config);
+        }
+
+        return defaultRuntimeConfig();
+    }
+
+    private double safeTemperature(Double temperature) {
+        return temperature != null ? temperature : 0.7D;
+    }
+
+    private ResolvedChatModelConfig managedRuntimeConfig(ModelProvider provider, AgentConfig config) {
+        return new ResolvedChatModelConfig(
+                provider.getApiUrl(),
+                provider.getApiKey(),
+                provider.getModelName(),
+                provider.getTemperature() != null ? provider.getTemperature().doubleValue() : safeTemperature(config.getTemperature()),
+                provider.getMaxTokens(),
+                provider.getTopP()
+        );
+    }
+
+    private ResolvedChatModelConfig manualRuntimeConfig(AgentConfig config) {
         return new ResolvedChatModelConfig(
                 config.getApiUrl(),
-                config.getApiKey(),
+                resolveApiKey(config.getApiKey()),
                 config.getModelName(),
                 safeTemperature(config.getTemperature()),
                 null,
@@ -136,8 +169,42 @@ public class DynamicChatClientFactory {
         );
     }
 
-    private double safeTemperature(Double temperature) {
-        return temperature != null ? temperature : 0.7D;
+    private ResolvedChatModelConfig defaultRuntimeConfig() {
+        return new ResolvedChatModelConfig(
+                defaultBaseUrl,
+                resolveApiKey(defaultApiKey),
+                defaultModelName,
+                safeTemperature(defaultTemperature),
+                null,
+                null
+        );
+    }
+
+    private boolean hasManualRuntimeConfig(AgentConfig config) {
+        String resolvedApiKey = resolveApiKey(config.getApiKey());
+        return hasText(config.getApiUrl())
+                && hasText(config.getModelName())
+                && hasText(resolvedApiKey)
+                && !isPlaceholder(resolvedApiKey);
+    }
+
+    private String resolveApiKey(String apiKey) {
+        if (isPlaceholder(apiKey)) {
+            String envVar = apiKey.substring(2, apiKey.length() - 1);
+            String value = System.getenv(envVar);
+            if (hasText(value)) {
+                return value;
+            }
+        }
+        return apiKey;
+    }
+
+    private boolean isPlaceholder(String value) {
+        return value != null && value.startsWith("${") && value.endsWith("}");
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private String normalizeOpenAiBaseUrl(String baseUrl) {
@@ -155,7 +222,7 @@ public class DynamicChatClientFactory {
         return normalized;
     }
 
-    private record ResolvedChatModelConfig(
+    record ResolvedChatModelConfig(
             String baseUrl,
             String apiKey,
             String modelName,

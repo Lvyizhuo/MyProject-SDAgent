@@ -97,13 +97,7 @@ public class AgentConfigBindingSanitizer {
     }
 
     private ModelProvider resolveValidModelBinding(Long modelId, ModelType expectedType) {
-        ModelProvider model = modelProviderService.getModelEntity(modelId);
-        if (expectedType != null && model.getType() != expectedType) {
-            throw new IllegalArgumentException("模型类型不匹配: " + modelId);
-        }
-        if (!Boolean.TRUE.equals(model.getIsEnabled())) {
-            throw new IllegalArgumentException("所选模型已禁用: " + model.getName());
-        }
-        return model;
+        modelProviderService.validateRuntimeModelBinding(modelId, expectedType);
+        return modelProviderService.getModelEntity(modelId);
     }
 }

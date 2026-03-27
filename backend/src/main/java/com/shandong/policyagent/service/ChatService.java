@@ -74,7 +74,7 @@ public class ChatService {
         }
         String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
-        boolean enableRag = shouldEnableRag(webSearchResponse);
+        boolean enableRag = shouldEnableRag(plan, webSearchResponse);
 
         ChatExecutionResult result = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
         result = ensureNonBlankResponse(result, webSearchResponse, conversationId);
@@ -113,7 +113,7 @@ public class ChatService {
         }
         String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
-        boolean enableRag = shouldEnableRag(webSearchResponse);
+        boolean enableRag = shouldEnableRag(plan, webSearchResponse);
         ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, enableRag);
 
         if (plan.needToolCall()) {
@@ -136,9 +136,12 @@ public class ChatService {
                         referencesRef.set(references);
                     }
                 })
-                .map(this::extractContent)
-                .filter(content -> content != null && !content.isBlank())
-                .map(ChatStreamEvent::delta)
+                .<ChatStreamEvent>handle((response, sink) -> {
+                    String content = extractContent(response);
+                    if (content != null && !content.isBlank()) {
+                        sink.next(ChatStreamEvent.delta(content));
+                    }
+                })
                 .onErrorResume(e -> {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
@@ -364,8 +367,9 @@ public class ChatService {
                 .anyMatch(this::requiresRuntimeToolCallback);
     }
 
-    private boolean shouldEnableRag(WebSearchTool.SearchResponse webSearchResponse) {
-        return webSearchResponse == null;
+    private boolean shouldEnableRag(AgentExecutionPlan plan,
+                                    WebSearchTool.SearchResponse webSearchResponse) {
+        return webSearchResponse == null && containsToolHint(plan, "rag");
     }
 
     private boolean requiresRuntimeToolCallback(String toolHint) {
@@ -667,7 +671,13 @@ public class ChatService {
             return null;
         }
 
-        return modelProviderService.getModelEntityForRuntime(config.getLlmModelId(), null);
+        try {
+            return modelProviderService.getModelEntityForRuntime(config.getLlmModelId(), null);
+        } catch (Exception ex) {
+            log.warn("解析管理员已配置模型失败，跳过托管模型 REST 降级 | modelId={} | error={}",
+                    config.getLlmModelId(), ex.getMessage());
+            return null;
+        }
     }
 
     private boolean shouldUseDirectRestFallback(Exception exception, ModelProvider runtimeModel) {

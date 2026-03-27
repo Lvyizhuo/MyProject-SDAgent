@@ -1,24 +1,31 @@
 package com.shandong.policyagent.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SessionFactCacheServiceTest {
 
-    private final SessionFactCacheService factCacheService = new SessionFactCacheService(null, new ObjectMapper());
+    private final SessionFactCacheService sessionFactCacheService = new SessionFactCacheService(null, null);
 
     @Test
-    void shouldExtractPriceRegionAndDeviceModel() {
-        SessionFactCacheService.SessionFacts facts = factCacheService.extractFactsFromText(
-                "我在山东省济南市历下区，想买iPhone17标准版，预算5999元"
-        );
+    void shouldDescribeCachedAmountWithoutRealtimePriceKeyword() {
+        SessionFactCacheService.SessionFacts facts = new SessionFactCacheService.SessionFacts();
+        facts.setLatestPrice(3999D);
 
-        assertEquals(5999.0, facts.getLatestPrice());
-        assertTrue(facts.getRegions().stream().anyMatch(v -> v.contains("山东")));
-        assertTrue(facts.getRegions().stream().anyMatch(v -> v.contains("济南")));
-        assertTrue(facts.getDeviceModels().stream().anyMatch(v -> v.contains("iphone17")));
+        String promptContext = sessionFactCacheService.toPromptContext(facts);
+
+        assertTrue(promptContext.contains("最近提及金额：3999.0元"));
+        assertFalse(promptContext.contains("最近提及价格"));
+    }
+
+    @Test
+    void shouldExtractGenericCategoryIntoPromptContext() {
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.extractFactsFromText("电视补贴标准");
+
+        assertEquals(java.util.Set.of("电视"), facts.getCategories());
+        assertTrue(sessionFactCacheService.toPromptContext(facts).contains("商品类别：电视"));
     }
 }

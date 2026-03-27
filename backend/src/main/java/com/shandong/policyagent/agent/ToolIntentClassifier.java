@@ -47,8 +47,8 @@ public class ToolIntentClassifier {
         ));
         steps.add(new AgentExecutionPlan.AgentStep(
                 2,
-                "在参数明确前，基于历史对话与已检索信息给出边界说明",
-                "rag"
+                "在参数明确前，仅给出简短的补充说明，不调用外部工具",
+                "none"
         ));
 
         return new AgentExecutionPlan(
