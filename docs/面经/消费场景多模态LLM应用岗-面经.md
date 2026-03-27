@@ -41,7 +41,7 @@
    - 语义切片（按段落/标题切分）
    - 父子索引（小切片检索，大切片给 LLM）
 3. **向量重排序（Rerank）**：初筛 Top-K（如 20）→ Rerank 模型（如 bge-reranker、DashScope Rerank）→ 重排后 Top-N（如 5）
-4. **混合检索**：BM25 关键词检索 + 向量检索，做 Reciprocal Rank Fusion（RRF）
+4. **混合检索**：BM25 关键词检索 + 向量检索，做 Reciprocal Rank Fusion（RRF）, 父子索引检索不同省份的文件
 5. **元数据过滤**：先按时间/地区/分类过滤，再做向量检索
 6. **查询改写**：LLM 把用户问题改写为多个检索 query
 
