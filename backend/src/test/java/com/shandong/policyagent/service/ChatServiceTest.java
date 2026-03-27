@@ -6,6 +6,7 @@ import com.shandong.policyagent.agent.ToolIntentClassifier;
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
+import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.multimodal.service.VisionService;
 import com.shandong.policyagent.rag.RagFailureDetector;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
@@ -19,12 +20,14 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.Generation;
+import reactor.core.publisher.Flux;
 
 import java.util.Map;
 import java.util.List;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -170,6 +173,45 @@ class ChatServiceTest {
         assertEquals("已根据联网搜索结果回答。", response.getContent());
         verify(dynamicChatClientFactory).create(false, false);
         verify(dynamicChatClientFactory, never()).create(false, true);
+    }
+
+    @Test
+    void shouldIgnoreEmptyStreamChunks() {
+        ChatClient streamingClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "直接回答用户问候",
+                false,
+                List.of(new AgentExecutionPlan.AgentStep(1, "友好回应用户问候", "none"))
+        );
+        ToolIntentClassifier.IntentDecision decision =
+                new ToolIntentClassifier.IntentDecision(true, "none", "", "无需工具");
+
+        ChatClientResponse emptyChunk = chatClientResponse("");
+        ChatClientResponse contentChunk = chatClientResponse("您好，我可以帮您解答山东以旧换新政策问题。");
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class)))
+                .thenReturn(new SessionFactCacheService.SessionFacts());
+        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
+        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
+        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
+        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
+        when(dynamicChatClientFactory.create(false, true)).thenReturn(streamingClient);
+        when(streamingClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class))
+                .stream().chatClientResponse())
+                .thenReturn(Flux.just(emptyChunk, contentChunk));
+        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
+
+        List<String> deltaContents = chatService.chatStream(ChatRequest.builder()
+                        .conversationId("conversation-3")
+                        .message("你好")
+                        .build())
+                .filter(event -> "delta".equals(event.getType()))
+                .map(ChatStreamEvent::getContent)
+                .collectList()
+                .block();
+
+        assertFalse(deltaContents == null || deltaContents.isEmpty());
+        assertEquals(List.of("您好，我可以帮您解答山东以旧换新政策问题。"), deltaContents);
     }
 
     private ChatClientResponse chatClientResponse(String content) {
