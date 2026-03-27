@@ -9,6 +9,7 @@ import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.multimodal.service.VisionService;
 import com.shandong.policyagent.rag.RagFailureDetector;
+import com.shandong.policyagent.tool.SubsidyCalculatorTool;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
 import com.shandong.policyagent.tool.WebSearchTool;
 import org.junit.jupiter.api.BeforeEach;
@@ -68,6 +69,9 @@ class ChatServiceTest {
     private WebSearchTool webSearchTool;
 
     @Mock
+    private SubsidyCalculatorTool subsidyCalculatorTool;
+
+    @Mock
     private RagFailureDetector ragFailureDetector;
 
     @Mock
@@ -87,6 +91,7 @@ class ChatServiceTest {
                 toolFailurePolicyCenter,
                 modelProviderService,
                 webSearchTool,
+                subsidyCalculatorTool,
                 ragFailureDetector,
                 knowledgeReferenceService
         );
@@ -215,6 +220,50 @@ class ChatServiceTest {
         assertEquals(List.of("您好，我可以帮您解答山东以旧换新政策问题。"), deltaContents);
         verify(dynamicChatClientFactory).create(false, false);
         verify(dynamicChatClientFactory, never()).create(false, true);
+    }
+
+    @Test
+    void shouldReturnDirectSubsidyAnswerWithoutCallingModel() {
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "问题聚焦补贴金额计算，优先走补贴工具",
+                true,
+                List.of(
+                        new AgentExecutionPlan.AgentStep(1, "收集并校验补贴计算所需参数", "calculateSubsidy"),
+                        new AgentExecutionPlan.AgentStep(2, "调用 calculateSubsidy 输出补贴金额和说明", "calculateSubsidy")
+                )
+        );
+        ToolIntentClassifier.IntentDecision decision =
+                new ToolIntentClassifier.IntentDecision(true, "calculateSubsidy", "", "参数充分");
+        SessionFactCacheService.SessionFacts facts = new SessionFactCacheService.SessionFacts();
+        facts.getCategories().add("电视");
+        facts.setLatestPrice(5999D);
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class))).thenReturn(facts);
+        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
+        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
+        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
+        when(subsidyCalculatorTool.calculateSubsidy()).thenReturn(request -> new SubsidyCalculatorTool.SubsidyResponse(
+                request.type(),
+                request.price(),
+                0.15,
+                899.85,
+                2000,
+                899.85,
+                "【电视以旧换新补贴】购买价格5999.00元，补贴比例15%，计算补贴899.85元，补贴上限2000.00元，实际可获补贴899.85元"
+        ));
+
+        ChatResponse response = chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-4")
+                .message("电视 5999元补多少")
+                .build());
+
+        assertEquals("【电视以旧换新补贴】购买价格5999.00元，补贴比例15%，计算补贴899.85元，补贴上限2000.00元，实际可获补贴899.85元\n\n如需，我还可以继续帮您整理申领条件、所需材料和操作流程。",
+                response.getContent());
+        verify(dynamicChatClientFactory, never()).create();
+        verify(dynamicChatClientFactory, never()).create(true);
+        verify(dynamicChatClientFactory, never()).create(true, true);
+        verify(dynamicChatClientFactory, never()).create(false, true);
+        verify(dynamicChatClientFactory, never()).create(false, false);
     }
 
     private ChatClientResponse chatClientResponse(String content) {
