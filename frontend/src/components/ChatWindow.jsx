@@ -269,19 +269,28 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
             let references = [];
             let streamErrorMessage = '';
             let buffer = '';
-            const STREAM_TIMEOUT = 5000;
+            const INITIAL_STREAM_TIMEOUT = 45000;
+            const IDLE_STREAM_TIMEOUT = 15000;
 
-            const readWithTimeout = async () => Promise.race([
-                reader.read(),
-                new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('STREAM_TIMEOUT')), STREAM_TIMEOUT)
-                )
-            ]);
+            const readWithTimeout = async (timeoutMs) => {
+                let timeoutId;
+                try {
+                    return await Promise.race([
+                        reader.read(),
+                        new Promise((_, reject) => {
+                            timeoutId = setTimeout(() => reject(new Error('STREAM_TIMEOUT')), timeoutMs);
+                        })
+                    ]);
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+            };
 
             while (true) {
                 let result;
                 try {
-                    result = await readWithTimeout();
+                    const timeoutMs = aiContent ? IDLE_STREAM_TIMEOUT : INITIAL_STREAM_TIMEOUT;
+                    result = await readWithTimeout(timeoutMs);
                 } catch (timeoutError) {
                     if (aiContent) {
                         break;

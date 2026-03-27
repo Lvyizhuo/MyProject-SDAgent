@@ -49,6 +49,23 @@ const extractMapCards = (content) => {
     let pendingName = '';
 
     lines.forEach((line) => {
+        const inlineAddressMatch = line.match(/^\d+\.\s*(.+?)\s+-\s+(.+)$/);
+        if (inlineAddressMatch) {
+            const title = inlineAddressMatch[1].replace(/\*\*/g, '').trim();
+            const address = inlineAddressMatch[2].trim();
+            if (title && address) {
+                const link = `https://uri.amap.com/search?keyword=${encodeURIComponent(`${title} ${address}`)}`;
+                cards.push({
+                    id: `${title}-${address}`,
+                    title,
+                    address,
+                    link
+                });
+                pendingName = '';
+                return;
+            }
+        }
+
         const listMatch = line.match(/^\d+\.\s*(.+)$/);
         if (listMatch) {
             pendingName = listMatch[1].replace(/^-+\s*/, '').trim();

@@ -11,6 +11,7 @@ import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.multimodal.service.VisionService;
 import com.shandong.policyagent.rag.RagFailureDetector;
+import com.shandong.policyagent.tool.SubsidyCalculatorTool;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
 import com.shandong.policyagent.tool.WebSearchTool;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +50,7 @@ public class ChatService {
     private final ToolFailurePolicyCenter toolFailurePolicyCenter;
     private final ModelProviderService modelProviderService;
     private final WebSearchTool webSearchTool;
+    private final SubsidyCalculatorTool subsidyCalculatorTool;
     private final RagFailureDetector ragFailureDetector;
     private final KnowledgeReferenceService knowledgeReferenceService;
 
@@ -68,16 +70,35 @@ public class ChatService {
             intentDecision,
             conversationId
         );
+        SubsidyCalculatorTool.SubsidyResponse subsidyResponse = executeDirectSubsidyIfNeeded(
+                facts,
+                plan,
+                intentDecision,
+                conversationId
+        );
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
-        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
-        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
+        if (shouldReturnDirectSubsidyAnswer(plan, subsidyResponse)) {
+            String content = buildDirectSubsidyAnswer(subsidyResponse);
+            long duration = System.currentTimeMillis() - startTime;
+            log.info("对话完成（后端直连补贴计算） | conversationId={} | 耗时={}ms", conversationId, duration);
+            return ChatResponse.builder()
+                    .id(UUID.randomUUID().toString())
+                    .conversationId(conversationId)
+                    .content(content)
+                    .references(List.of())
+                    .timestamp(LocalDateTime.now())
+                    .build();
+        }
+
+        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse, subsidyResponse);
+        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, subsidyResponse);
         boolean enableRag = shouldEnableRag(plan, webSearchResponse);
 
         ChatExecutionResult result = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
-        result = ensureNonBlankResponse(result, webSearchResponse, conversationId);
+        result = ensureNonBlankResponse(result, webSearchResponse, subsidyResponse, conversationId);
 
         long duration = System.currentTimeMillis() - startTime;
         log.info("对话完成 | conversationId={} | 耗时={}ms", conversationId, duration);
@@ -107,18 +128,29 @@ public class ChatService {
             intentDecision,
             conversationId
         );
+        SubsidyCalculatorTool.SubsidyResponse subsidyResponse = executeDirectSubsidyIfNeeded(
+                facts,
+                plan,
+                intentDecision,
+                conversationId
+        );
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
-        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse);
-        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, webSearchResponse);
+        if (shouldReturnDirectSubsidyAnswer(plan, subsidyResponse)) {
+            return Flux.just(ChatStreamEvent.delta(buildDirectSubsidyAnswer(subsidyResponse)));
+        }
+
+        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse, subsidyResponse);
+        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, subsidyResponse);
         boolean enableRag = shouldEnableRag(plan, webSearchResponse);
         ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, enableRag);
 
         if (plan.needToolCall()) {
             log.info("检测到工具调用计划，直接使用非流式执行以规避流式工具调用缺陷 | conversationId={}", conversationId);
-            return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks, enableRag);
+            return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, subsidyResponse,
+                    enableToolCallbacks, enableRag);
         }
 
         AtomicReference<List<ChatResponse.Reference>> referencesRef = new AtomicReference<>(List.of());
@@ -146,12 +178,14 @@ public class ChatService {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(executionPrompt, conversationId, null, enableToolCallbacks, enableRag);
+                        return fallbackToNonStreaming(executionPrompt, conversationId, null, subsidyResponse,
+                                enableToolCallbacks, enableRag);
                     }
                     if (ragFailureDetector.isRecoverable(e)) {
                         log.warn("流式 RAG 检索失败，降级为无检索非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, enableToolCallbacks, false);
+                        return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponse, subsidyResponse,
+                                enableToolCallbacks, false);
                     }
                     return Flux.error(e);
                 })
@@ -211,7 +245,8 @@ public class ChatService {
 
     private String buildExecutionPrompt(String userMessage,
                                         AgentExecutionPlan plan,
-                                        WebSearchTool.SearchResponse webSearchResponse) {
+                                        WebSearchTool.SearchResponse webSearchResponse,
+                                        SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
         StringBuilder stepsBuilder = new StringBuilder();
         for (AgentExecutionPlan.AgentStep step : plan.steps()) {
             stepsBuilder.append(step.id())
@@ -240,6 +275,14 @@ public class ChatService {
                 5. 不要暴露内部思维链路，只输出对用户可读的结论、步骤和建议。
                 6. 若问题包含最新/实时/价格/新闻/政策动态等时效性信息，必须调用 webSearch 并给出来源链接。
                 """, userMessage, plan.summary(), plan.needToolCall(), stepsBuilder);
+
+        if (subsidyResponse != null) {
+            prompt += "\n\n【系统已完成补贴计算，以下结果优先作为事实依据】\n"
+                    + formatSubsidyResponse(subsidyResponse)
+                    + "\n\n【补充要求】\n"
+                    + "1. 必须基于以上补贴计算结果回答，不要再声称无法计算或无法调用补贴工具。\n"
+                    + "2. 若用户还关心申领条件、材料或流程，可在给出金额后继续补充说明。";
+        }
 
         if (webSearchResponse == null) {
             return prompt;
@@ -354,17 +397,43 @@ public class ChatService {
         }
     }
 
+    private SubsidyCalculatorTool.SubsidyResponse executeDirectSubsidyIfNeeded(SessionFactCacheService.SessionFacts facts,
+                                                                                AgentExecutionPlan plan,
+                                                                                ToolIntentClassifier.IntentDecision intentDecision,
+                                                                                String conversationId) {
+        if (plan == null || !plan.needToolCall() || !containsToolHint(plan, "calculateSubsidy")) {
+            return null;
+        }
+        if (!intentDecision.allowToolCall() && "calculateSubsidy".equals(intentDecision.targetTool())) {
+            return null;
+        }
+
+        String category = extractSubsidyCategory(facts);
+        Double price = facts != null ? facts.getLatestPrice() : null;
+        if (category == null || category.isBlank() || price == null || price <= 0) {
+            return null;
+        }
+
+        log.info("执行后端直连 calculateSubsidy | conversationId={} | type={} | price={}",
+                conversationId, category, price);
+        try {
+            return subsidyCalculatorTool.calculateSubsidy()
+                    .apply(new SubsidyCalculatorTool.SubsidyRequest(category, price));
+        } catch (Exception exception) {
+            log.warn("后端直连 calculateSubsidy 失败 | conversationId={} | error={}",
+                    conversationId, exception.getMessage());
+            return null;
+        }
+    }
+
     private boolean shouldEnableToolCallbacks(AgentExecutionPlan plan,
-                                              WebSearchTool.SearchResponse webSearchResponse) {
+                                              SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
         if (plan == null || !plan.needToolCall()) {
             return false;
         }
-        if (webSearchResponse == null) {
-            return true;
-        }
         return plan.steps().stream()
                 .map(AgentExecutionPlan.AgentStep::toolHint)
-                .anyMatch(this::requiresRuntimeToolCallback);
+                .anyMatch(toolHint -> requiresRuntimeToolCallback(toolHint, subsidyResponse));
     }
 
     private boolean shouldEnableRag(AgentExecutionPlan plan,
@@ -372,7 +441,11 @@ public class ChatService {
         return webSearchResponse == null && containsToolHint(plan, "rag");
     }
 
-    private boolean requiresRuntimeToolCallback(String toolHint) {
+    private boolean requiresRuntimeToolCallback(String toolHint,
+                                                SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
+        if ("calculateSubsidy".equals(toolHint) && subsidyResponse != null) {
+            return false;
+        }
         return "calculateSubsidy".equals(toolHint)
                 || "parseFile".equals(toolHint)
                 || "amap-mcp".equals(toolHint);
@@ -409,6 +482,58 @@ public class ChatService {
                     .append("\n");
         }
         return builder.toString().trim();
+    }
+
+    private String formatSubsidyResponse(SubsidyCalculatorTool.SubsidyResponse response) {
+        return String.format("""
+                商品类型：%s
+                购买价格：%.2f元
+                补贴比例：%.0f%%
+                计算补贴：%.2f元
+                补贴上限：%.2f元
+                实际补贴：%.2f元
+                摘要：%s""",
+                response.type(),
+                response.purchasePrice(),
+                response.subsidyRate() * 100,
+                response.calculatedSubsidy(),
+                response.maxSubsidy(),
+                response.actualSubsidy(),
+                response.summary());
+    }
+
+    private String buildDirectSubsidyAnswer(SubsidyCalculatorTool.SubsidyResponse response) {
+        if (response == null) {
+            return "";
+        }
+        if (response.summary() == null || response.summary().isBlank()) {
+            return "已完成补贴计算，但暂未生成可读结果。";
+        }
+        if (response.actualSubsidy() <= 0) {
+            return response.summary();
+        }
+        return response.summary() + "\n\n如需，我还可以继续帮您整理申领条件、所需材料和操作流程。";
+    }
+
+    private boolean shouldReturnDirectSubsidyAnswer(AgentExecutionPlan plan,
+                                                    SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
+        if (plan == null || subsidyResponse == null || plan.steps() == null || plan.steps().isEmpty()) {
+            return false;
+        }
+        return plan.steps().stream()
+                .map(AgentExecutionPlan.AgentStep::toolHint)
+                .allMatch(toolHint -> "calculateSubsidy".equals(toolHint) || "none".equals(toolHint));
+    }
+
+    private String extractSubsidyCategory(SessionFactCacheService.SessionFacts facts) {
+        if (facts == null || facts.getCategories() == null || facts.getCategories().isEmpty()) {
+            return null;
+        }
+        String category = null;
+        for (String item : facts.getCategories()) {
+            category = item;
+        }
+        return category;
     }
 
     private String buildWebSearchFallbackAnswer(WebSearchTool.SearchResponse response) {
@@ -517,6 +642,7 @@ public class ChatService {
     private Flux<ChatStreamEvent> fallbackToNonStreaming(String userMessage,
                                                          String conversationId,
                                                          WebSearchTool.SearchResponse webSearchResponse,
+                                                         SubsidyCalculatorTool.SubsidyResponse subsidyResponse,
                                                          boolean enableToolCallbacks,
                                                          boolean enableRag) {
         try {
@@ -524,7 +650,7 @@ public class ChatService {
             long startTime = System.currentTimeMillis();
 
             ChatExecutionResult result = executeChatWithFallback(userMessage, conversationId, enableToolCallbacks, enableRag);
-            result = ensureNonBlankResponse(result, webSearchResponse, conversationId);
+            result = ensureNonBlankResponse(result, webSearchResponse, subsidyResponse, conversationId);
 
             long duration = System.currentTimeMillis() - startTime;
             log.info("非流式降级调用完成 | conversationId={} | 耗时={}ms", conversationId, duration);
@@ -641,9 +767,14 @@ public class ChatService {
 
     private String ensureNonBlankResponse(String response,
                                           WebSearchTool.SearchResponse webSearchResponse,
+                                          SubsidyCalculatorTool.SubsidyResponse subsidyResponse,
                                           String conversationId) {
         if (response != null && !response.isBlank()) {
             return response;
+        }
+        if (subsidyResponse != null) {
+            log.warn("模型返回空内容，使用补贴计算结果生成兜底答案 | conversationId={}", conversationId);
+            return buildDirectSubsidyAnswer(subsidyResponse);
         }
         if (webSearchResponse == null) {
             return response;
@@ -655,14 +786,15 @@ public class ChatService {
 
     private ChatExecutionResult ensureNonBlankResponse(ChatExecutionResult result,
                                                        WebSearchTool.SearchResponse webSearchResponse,
+                                                       SubsidyCalculatorTool.SubsidyResponse subsidyResponse,
                                                        String conversationId) {
         if (result == null) {
             return new ChatExecutionResult(
-                    ensureNonBlankResponse((String) null, webSearchResponse, conversationId),
+                    ensureNonBlankResponse((String) null, webSearchResponse, subsidyResponse, conversationId),
                     List.of()
             );
         }
-        return result.withContent(ensureNonBlankResponse(result.content(), webSearchResponse, conversationId));
+        return result.withContent(ensureNonBlankResponse(result.content(), webSearchResponse, subsidyResponse, conversationId));
     }
 
     private ModelProvider resolveManagedLlmModel() {

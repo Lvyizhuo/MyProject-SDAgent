@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * ReAct 风格任务规划服务。
@@ -21,6 +22,8 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 public class ReActPlanningService {
+
+    private static final Pattern PRICE_PATTERN = Pattern.compile(".*\\d{3,6}(?:\\.\\d{1,2})?\\s*(元|rmb|¥|￥).*");
 
     private static final String PLANNER_SYSTEM_PROMPT = """
             你是智能体规划器，只输出 JSON，不要输出 Markdown。
@@ -104,6 +107,54 @@ public class ReActPlanningService {
                     List.of(
                             new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(userMessage), "webSearch"),
                             new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", "none")
+                )
+            );
+        }
+
+        if (requiresSubsidyCalculation(normalized)) {
+            log.info("ReAct 规划命中补贴计算快捷路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "问题聚焦补贴金额计算，优先走补贴工具",
+                    true,
+                    List.of(
+                            new AgentExecutionPlan.AgentStep(1, "收集并校验补贴计算所需参数", "calculateSubsidy"),
+                            new AgentExecutionPlan.AgentStep(2, "调用 calculateSubsidy 输出补贴金额和说明", "calculateSubsidy")
+                    )
+            );
+        }
+
+        if (requiresMapSearch(normalized)) {
+            log.info("ReAct 规划命中地图检索快捷路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "问题涉及门店、回收点或导航，优先走地图工具",
+                    true,
+                    List.of(
+                            new AgentExecutionPlan.AgentStep(1, "补充或使用已有位置上下文", "amap-mcp"),
+                            new AgentExecutionPlan.AgentStep(2, "调用 amap-mcp 查询附近地点并整理结果", "amap-mcp")
+                    )
+            );
+        }
+
+        if (requiresFileParsing(normalized)) {
+            log.info("ReAct 规划命中文件解析快捷路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "问题涉及发票或附件解析，优先走文件解析工具",
+                    true,
+                    List.of(
+                            new AgentExecutionPlan.AgentStep(1, "确认待解析文件类型与输入是否齐全", "parseFile"),
+                            new AgentExecutionPlan.AgentStep(2, "调用 parseFile 提取结构化字段", "parseFile")
+                    )
+            );
+        }
+
+        if (requiresPolicyLookup(normalized)) {
+            log.info("ReAct 规划命中政策检索快捷路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "问题聚焦政策规则或申请流程，优先结合知识库检索回答",
+                    false,
+                    List.of(
+                            new AgentExecutionPlan.AgentStep(1, "从知识库检索相关政策依据", "rag"),
+                            new AgentExecutionPlan.AgentStep(2, "整理规则、条件和办理流程并回答", "none")
                     )
             );
         }
@@ -139,6 +190,26 @@ public class ReActPlanningService {
                 || normalized.contains("websearch");
     }
 
+    private boolean requiresSubsidyCalculation(String normalized) {
+        return containsAny(normalized,
+                "算补贴", "补多少", "能补多少", "补贴金额", "补贴额度", "核算补贴", "国补能有多少")
+                || (containsAny(normalized, "补贴", "国补", "以旧换新")
+                && hasPrice(normalized)
+                && hasCategory(normalized));
+    }
+
+    private boolean requiresMapSearch(String normalized) {
+        return containsAny(normalized, "地图", "导航", "路线", "门店", "附近", "回收点", "高德", "amap");
+    }
+
+    private boolean requiresFileParsing(String normalized) {
+        return containsAny(normalized, "发票", "附件", "上传", "图片", "文件", "pdf", "jpg", "png");
+    }
+
+    private boolean requiresPolicyLookup(String normalized) {
+        return containsAny(normalized, "政策", "申请", "流程", "条件", "资格", "标准", "规则", "材料", "怎么办");
+    }
+
     private String summarizeQuery(String userMessage) {
         if (userMessage == null || userMessage.isBlank()) {
             return "山东以旧换新最新政策";
@@ -149,5 +220,24 @@ public class ReActPlanningService {
 
     private String normalize(String userMessage) {
         return userMessage == null ? "" : userMessage.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean hasPrice(String normalized) {
+        return PRICE_PATTERN.matcher(normalized).matches();
+    }
+
+    private boolean hasCategory(String normalized) {
+        return containsAny(normalized,
+                "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器",
+                "微波炉", "油烟机", "洗碗机", "燃气灶", "净水器");
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        for (String keyword : keywords) {
+            if (text.contains(keyword.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 }
