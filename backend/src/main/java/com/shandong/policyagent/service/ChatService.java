@@ -23,7 +23,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -137,8 +136,9 @@ public class ChatService {
                         referencesRef.set(references);
                     }
                 })
-                .map(this::toStreamDeltaEvent)
-                .filter(Objects::nonNull)
+                .map(this::extractContent)
+                .filter(content -> content != null && !content.isBlank())
+                .map(ChatStreamEvent::delta)
                 .onErrorResume(e -> {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
@@ -714,14 +714,6 @@ public class ChatService {
             return value;
         }
         return value.substring(0, maxChars).trim() + "...";
-    }
-
-    private ChatStreamEvent toStreamDeltaEvent(ChatClientResponse response) {
-        String content = extractContent(response);
-        if (content == null || content.isBlank()) {
-            return null;
-        }
-        return ChatStreamEvent.delta(content);
     }
 
     private String extractContent(ChatClientResponse response) {
