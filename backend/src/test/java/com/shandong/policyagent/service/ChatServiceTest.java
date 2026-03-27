@@ -176,7 +176,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void shouldIgnoreEmptyStreamChunks() {
+    void shouldIgnoreNullAndEmptyStreamChunks() {
         ChatClient streamingClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
         AgentExecutionPlan plan = new AgentExecutionPlan(
                 "直接回答用户问候",
@@ -186,6 +186,7 @@ class ChatServiceTest {
         ToolIntentClassifier.IntentDecision decision =
                 new ToolIntentClassifier.IntentDecision(true, "none", "", "无需工具");
 
+        ChatClientResponse nullChunk = new ChatClientResponse(null, Map.of());
         ChatClientResponse emptyChunk = chatClientResponse("");
         ChatClientResponse contentChunk = chatClientResponse("您好，我可以帮您解答山东以旧换新政策问题。");
 
@@ -195,10 +196,10 @@ class ChatServiceTest {
         when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
         when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
         when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
-        when(dynamicChatClientFactory.create(false, true)).thenReturn(streamingClient);
+        when(dynamicChatClientFactory.create(false, false)).thenReturn(streamingClient);
         when(streamingClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class))
                 .stream().chatClientResponse())
-                .thenReturn(Flux.just(emptyChunk, contentChunk));
+                .thenReturn(Flux.just(nullChunk, emptyChunk, contentChunk));
         when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
 
         List<String> deltaContents = chatService.chatStream(ChatRequest.builder()
@@ -212,6 +213,8 @@ class ChatServiceTest {
 
         assertFalse(deltaContents == null || deltaContents.isEmpty());
         assertEquals(List.of("您好，我可以帮您解答山东以旧换新政策问题。"), deltaContents);
+        verify(dynamicChatClientFactory).create(false, false);
+        verify(dynamicChatClientFactory, never()).create(false, true);
     }
 
     private ChatClientResponse chatClientResponse(String content) {

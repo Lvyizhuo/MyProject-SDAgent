@@ -74,6 +74,17 @@ public class ModelProviderService {
                 .orElseThrow(() -> new IllegalArgumentException("模型不存在: " + id));
     }
 
+    public void validateRuntimeModelBinding(Long id, ModelType expectedType) {
+        ModelProvider model = getModelEntity(id);
+        if (expectedType != null && model.getType() != expectedType) {
+            throw new IllegalArgumentException("模型类型不匹配: " + id);
+        }
+        if (!Boolean.TRUE.equals(model.getIsEnabled())) {
+            throw new IllegalArgumentException("所选模型已禁用: " + model.getName());
+        }
+        apiKeyCipherService.decrypt(model.getApiKey());
+    }
+
     @Transactional
     public ModelProvider getModelEntityForRuntime(Long id, ModelType expectedType) {
         ModelProvider model = getModelEntity(id);

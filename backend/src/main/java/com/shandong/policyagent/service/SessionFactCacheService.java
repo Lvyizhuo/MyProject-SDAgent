@@ -32,6 +32,9 @@ public class SessionFactCacheService {
             "(iphone\\s*\\d{1,2}[a-z0-9\\s+-]{0,12}|华为[\\p{IsHan}a-z0-9\\s+-]{0,12}|小米[\\p{IsHan}a-z0-9\\s+-]{0,12}|荣耀[\\p{IsHan}a-z0-9\\s+-]{0,12}|oppo[\\p{IsHan}a-z0-9\\s+-]{0,12}|vivo[\\p{IsHan}a-z0-9\\s+-]{0,12})",
             Pattern.CASE_INSENSITIVE
     );
+    private static final Pattern CATEGORY_PATTERN = Pattern.compile(
+            "(手机|平板|手表|手环|空调|冰箱|洗衣机|电视|热水器)"
+    );
     private static final String FACT_KEY_PREFIX = "chat:facts:";
 
     private final StringRedisTemplate redisTemplate;
@@ -74,6 +77,7 @@ public class SessionFactCacheService {
         }
 
         boolean hasContent = (facts.getLatestPrice() != null)
+                || !facts.getCategories().isEmpty()
                 || !facts.getRegions().isEmpty()
                 || !facts.getDeviceModels().isEmpty()
                 || (facts.getCityCode() != null && !facts.getCityCode().isBlank());
@@ -86,8 +90,11 @@ public class SessionFactCacheService {
         if (!facts.getDeviceModels().isEmpty()) {
             sb.append("\n- 设备型号：").append(String.join("、", facts.getDeviceModels()));
         }
+        if (!facts.getCategories().isEmpty()) {
+            sb.append("\n- 商品类别：").append(String.join("、", facts.getCategories()));
+        }
         if (facts.getLatestPrice() != null) {
-            sb.append("\n- 最近提及价格：").append(facts.getLatestPrice()).append("元");
+            sb.append("\n- 最近提及金额：").append(facts.getLatestPrice()).append("元");
         }
         if (!facts.getRegions().isEmpty()) {
             sb.append("\n- 地区线索：").append(String.join("、", facts.getRegions()));
@@ -160,10 +167,21 @@ public class SessionFactCacheService {
         }
     }
 
+    private void extractCategories(String message, SessionFacts facts) {
+        Matcher matcher = CATEGORY_PATTERN.matcher(message);
+        while (matcher.find()) {
+            String category = matcher.group(1).trim();
+            if (!category.isBlank()) {
+                facts.getCategories().add(category);
+            }
+        }
+    }
+
     private void applyTextFacts(String message, SessionFacts facts) {
         extractPrice(message, facts);
         extractRegions(message, facts);
         extractDeviceModels(message, facts);
+        extractCategories(message, facts);
     }
 
     private String normalize(String text) {
@@ -176,6 +194,7 @@ public class SessionFactCacheService {
 
     public static class SessionFacts {
         private Set<String> deviceModels = new LinkedHashSet<>();
+        private Set<String> categories = new LinkedHashSet<>();
         private Set<String> regions = new LinkedHashSet<>();
         private Double latestPrice;
         private String cityCode;
@@ -197,6 +216,14 @@ public class SessionFactCacheService {
 
         public void setRegions(Set<String> regions) {
             this.regions = regions == null ? new LinkedHashSet<>() : regions;
+        }
+
+        public Set<String> getCategories() {
+            return categories;
+        }
+
+        public void setCategories(Set<String> categories) {
+            this.categories = categories == null ? new LinkedHashSet<>() : categories;
         }
 
         public Double getLatestPrice() {
