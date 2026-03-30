@@ -18,21 +18,21 @@ class EmbeddingServiceTest {
         EmbeddingModelConfig config = new EmbeddingModelConfig();
         config.setDefaultModel("");
         config.setModels(List.of(
-                model("ollama:nomic-embed-text", "ollama", "nomic-embed-text:latest"),
+            model("ollama:all-minilm", "ollama", "all-minilm:latest"),
                 model("dashscope:text-embedding-v3", "dashscope", "text-embedding-v3")
         ));
 
         EmbeddingService service = new EmbeddingService(config, new ObjectMapper(), mock(RestClient.Builder.class));
 
-        assertEquals("ollama:nomic-embed-text", service.resolveDefaultModelId(null));
-        assertEquals("ollama:nomic-embed-text", service.getDefaultModel().getId());
+        assertEquals("ollama:all-minilm", service.resolveDefaultModelId(null));
+        assertEquals("ollama:all-minilm", service.getDefaultModel().getId());
     }
 
     @Test
     void shouldRejectUnknownExplicitDefaultEmbeddingModel() {
         EmbeddingModelConfig config = new EmbeddingModelConfig();
-        config.setDefaultModel("ollama:nomic-embed-text");
-        config.setModels(List.of(model("ollama:nomic-embed-text", "ollama", "nomic-embed-text:latest")));
+        config.setDefaultModel("ollama:all-minilm");
+        config.setModels(List.of(model("ollama:all-minilm", "ollama", "all-minilm:latest")));
 
         EmbeddingService service = new EmbeddingService(config, new ObjectMapper(), mock(RestClient.Builder.class));
 
@@ -44,7 +44,7 @@ class EmbeddingServiceTest {
         EmbeddingModelConfig config = new EmbeddingModelConfig();
         config.setDefaultModel("dashscope:text-embedding-v3");
         config.setModels(List.of(
-                model("ollama:nomic-embed-text", "ollama", "nomic-embed-text:latest"),
+            model("ollama:all-minilm", "ollama", "all-minilm:latest"),
                 model("dashscope:text-embedding-v3", "dashscope", "text-embedding-v3")
         ));
 
@@ -56,9 +56,9 @@ class EmbeddingServiceTest {
     @Test
     void shouldUseConfiguredMaxInputCharsForDefaultModel() {
         EmbeddingModelConfig config = new EmbeddingModelConfig();
-        config.setDefaultModel("ollama:nomic-embed-text");
+        config.setDefaultModel("ollama:all-minilm");
         config.setModels(List.of(
-                model("ollama:nomic-embed-text", "ollama", "nomic-embed-text:latest", 900)
+            model("ollama:all-minilm", "ollama", "all-minilm:latest", 900)
         ));
 
         EmbeddingService service = new EmbeddingService(config, new ObjectMapper(), mock(RestClient.Builder.class));

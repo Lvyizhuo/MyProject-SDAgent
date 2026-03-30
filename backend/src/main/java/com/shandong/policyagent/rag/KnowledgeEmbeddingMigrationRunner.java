@@ -80,7 +80,7 @@ public class KnowledgeEmbeddingMigrationRunner implements ApplicationRunner {
     private String resolveTargetModel() {
         String targetModel = migrationProperties.getTargetModel();
         if (targetModel == null || targetModel.isBlank()) {
-            return "ollama:nomic-embed-text";
+            return "ollama:all-minilm";
         }
         return targetModel.trim();
     }

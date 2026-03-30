@@ -35,8 +35,8 @@ class ModelProviderOptionsTest {
     @Test
     void shouldIncludeBuiltInEmbeddingDefaultInAgentConfigOptions() {
         EmbeddingModelConfig embeddingConfig = new EmbeddingModelConfig();
-        embeddingConfig.setDefaultModel("ollama:nomic-embed-text");
-        embeddingConfig.setModels(List.of(embeddingModel("ollama:nomic-embed-text", "ollama", "nomic-embed-text:latest")));
+        embeddingConfig.setDefaultModel("ollama:all-minilm");
+        embeddingConfig.setModels(List.of(embeddingModel("ollama:all-minilm", "ollama", "all-minilm:latest")));
         EmbeddingService embeddingService = new EmbeddingService(embeddingConfig, new ObjectMapper(), mock(RestClient.Builder.class));
 
         when(modelProviderRepository.findByTypeAndIsEnabled(ModelType.EMBEDDING, true)).thenReturn(List.of(
@@ -57,7 +57,7 @@ class ModelProviderOptionsTest {
 
         assertEquals(2, options.get("EMBEDDING").size());
         assertTrue(Boolean.TRUE.equals(options.get("EMBEDDING").getFirst().getBuiltIn()));
-        assertEquals("ollama:nomic-embed-text", options.get("EMBEDDING").getFirst().getBuiltinCode());
+        assertEquals("ollama:all-minilm", options.get("EMBEDDING").getFirst().getBuiltinCode());
         assertEquals(null, options.get("EMBEDDING").getFirst().getId());
     }
 

@@ -12,13 +12,17 @@ import com.shandong.policyagent.service.ConversationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -41,6 +45,9 @@ public class ChatController {
     private final ChatService chatService;
     private final ConversationService conversationService;
     private final ObjectMapper objectMapper;
+
+    @Value("${app.chat.mode:sync-only}")
+    private String chatMode;
 
     /**
      * 标准对话接口 - 返回完整响应
@@ -87,10 +94,19 @@ public class ChatController {
     /**
      * 流式对话接口 - SSE 推送
      */
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> chatStream(
+    @PostMapping("/stream")
+    public ResponseEntity<?> chatStream(
             @AuthenticationPrincipal User user,
             @Valid @RequestBody ChatRequest request) {
+        if (!"dual".equalsIgnoreCase(chatMode)) {
+            return ResponseEntity.status(HttpStatus.GONE)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of(
+                            "code", "STREAM_ENDPOINT_REMOVED",
+                            "message", "流式接口已下线，请改用 /api/chat 非流式接口"
+                    ));
+        }
+
         Long userId = user != null ? user.getId() : null;
         log.info("收到流式对话请求: userId={}, conversationId={}, message={}, hasImages={}", 
                 userId, request.getConversationId(), request.getMessage(), request.hasImages());
@@ -116,7 +132,7 @@ public class ChatController {
         StringBuilder responseContent = new StringBuilder();
         AtomicReference<List<ChatResponse.Reference>> responseReferences = new AtomicReference<>(List.of());
 
-        return chatService.chatStream(request)
+        Flux<String> stream = chatService.chatStream(request)
                 .doOnNext(event -> {
                     if ("delta".equals(event.getType()) && event.getContent() != null) {
                         responseContent.append(event.getContent());
@@ -137,6 +153,10 @@ public class ChatController {
                     conversationService.addMessage(finalConversationId, assistantMessage);
                     log.info("流式响应完成并保存: conversationId={}", finalConversationId);
                 });
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(stream);
     }
 
     @GetMapping("/health")

@@ -258,7 +258,7 @@ const ConfigPanel = ({ config, onSave, onReset }) => {
                 ) : key === 'EMBEDDING' ? (
                     <>
                         <option value="">
-                            {modelOptions[key]?.find((model) => model.builtIn)?.name || '系统内置默认 · ollama - nomic-embed-text:latest'}
+                            {modelOptions[key]?.find((model) => model.builtIn)?.name || '系统内置默认 · ollama - all-minilm:latest'}
                         </option>
                         {modelOptions[key]?.filter((model) => !model.builtIn).map((model) => (
                             <option key={model.id} value={model.id}>

@@ -9,6 +9,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Description;
@@ -21,7 +22,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -59,12 +65,23 @@ public class WebSearchTool {
     @Value("${app.websearch.cache.serve-stale-on-error:true}")
     private boolean serveStaleOnError;
 
+    @Value("${app.websearch.singleflight-enabled:true}")
+    private boolean singleflightEnabled;
+
+    @Value("${app.websearch.async-vector-cache:true}")
+    private boolean asyncVectorCache;
+
+    @Value("${app.websearch.stale-while-revalidate:true}")
+    private boolean staleWhileRevalidate;
+
     private final WebClient webClient;
     private final VectorStore vectorStore;
     private final ToolFailurePolicyCenter failurePolicyCenter;
     private final ToolStateManager toolStateManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private StringRedisTemplate redisTemplate;
+    private final Map<String, CompletableFuture<SearchResponse>> inFlightRequests = new ConcurrentHashMap<>();
+    private Executor chatAsyncTaskExecutor = Runnable::run;
 
     @Autowired
     public WebSearchTool(VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter,
@@ -80,6 +97,13 @@ public class WebSearchTool {
     @Autowired(required = false)
     public void setRedisTemplate(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
+    }
+
+    @Autowired(required = false)
+    public void setChatAsyncTaskExecutor(@Qualifier("chatAsyncTaskExecutor") Executor chatAsyncTaskExecutor) {
+        if (chatAsyncTaskExecutor != null) {
+            this.chatAsyncTaskExecutor = chatAsyncTaskExecutor;
+        }
     }
 
     public record SearchRequest(String query, Integer maxResults) {}
@@ -130,7 +154,7 @@ public class WebSearchTool {
                 return new SearchResponse("", List.of(), 0, "联网搜索功能当前已被管理员禁用，如需使用请联系管理员开启。");
             }
 
-            String query = request != null && request.query() != null ? request.query().trim() : "";
+            String query = normalizeQuery(request != null ? request.query() : null);
             if (query.isBlank()) {
                 return new SearchResponse(
                         "",
@@ -151,7 +175,7 @@ public class WebSearchTool {
                         "联网搜索服务未配置API密钥，请联系管理员设置 TAVILY_API_KEY 环境变量");
             }
 
-            int maxResults = request.maxResults() != null ? request.maxResults() : defaultMaxResults;
+            int maxResults = resolveMaxResults(query, request != null ? request.maxResults() : null);
             log.info("执行 Tavily 联网搜索 | 关键词={} | 最大结果数={}", query, maxResults);
 
             SearchCacheEntry cachedEntry = getCachedEntry(query, maxResults);
@@ -160,44 +184,21 @@ public class WebSearchTool {
                 return fromCache(cachedEntry, false);
             }
 
+            if (cachedEntry != null && isExpired(cachedEntry) && staleWhileRevalidate) {
+                log.info("返回过期缓存并异步刷新 | 关键词={}", query);
+                refreshCacheAsync(query, maxResults);
+                return fromCache(cachedEntry, true);
+            }
+
             try {
                 if (cachedEntry != null && isExpired(cachedEntry) && !revalidateOnExpire) {
                     log.info("缓存已过期但关闭自动重查，直接返回缓存 | 关键词={}", query);
                     return fromCache(cachedEntry, true);
                 }
-
-                TavilyResponse tavilyResponse = failurePolicyCenter.executeWithRetry(
-                        "webSearch",
-                        () -> callTavilyApi(query, maxResults),
-                        this::isRetryableError,
-                        () -> null
-                );
-                if (tavilyResponse == null) {
-                    if (cachedEntry != null && serveStaleOnError) {
-                        log.warn("联网搜索失败，返回过期缓存 | 关键词={}", query);
-                        return fromCache(cachedEntry, true);
-                    }
-                    return new SearchResponse(
-                            query,
-                            List.of(),
-                            0,
-                            failurePolicyCenter.fallbackMessage("webSearch", "上游服务超时或不可用")
-                    );
+                if (singleflightEnabled) {
+                    return executeWithSingleFlight(query, maxResults, cachedEntry);
                 }
-
-                List<SearchResult> results = convertResults(tavilyResponse);
-                String summary = buildSummary(query, tavilyResponse, results);
-
-                log.info("联网搜索完成 | 关键词={} | 结果数={}", query, results.size());
-
-                cacheSearchResponse(query, maxResults, results, summary);
-
-                // 将搜索结果缓存到向量数据库
-                if (cacheToVectorStore && !results.isEmpty()) {
-                    cacheSearchResultToVectorStore(query, tavilyResponse, results);
-                }
-
-                return new SearchResponse(query, results, results.size(), summary);
+                return executeRemoteSearch(query, maxResults, cachedEntry);
 
             } catch (Exception e) {
                 log.error("联网搜索失败 | 关键词={}", query, e);
@@ -208,6 +209,88 @@ public class WebSearchTool {
                         failurePolicyCenter.fallbackMessage("webSearch", e.getMessage()));
             }
         };
+    }
+
+    private SearchResponse executeWithSingleFlight(String query,
+                                                   int maxResults,
+                                                   SearchCacheEntry staleFallback) {
+        String requestKey = buildCacheKey(query, maxResults);
+        CompletableFuture<SearchResponse> future = inFlightRequests.computeIfAbsent(requestKey, key ->
+                CompletableFuture.supplyAsync(
+                                () -> executeRemoteSearch(query, maxResults, staleFallback),
+                                chatAsyncTaskExecutor
+                        )
+                        .whenComplete((ignored, throwable) -> inFlightRequests.remove(key))
+        );
+
+        try {
+            return future.join();
+        } catch (CompletionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException(cause == null ? exception.getMessage() : cause.getMessage(), cause);
+        }
+    }
+
+    private SearchResponse executeRemoteSearch(String query,
+                                               int maxResults,
+                                               SearchCacheEntry staleFallback) {
+        TavilyResponse tavilyResponse = failurePolicyCenter.executeWithRetry(
+                "webSearch",
+                () -> callTavilyApi(query, maxResults),
+                this::isRetryableError,
+                () -> null
+        );
+        if (tavilyResponse == null) {
+            if (staleFallback != null && serveStaleOnError) {
+                log.warn("联网搜索失败，返回过期缓存 | 关键词={}", query);
+                return fromCache(staleFallback, true);
+            }
+            return new SearchResponse(
+                    query,
+                    List.of(),
+                    0,
+                    failurePolicyCenter.fallbackMessage("webSearch", "上游服务超时或不可用")
+            );
+        }
+
+        List<SearchResult> results = convertResults(tavilyResponse);
+        String summary = buildSummary(query, tavilyResponse, results);
+
+        log.info("联网搜索完成 | 关键词={} | 结果数={}", query, results.size());
+        cacheSearchResponse(query, maxResults, results, summary);
+
+        if (cacheToVectorStore && !results.isEmpty()) {
+            if (asyncVectorCache) {
+                CompletableFuture.runAsync(
+                        () -> cacheSearchResultToVectorStore(query, tavilyResponse, results),
+                        chatAsyncTaskExecutor
+                ).exceptionally(exception -> {
+                    log.debug("异步写入向量缓存失败 | query={} | error={}", query, exception.getMessage());
+                    return null;
+                });
+            } else {
+                cacheSearchResultToVectorStore(query, tavilyResponse, results);
+            }
+        }
+
+        return new SearchResponse(query, results, results.size(), summary);
+    }
+
+    private void refreshCacheAsync(String query, int maxResults) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                if (singleflightEnabled) {
+                    executeWithSingleFlight(query, maxResults, null);
+                } else {
+                    executeRemoteSearch(query, maxResults, null);
+                }
+            } catch (Exception exception) {
+                log.debug("异步刷新联网缓存失败 | query={} | error={}", query, exception.getMessage());
+            }
+        }, chatAsyncTaskExecutor);
     }
 
     private TavilyResponse callTavilyApi(String query, int maxResults) {
@@ -336,6 +419,45 @@ public class WebSearchTool {
                 || message.contains("503")
                 || message.contains("502")
                 || message.contains("connection");
+    }
+
+    private int resolveMaxResults(String query, Integer requestedMaxResults) {
+        int base = requestedMaxResults != null ? requestedMaxResults : defaultMaxResults;
+        int clamped = Math.max(1, Math.min(base, 8));
+
+        String normalizedQuery = query == null ? "" : query.toLowerCase(Locale.ROOT);
+        if (normalizedQuery.contains("价格")
+                || normalizedQuery.contains("报价")
+                || normalizedQuery.contains("多少钱")
+                || normalizedQuery.contains("电商")) {
+            return Math.min(clamped, 3);
+        }
+        return Math.min(clamped, 5);
+    }
+
+    private String normalizeQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+
+        String normalized = query;
+        int markerIndex = normalized.indexOf("【用户城市上下文】");
+        if (markerIndex >= 0) {
+            normalized = normalized.substring(0, markerIndex);
+        }
+        markerIndex = normalized.indexOf("【用户定位上下文】");
+        if (markerIndex >= 0) {
+            normalized = normalized.substring(0, markerIndex);
+        }
+
+        normalized = normalized
+                .replaceAll("lat=\\d+(?:\\.\\d+)?", "")
+                .replaceAll("lng=\\d+(?:\\.\\d+)?", "")
+                .replaceAll("accuracy=\\d+(?:\\.\\d+)?m", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        return normalized.length() > 180 ? normalized.substring(0, 180) : normalized;
     }
 
     private String buildSummary(String query, TavilyResponse tavilyResponse, List<SearchResult> results) {

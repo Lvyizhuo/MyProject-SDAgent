@@ -16,6 +16,7 @@ import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
 import com.shandong.policyagent.tool.WebSearchTool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,9 @@ public class ChatService {
     private final ReActPlanningService planningService;
     private final ToolIntentClassifier toolIntentClassifier;
     private final SessionFactCacheService sessionFactCacheService;
+    private final FastPathService fastPathService;
+    private final QuestionSemanticCacheService questionSemanticCacheService;
+    private final RagPrefetchService ragPrefetchService;
     private final ToolFailurePolicyCenter toolFailurePolicyCenter;
     private final ModelProviderService modelProviderService;
     private final WebSearchTool webSearchTool;
@@ -54,12 +58,66 @@ public class ChatService {
     private final RagFailureDetector ragFailureDetector;
     private final KnowledgeReferenceService knowledgeReferenceService;
 
+    @Value("${app.agent.fast-path-enabled:true}")
+    private boolean fastPathEnabled;
+
+    @Value("${app.qa-cache.enabled:true}")
+    private boolean qaCacheEnabled;
+
+    @Value("${app.agent.pre-rag-enabled:true}")
+    private boolean preRagEnabled;
+
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
         String conversationId = getOrCreateConversationId(request.getConversationId());
+        String rawQuestion = request.getMessage();
 
         SessionFactCacheService.SessionFacts facts = sessionFactCacheService.mergeFacts(conversationId, request);
         String userMessage = buildUserMessage(request, facts);
+
+        if (fastPathEnabled) {
+            String directAnswer = fastPathService.tryDirectAnswer(rawQuestion, facts);
+            if (directAnswer != null && !directAnswer.isBlank()) {
+                ChatResponse response = buildResponse(conversationId, directAnswer, List.of());
+                if (qaCacheEnabled) {
+                    questionSemanticCacheService.saveAsync(rawQuestion, response, "fastPath");
+                }
+                log.info("对话完成（FastPath命中） | conversationId={}", conversationId);
+                return response;
+            }
+        }
+
+        if (qaCacheEnabled) {
+            QuestionSemanticCacheService.CachedAnswer cachedAnswer = questionSemanticCacheService.lookup(rawQuestion).orElse(null);
+            if (cachedAnswer != null) {
+                log.info("命中问答语义缓存 | conversationId={} | similarity={} | hash={}",
+                        conversationId, cachedAnswer.similarity(), cachedAnswer.questionHash());
+                return buildResponse(conversationId, cachedAnswer.answer(), cachedAnswer.references());
+            }
+        }
+
+        RagPrefetchService.RagPrefetchResult ragPrefetchResult = preRagEnabled
+                ? ragPrefetchService.prefetch(userMessage)
+                : RagPrefetchService.RagPrefetchResult.empty();
+        if (shouldReturnDirectRagAnswer(userMessage, ragPrefetchResult)) {
+            String ragPrompt = buildRagDirectAnswerPrompt(userMessage, ragPrefetchResult.contextSnippet());
+            ChatExecutionResult ragDirectResult = executeChatWithFallback(ragPrompt, conversationId, false, false);
+            ragDirectResult = ensureNonBlankResponse(ragDirectResult, null, null, conversationId);
+
+            List<ChatResponse.Reference> references = ragDirectResult.references();
+            if (references == null || references.isEmpty()) {
+                references = ragPrefetchResult.references();
+            }
+
+            ChatResponse response = buildResponse(conversationId, ragDirectResult.content(), references);
+            if (qaCacheEnabled) {
+                questionSemanticCacheService.saveAsync(rawQuestion, response, "pre-rag");
+            }
+            log.info("对话完成（RAG预检索高置信直答） | conversationId={} | topScore={}",
+                    conversationId, ragPrefetchResult.topScore());
+            return response;
+        }
+
         AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
         ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
@@ -84,18 +142,16 @@ public class ChatService {
             String content = buildDirectSubsidyAnswer(subsidyResponse);
             long duration = System.currentTimeMillis() - startTime;
             log.info("对话完成（后端直连补贴计算） | conversationId={} | 耗时={}ms", conversationId, duration);
-            return ChatResponse.builder()
-                    .id(UUID.randomUUID().toString())
-                    .conversationId(conversationId)
-                    .content(content)
-                    .references(List.of())
-                    .timestamp(LocalDateTime.now())
-                    .build();
+            ChatResponse response = buildResponse(conversationId, content, List.of());
+            if (qaCacheEnabled) {
+                questionSemanticCacheService.saveAsync(rawQuestion, response, "calculateSubsidy");
+            }
+            return response;
         }
 
-        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse, subsidyResponse);
+        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse, subsidyResponse, ragPrefetchResult);
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, subsidyResponse);
-        boolean enableRag = shouldEnableRag(plan, webSearchResponse);
+        boolean enableRag = shouldEnableRag(plan, webSearchResponse, ragPrefetchResult);
 
         ChatExecutionResult result = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
         result = ensureNonBlankResponse(result, webSearchResponse, subsidyResponse, conversationId);
@@ -103,11 +159,21 @@ public class ChatService {
         long duration = System.currentTimeMillis() - startTime;
         log.info("对话完成 | conversationId={} | 耗时={}ms", conversationId, duration);
 
+        ChatResponse response = buildResponse(conversationId, result.content(), result.references());
+        if (qaCacheEnabled) {
+            questionSemanticCacheService.saveAsync(rawQuestion, response, plan.needToolCall() ? "agent-tool" : "chat");
+        }
+        return response;
+    }
+
+    private ChatResponse buildResponse(String conversationId,
+                                       String content,
+                                       List<ChatResponse.Reference> references) {
         return ChatResponse.builder()
                 .id(UUID.randomUUID().toString())
                 .conversationId(conversationId)
-                .content(result.content())
-                .references(result.references())
+                .content(content)
+                .references(references == null ? List.of() : references)
                 .timestamp(LocalDateTime.now())
                 .build();
     }
@@ -142,9 +208,15 @@ public class ChatService {
             return Flux.just(ChatStreamEvent.delta(buildDirectSubsidyAnswer(subsidyResponse)));
         }
 
-        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse, subsidyResponse);
+        String executionPrompt = buildExecutionPrompt(
+            userMessage,
+            plan,
+            webSearchResponse,
+            subsidyResponse,
+            RagPrefetchService.RagPrefetchResult.empty()
+        );
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, subsidyResponse);
-        boolean enableRag = shouldEnableRag(plan, webSearchResponse);
+        boolean enableRag = shouldEnableRag(plan, webSearchResponse, RagPrefetchService.RagPrefetchResult.empty());
         ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, enableRag);
 
         if (plan.needToolCall()) {
@@ -246,7 +318,8 @@ public class ChatService {
     private String buildExecutionPrompt(String userMessage,
                                         AgentExecutionPlan plan,
                                         WebSearchTool.SearchResponse webSearchResponse,
-                                        SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
+                                        SubsidyCalculatorTool.SubsidyResponse subsidyResponse,
+                                        RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
         StringBuilder stepsBuilder = new StringBuilder();
         for (AgentExecutionPlan.AgentStep step : plan.steps()) {
             stepsBuilder.append(step.id())
@@ -275,6 +348,14 @@ public class ChatService {
                 5. 不要暴露内部思维链路，只输出对用户可读的结论、步骤和建议。
                 6. 若问题包含最新/实时/价格/新闻/政策动态等时效性信息，必须调用 webSearch 并给出来源链接。
                 """, userMessage, plan.summary(), plan.needToolCall(), stepsBuilder);
+
+            if (ragPrefetchResult != null && ragPrefetchResult.hasDocuments()) {
+                prompt += "\n\n【系统预检索知识库结果】\n"
+                    + ragPrefetchResult.contextSnippet()
+                    + "\n\n【补充要求】\n"
+                    + "1. 优先引用以上知识库内容回答，并保证结论与政策原文一致。\n"
+                    + "2. 若预检索结果与用户问题不完全匹配，再补充通用说明并提示补充信息。";
+            }
 
         if (subsidyResponse != null) {
             prompt += "\n\n【系统已完成补贴计算，以下结果优先作为事实依据】\n"
@@ -437,8 +518,41 @@ public class ChatService {
     }
 
     private boolean shouldEnableRag(AgentExecutionPlan plan,
-                                    WebSearchTool.SearchResponse webSearchResponse) {
-        return webSearchResponse == null && containsToolHint(plan, "rag");
+                                    WebSearchTool.SearchResponse webSearchResponse,
+                                    RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
+        if (webSearchResponse != null) {
+            return false;
+        }
+        if (ragPrefetchResult != null && ragPrefetchResult.hasDocuments()) {
+            return false;
+        }
+        return containsToolHint(plan, "rag");
+    }
+
+    private boolean shouldReturnDirectRagAnswer(String userMessage,
+                                                RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
+        if (ragPrefetchResult == null || !ragPrefetchResult.canAnswerDirectly()) {
+            return false;
+        }
+        if (!ragPrefetchResult.isPolicyLikeQuestion(userMessage)) {
+            return false;
+        }
+        return !requiresRealtimeSearch(userMessage);
+    }
+
+    private String buildRagDirectAnswerPrompt(String userMessage, String ragContext) {
+        return """
+                【用户问题】
+                %s
+
+                【知识库预检索结果】
+                %s
+
+                【回答要求】
+                1. 直接基于知识库内容给出结论，避免空泛回答。
+                2. 若政策存在适用条件，必须明确写出条件。
+                3. 输出对用户可读的最终答案，不要展示内部思考过程。
+                """.formatted(userMessage, ragContext == null ? "（无）" : ragContext);
     }
 
     private boolean requiresRuntimeToolCallback(String toolHint,

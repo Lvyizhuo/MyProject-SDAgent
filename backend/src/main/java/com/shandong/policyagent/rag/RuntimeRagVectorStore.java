@@ -49,27 +49,47 @@ public class RuntimeRagVectorStore implements VectorStore {
 
     @Override
     public List<Document> similaritySearch(SearchRequest request) {
-        String embeddingModelId = resolveEmbeddingModelId();
-        ScopeResolution knowledgeBaseScope = resolveKnowledgeBaseScope();
-        log.debug("RAG 检索使用嵌入模型: {}", embeddingModelId);
+        RetrievalContext retrievalContext = resolveRetrievalContext();
+        log.debug("RAG 检索使用嵌入模型: {}", retrievalContext.embeddingModelId());
 
-        if (knowledgeBaseScope.missing()) {
-            log.warn("知识库范围配置的文件夹不存在，返回空召回结果 | folderId={}", knowledgeBaseScope.folderId());
+        if (retrievalContext.missing()) {
+            log.warn("知识库范围配置的文件夹不存在，返回空召回结果 | folderId={}", retrievalContext.folderId());
             return List.of();
         }
 
-        if (knowledgeBaseScope.enabled()) {
+        if (retrievalContext.folderPath() != null) {
             log.debug("RAG 检索按知识库目录范围收敛: folderId={} | folderPath={}",
-                    knowledgeBaseScope.folderId(), knowledgeBaseScope.folderPath());
+                    retrievalContext.folderId(), retrievalContext.folderPath());
             return sanitizeRetrievedDocuments(multiVectorStoreService.similaritySearchInFolderScope(
-                    embeddingModelId,
+                    retrievalContext.embeddingModelId(),
                     request.getQuery(),
                     request.getTopK(),
-                    knowledgeBaseScope.folderPath()
+                    retrievalContext.folderPath()
             ));
         }
 
-        return sanitizeRetrievedDocuments(multiVectorStoreService.getVectorStore(embeddingModelId).similaritySearch(request));
+        return sanitizeRetrievedDocuments(multiVectorStoreService.getVectorStore(retrievalContext.embeddingModelId()).similaritySearch(request));
+    }
+
+    public RetrievalContext resolveRetrievalContext() {
+        String embeddingModelId = resolveEmbeddingModelId();
+        ScopeResolution scope = resolveKnowledgeBaseScope();
+        String vectorTableName = embeddingService.getModelConfig(embeddingModelId).getVectorTable();
+
+        if (scope.missing()) {
+            return new RetrievalContext(embeddingModelId, vectorTableName, scope.folderId(), null, true);
+        }
+
+        String folderPath = scope.enabled() ? scope.folderPath() : null;
+        Long folderId = scope.enabled() ? scope.folderId() : null;
+        return new RetrievalContext(embeddingModelId, vectorTableName, folderId, folderPath, false);
+    }
+
+    public record RetrievalContext(String embeddingModelId,
+                                   String vectorTableName,
+                                   Long folderId,
+                                   String folderPath,
+                                   boolean missing) {
     }
 
     private ScopeResolution resolveKnowledgeBaseScope() {

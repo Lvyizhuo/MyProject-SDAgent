@@ -340,34 +340,30 @@ public class KnowledgeService {
 
             List<Document> splitDocs = textSplitterService.splitDocuments(loadedDocs, document.getEmbeddingModel());
 
-            for (int i = 0; i < splitDocs.size(); i++) {
-                Document doc = splitDocs.get(i);
-                Map<String, Object> metadata = doc.getMetadata() == null
-                        ? new HashMap<>()
-                        : new HashMap<>(doc.getMetadata());
-                metadata.put("knowledgeDocumentId", documentId);
-                metadata.put("sourceTitle", document.getTitle());
-                metadata.put("title", document.getTitle());
-                metadata.put("documentName", document.getFileName());
-                metadata.put("source", document.getSource() == null ? "" : document.getSource());
-                metadata.put("chunkIndex", i + 1);
-                if (folderPath != null) {
-                    metadata.put("folderPath", folderPath);
-                }
-                splitDocs.set(i, new Document(UUID.randomUUID().toString(), doc.getText(), metadata));
-            }
+            int baseChunkSize = Math.max(300, getConfig().getChunkSize() == null ? 900 : getConfig().getChunkSize());
+            int childTargetChars = Math.max(180, Math.min(420, baseChunkSize / 3));
+            int childHardMaxChars = Math.max(childTargetChars, childTargetChars * 2);
 
-            if (splitDocs.isEmpty()) {
+            List<Document> indexedDocs = buildParentChildIndexDocuments(
+                    splitDocs,
+                    document,
+                    documentId,
+                    folderPath,
+                    childTargetChars,
+                    childHardMaxChars
+            );
+
+            if (indexedDocs.isEmpty()) {
                 throw new IllegalStateException("文档未提取到可入库文本，请检查文件内容或 OCR 配置");
             }
 
-            multiVectorStoreService.addDocuments(document.getEmbeddingModel(), splitDocs);
+            multiVectorStoreService.addDocuments(document.getEmbeddingModel(), indexedDocs);
 
             document.setStatus(DocumentStatus.COMPLETED);
-            document.setChunkCount(splitDocs.size());
+            document.setChunkCount(indexedDocs.size());
             documentRepository.save(document);
 
-            log.info("Document processed successfully: {} ({} chunks)", documentId, splitDocs.size());
+            log.info("Document processed successfully: {} ({} chunks)", documentId, indexedDocs.size());
 
         } catch (Exception e) {
             log.error("Failed to process document: {}", documentId, e);
@@ -384,6 +380,127 @@ public class KnowledgeService {
         return folderRepository.findById(document.getFolder().getId())
                 .map(KnowledgeFolder::getPath)
                 .orElse(null);
+    }
+
+    private List<Document> buildParentChildIndexDocuments(List<Document> parentChunks,
+                                                          KnowledgeDocument document,
+                                                          Long documentId,
+                                                          String folderPath,
+                                                          int childTargetChars,
+                                                          int childHardMaxChars) {
+        List<Document> result = new ArrayList<>();
+        if (parentChunks == null || parentChunks.isEmpty()) {
+            return result;
+        }
+
+        int chunkIndex = 1;
+        for (int i = 0; i < parentChunks.size(); i++) {
+            Document parentChunk = parentChunks.get(i);
+            if (parentChunk == null || parentChunk.getText() == null || parentChunk.getText().isBlank()) {
+                continue;
+            }
+
+            String parentChunkId = UUID.randomUUID().toString();
+            Map<String, Object> parentMetadata = parentChunk.getMetadata() == null
+                    ? new HashMap<>()
+                    : new HashMap<>(parentChunk.getMetadata());
+            parentMetadata.put("knowledgeDocumentId", documentId);
+            parentMetadata.put("sourceTitle", document.getTitle());
+            parentMetadata.put("title", document.getTitle());
+            parentMetadata.put("documentName", document.getFileName());
+            parentMetadata.put("source", document.getSource() == null ? "" : document.getSource());
+            parentMetadata.put("chunkLevel", "parent");
+            parentMetadata.put("parentChunkId", parentChunkId);
+            parentMetadata.put("parentChunkIndex", i + 1);
+            parentMetadata.put("chunkIndex", chunkIndex++);
+            parentMetadata.put("chunkChars", parentChunk.getText().length());
+            if (folderPath != null) {
+                parentMetadata.put("folderPath", folderPath);
+            }
+
+            result.add(new Document(parentChunkId, parentChunk.getText(), parentMetadata));
+
+            List<String> childChunks = splitIntoChildChunks(parentChunk.getText(), childTargetChars, childHardMaxChars);
+            for (int childIndex = 0; childIndex < childChunks.size(); childIndex++) {
+                String childText = childChunks.get(childIndex);
+                if (childText == null || childText.isBlank()) {
+                    continue;
+                }
+
+                Map<String, Object> childMetadata = new HashMap<>(parentMetadata);
+                childMetadata.put("chunkLevel", "child");
+                childMetadata.put("childChunkIndex", childIndex + 1);
+                childMetadata.put("chunkIndex", chunkIndex++);
+                childMetadata.put("chunkChars", childText.length());
+                Object splitStrategy = childMetadata.get("splitStrategy");
+                if (splitStrategy != null && !String.valueOf(splitStrategy).isBlank()) {
+                    childMetadata.put("splitStrategy", splitStrategy + "_CHILD");
+                } else {
+                    childMetadata.put("splitStrategy", "PARENT_CHILD_CHILD");
+                }
+
+                result.add(new Document(UUID.randomUUID().toString(), childText, childMetadata));
+            }
+        }
+
+        return result;
+    }
+
+    private List<String> splitIntoChildChunks(String text, int targetChars, int hardMaxChars) {
+        String normalized = text.replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .replaceAll("[ \\t]+", " ")
+                .trim();
+        if (normalized.isBlank()) {
+            return List.of();
+        }
+        if (normalized.length() <= targetChars) {
+            return List.of(normalized);
+        }
+
+        String[] sentences = normalized.split("(?<=[。！？；.!?;])\\s*");
+        List<String> assembled = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+
+        for (String sentence : sentences) {
+            String trimmed = sentence == null ? "" : sentence.trim();
+            if (trimmed.isBlank()) {
+                continue;
+            }
+            if (current.isEmpty()) {
+                current.append(trimmed);
+                continue;
+            }
+            if (current.length() + trimmed.length() + 1 <= targetChars) {
+                current.append(" ").append(trimmed);
+                continue;
+            }
+            assembled.add(current.toString().trim());
+            current.setLength(0);
+            current.append(trimmed);
+        }
+
+        if (!current.isEmpty()) {
+            assembled.add(current.toString().trim());
+        }
+        if (assembled.isEmpty()) {
+            assembled.add(normalized);
+        }
+
+        List<String> result = new ArrayList<>();
+        for (String chunk : assembled) {
+            if (chunk.length() <= hardMaxChars) {
+                result.add(chunk);
+                continue;
+            }
+            int start = 0;
+            while (start < chunk.length()) {
+                int end = Math.min(chunk.length(), start + hardMaxChars);
+                result.add(chunk.substring(start, end).trim());
+                start = end;
+            }
+        }
+        return result;
     }
 
     public Page<KnowledgeDocument> listDocuments(Long folderId, Long importJobId, String category, String tag, DocumentStatus status, String keyword, Pageable pageable) {

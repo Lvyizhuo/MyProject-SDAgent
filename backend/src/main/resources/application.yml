@@ -103,6 +103,9 @@ dashscope:
 
 # 应用配置
 app:
+  chat:
+    mode: sync-only # sync-only | dual
+
   # JWT 配置
   jwt:
     # Base64 encoded secret key (生产环境请更换)
@@ -133,26 +136,18 @@ app:
       bucket-name: policy-documents
 
     embedding:
-      default-model: ollama:nomic-embed-text
+      default-model: ollama:all-minilm
       models:
-        - id: ollama:nomic-embed-text
+        - id: ollama:all-minilm
           provider: ollama
           base-url: ${APP_EMBEDDING_OLLAMA_BASE_URL:http://localhost:11434}
-          model-name: nomic-embed-text:latest
-          dimensions: 768
-          vector-table: vector_store_ollama_nomic_768
+          model-name: all-minilm:latest
+          dimensions: 384
+          vector-table: vector_store_ollama_all_minilm_384
           max-input-chars: 900
-        - id: dashscope:text-embedding-v3
-          provider: dashscope
-          base-url: https://dashscope.aliyuncs.com/compatible-mode
-          api-key: ${DASHSCOPE_API_KEY}
-          model-name: text-embedding-v3
-          dimensions: 1024
-          vector-table: vector_store_dashscope_v3
-          max-input-chars: 6000
     migration:
       enabled: ${APP_KNOWLEDGE_MIGRATION_ENABLED:false}
-      target-model: ${APP_KNOWLEDGE_MIGRATION_TARGET_MODEL:ollama:nomic-embed-text}
+      target-model: ${APP_KNOWLEDGE_MIGRATION_TARGET_MODEL:ollama:all-minilm}
     chunking:
       default-chunk-size: 900
       min-chunk-size-chars: 250
@@ -189,6 +184,9 @@ app:
   websearch:
     enabled: true
     timeout-seconds: 15
+    singleflight-enabled: true
+    async-vector-cache: true
+    stale-while-revalidate: true
     cache-to-vectorstore: true
     cache:
       ttl-minutes: 120
@@ -205,6 +203,16 @@ app:
     planning-enabled: true
     max-planning-steps: 4
     planning-timeout-seconds: 15
+    fast-path-enabled: true
+    pre-rag-enabled: true
+    pre-rag-direct-threshold: 0.86
+    react-complexity-threshold: 0.65
+
+  qa-cache:
+    enabled: true
+    ttl-minutes: 1440
+    semantic-threshold: 0.90
+    bucket-prefix-bits: 14
 
   security:
     cors:

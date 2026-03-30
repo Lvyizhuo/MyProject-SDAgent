@@ -86,8 +86,12 @@ export const publicConfigApi = {
 };
 
 export const chatApi = {
-    async sendMessage(message, conversationId, location = null) {
+    async sendMessage(message, conversationId, imageBase64List = null, location = null) {
         const body = { message, conversationId };
+        if (imageBase64List && imageBase64List.length > 0) {
+            body.imageBase64List = imageBase64List;
+            body.imageFormat = 'jpeg';
+        }
         if (location?.latitude != null && location?.longitude != null) {
             body.latitude = location.latitude;
             body.longitude = location.longitude;
@@ -107,29 +111,6 @@ export const chatApi = {
             throw new Error('发送消息失败');
         }
         return response.json();
-    },
-
-    createStreamRequest(message, conversationId, imageBase64List = null, location = null) {
-        const body = { message, conversationId };
-        if (imageBase64List && imageBase64List.length > 0) {
-            body.imageBase64List = imageBase64List;
-            body.imageFormat = 'jpeg';
-        }
-        if (location?.latitude != null && location?.longitude != null) {
-            body.latitude = location.latitude;
-            body.longitude = location.longitude;
-            if (location.accuracy != null) {
-                body.locationAccuracy = location.accuracy;
-            }
-        }
-        return fetch(`${API_BASE}/chat/stream`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...getAuthHeaders()
-            },
-            body: JSON.stringify(body)
-        });
     }
 };
 
