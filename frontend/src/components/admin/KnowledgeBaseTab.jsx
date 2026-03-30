@@ -1222,37 +1222,79 @@ const KnowledgeBaseTab = () => {
                         setShowUploadDialog(false);
                         setUploadProgress(0);
                     }}
-                    onUpload={async ({ formData, fileName, title, fileSize }) => {
-                        const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                        setPendingDocuments(prev => [
-                            {
-                                id: tempId,
-                                title: title || fileName,
-                                fileName,
-                                fileSize,
-                                folderPath: selectedFolderId ? folders.find(f => f.id === selectedFolderId)?.path || '/' : '/',
-                                status: 'PROCESSING',
-                                chunkCount: 0,
-                                isTransient: true
-                            },
-                            ...prev
-                        ]);
+                    onUpload={async ({ items }) => {
+                        if (!items || items.length === 0) {
+                            return;
+                        }
+
+                        const flatFolders = flattenFoldersTree(folders);
+                        const folderPathById = new Map(flatFolders.map(folder => [folder.id, folder.path]));
+                        const tempDocuments = items.map(item => ({
+                            id: `tmp-${item.id}`,
+                            title: item.title || item.fileName,
+                            fileName: item.fileName,
+                            fileSize: item.fileSize,
+                            folderPath: item.folderId ? (folderPathById.get(item.folderId) || '/') : '/',
+                            status: 'PROCESSING',
+                            chunkCount: 0,
+                            isTransient: true
+                        }));
+
+                        setPendingDocuments(prev => [...tempDocuments, ...prev]);
                         setShowUploadDialog(false);
                         setUploadProgress(0);
+
+                        let successCount = 0;
+                        let failedCount = 0;
+                        const failedFiles = [];
+
                         try {
-                            const uploadedDocument = await adminKnowledgeApi.uploadDocument(formData, (progress) => {
-                                setUploadProgress(progress);
-                            });
-                            setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
-                            notify({
-                                text: `上传成功，已转入后台处理：${uploadedDocument?.title || title || fileName}`,
-                                type: 'success',
-                                source: '管理员-知识库'
-                            });
+                            for (let index = 0; index < items.length; index += 1) {
+                                const item = items[index];
+                                try {
+                                    // 顺序上传可更稳定地展示整体进度，避免并发时进度跳动
+                                    // eslint-disable-next-line no-await-in-loop
+                                    await adminKnowledgeApi.uploadDocument(item.formData, (progress) => {
+                                        const totalProgress = Math.round(((index + (progress / 100)) / items.length) * 100);
+                                        setUploadProgress(totalProgress);
+                                    });
+                                    successCount += 1;
+                                } catch (error) {
+                                    failedCount += 1;
+                                    failedFiles.push(`${item.fileName}: ${error.message}`);
+                                } finally {
+                                    setPendingDocuments(prev => prev.filter(doc => doc.id !== `tmp-${item.id}`));
+                                }
+                            }
+
+                            if (successCount > 0 && failedCount === 0) {
+                                notify({
+                                    text: `批量上传成功，${successCount} 份文档已转入后台处理`,
+                                    type: 'success',
+                                    source: '管理员-知识库'
+                                });
+                            } else if (successCount > 0) {
+                                notify({
+                                    text: `批量上传部分成功：成功 ${successCount}，失败 ${failedCount}`,
+                                    type: 'warning',
+                                    source: '管理员-知识库'
+                                });
+                            } else {
+                                notify({
+                                    text: `批量上传失败：${failedCount} 份文档均未成功`,
+                                    type: 'error',
+                                    source: '管理员-知识库'
+                                });
+                            }
+
+                            if (failedFiles.length > 0) {
+                                console.warn('批量上传失败明细:', failedFiles);
+                            }
+
                             setUploadProgress(0);
                             await loadDocuments(selectedFolderId, 0, searchQuery);
                         } catch (error) {
-                            setPendingDocuments(prev => prev.filter(doc => doc.id !== tempId));
+                            setPendingDocuments(prev => prev.filter(doc => !String(doc.id).startsWith('tmp-')));
                             notify({ text: '上传失败: ' + error.message, type: 'error', source: '管理员-知识库' });
                             setUploadProgress(0);
                         }
@@ -2038,9 +2080,9 @@ const BatchMoveDialog = ({ folders, selectedCount, defaultFolderId, onClose, onS
 const FIELD_CACHE_KEY = 'kb-upload-field-cache-v1';
 
 const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUpload, uploadProgress }) => {
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [isExtracting, setIsExtracting] = useState(false);
-    const [extractError, setExtractError] = useState('');
+    const defaultEmbeddingModel = embeddingModels.find(m => m.isDefault)?.id || embeddingModels[0]?.id || '';
+    const [drafts, setDrafts] = useState([]);
+    const [activeDraftId, setActiveDraftId] = useState('');
     const [activeFieldMenu, setActiveFieldMenu] = useState('');
     const [cache, setCache] = useState(() => {
         try {
@@ -2054,18 +2096,25 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
             return { categories: [], tags: [], sources: [] };
         }
     });
-    const [formData, setFormData] = useState({
-        folderId: defaultFolderId,
-        title: '',
-        embeddingModel: embeddingModels.find(m => m.isDefault)?.id || '',
-        category: '',
-        tags: '',
-        publishDate: '',
-        source: '',
-        validFrom: '',
-        validTo: '',
-        summary: ''
-    });
+
+    const createDraft = useCallback((file) => ({
+        id: `${file.name}-${file.lastModified}-${file.size}-${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        isExtracting: false,
+        extractError: '',
+        formData: {
+            folderId: defaultFolderId,
+            title: file.name.replace(/\.[^/.]+$/, ''),
+            embeddingModel: defaultEmbeddingModel,
+            category: '',
+            tags: '',
+            publishDate: '',
+            source: '',
+            validFrom: '',
+            validTo: '',
+            summary: ''
+        }
+    }), [defaultEmbeddingModel, defaultFolderId]);
 
     const uniquePush = (arr, value, max = 20) => {
         const normalized = (value || '').trim();
@@ -2099,80 +2148,152 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
         localStorage.setItem(FIELD_CACHE_KEY, JSON.stringify(nextCache));
     }, [cache]);
 
-    const handleFileChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            setSelectedFile(file);
-            setExtractError('');
-            setFormData(prev => ({ ...prev, title: file.name.replace(/\.[^/.]+$/, '') }));
-        }
-    };
+    const updateDraft = useCallback((draftId, updater) => {
+        setDrafts(prev => prev.map(draft => {
+            if (draft.id !== draftId) {
+                return draft;
+            }
+            return updater(draft);
+        }));
+    }, []);
 
-    const handleExtract = async () => {
-        if (!selectedFile) {
-            setExtractError('请先选择文件，再进行智能提取');
+    const handleFileChange = (e) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) {
             return;
         }
-        setExtractError('');
-        setIsExtracting(true);
-        try {
-            const metadata = await adminKnowledgeApi.extractDocumentMetadata(selectedFile);
-            setFormData(prev => ({
-                ...prev,
-                title: metadata.title || prev.title,
-                category: metadata.category || prev.category,
-                tags: mergeCsvTags(prev.tags, metadata.tags || []),
-                source: metadata.source || prev.source,
-                summary: metadata.summary || prev.summary
-            }));
-        } catch (error) {
-            setExtractError(error.message || '智能提取失败');
-        } finally {
-            setIsExtracting(false);
-        }
+
+        setDrafts(prev => {
+            const existingKeys = new Set(prev.map(item => `${item.file.name}-${item.file.lastModified}-${item.file.size}`));
+            const freshDrafts = files
+                .filter(file => !existingKeys.has(`${file.name}-${file.lastModified}-${file.size}`))
+                .map(file => createDraft(file));
+
+            const next = [...prev, ...freshDrafts];
+            if (!activeDraftId && next.length > 0) {
+                setActiveDraftId(next[0].id);
+            }
+            if (freshDrafts.length > 0) {
+                setActiveDraftId(freshDrafts[0].id);
+            }
+            return next;
+        });
+
+        e.target.value = '';
     };
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        if (!selectedFile) return;
-
-        const submitFormData = new FormData();
-        submitFormData.append('file', selectedFile);
-        if (formData.folderId) submitFormData.append('folderId', formData.folderId);
-        if (formData.title) submitFormData.append('title', formData.title);
-        if (formData.embeddingModel) submitFormData.append('embeddingModel', formData.embeddingModel);
-        if (formData.category) submitFormData.append('category', formData.category);
-        if (formData.tags) {
-            formData.tags.split(',').forEach(tag => {
-                if (tag.trim()) submitFormData.append('tags', tag.trim());
-            });
-        }
-        if (formData.publishDate) submitFormData.append('publishDate', formData.publishDate);
-        if (formData.source) submitFormData.append('source', formData.source);
-        if (formData.validFrom) submitFormData.append('validFrom', formData.validFrom);
-        if (formData.validTo) submitFormData.append('validTo', formData.validTo);
-        if (formData.summary) submitFormData.append('summary', formData.summary);
-
-        saveCache(formData);
-        onUpload({
-            formData: submitFormData,
-            fileName: selectedFile.name,
-            title: formData.title,
-            fileSize: selectedFile.size
+    const handleRemoveDraft = (draftId) => {
+        setDrafts(prev => {
+            const next = prev.filter(item => item.id !== draftId);
+            if (activeDraftId === draftId) {
+                setActiveDraftId(next[0]?.id || '');
+            }
+            return next;
         });
     };
 
-    const renderInputWithDropdown = (field, options, placeholder) => {
-        const value = formData[field] || '';
+    const mergeMetadataToDraft = (draft, metadata) => ({
+        ...draft,
+        extractError: '',
+        formData: {
+            ...draft.formData,
+            title: metadata.title || draft.formData.title,
+            category: metadata.category || draft.formData.category,
+            tags: mergeCsvTags(draft.formData.tags, metadata.tags || []),
+            source: metadata.source || draft.formData.source,
+            summary: metadata.summary || draft.formData.summary
+        }
+    });
+
+    const handleExtractSingle = async (draftId) => {
+        const targetDraft = drafts.find(item => item.id === draftId);
+        if (!targetDraft) {
+            return;
+        }
+
+        updateDraft(draftId, draft => ({ ...draft, isExtracting: true, extractError: '' }));
+        try {
+            const metadata = await adminKnowledgeApi.extractDocumentMetadata(targetDraft.file);
+            updateDraft(draftId, draft => mergeMetadataToDraft(draft, metadata));
+        } catch (error) {
+            updateDraft(draftId, draft => ({ ...draft, extractError: error.message || '智能提取失败' }));
+        } finally {
+            updateDraft(draftId, draft => ({ ...draft, isExtracting: false }));
+        }
+    };
+
+    const handleExtractAll = async () => {
+        if (drafts.length === 0) {
+            return;
+        }
+
+        for (const draft of drafts) {
+            // 顺序提取，避免并发过高导致后端提取超时
+            // eslint-disable-next-line no-await-in-loop
+            await handleExtractSingle(draft.id);
+        }
+    };
+
+    const activeDraft = drafts.find(item => item.id === activeDraftId) || drafts[0] || null;
+    const extractingCount = drafts.filter(item => item.isExtracting).length;
+    const hasErrors = drafts.some(item => item.extractError);
+    const canSubmit = drafts.length > 0 && uploadProgress <= 0 && extractingCount === 0;
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (drafts.length === 0) return;
+
+        const items = drafts.map(draft => {
+            const submitFormData = new FormData();
+            submitFormData.append('file', draft.file);
+            if (draft.formData.folderId) submitFormData.append('folderId', draft.formData.folderId);
+            if (draft.formData.title) submitFormData.append('title', draft.formData.title);
+            if (draft.formData.embeddingModel) submitFormData.append('embeddingModel', draft.formData.embeddingModel);
+            if (draft.formData.category) submitFormData.append('category', draft.formData.category);
+            if (draft.formData.tags) {
+                draft.formData.tags.split(',').forEach(tag => {
+                    if (tag.trim()) submitFormData.append('tags', tag.trim());
+                });
+            }
+            if (draft.formData.publishDate) submitFormData.append('publishDate', draft.formData.publishDate);
+            if (draft.formData.source) submitFormData.append('source', draft.formData.source);
+            if (draft.formData.validFrom) submitFormData.append('validFrom', draft.formData.validFrom);
+            if (draft.formData.validTo) submitFormData.append('validTo', draft.formData.validTo);
+            if (draft.formData.summary) submitFormData.append('summary', draft.formData.summary);
+
+            saveCache(draft.formData);
+            return {
+                id: draft.id,
+                fileName: draft.file.name,
+                fileSize: draft.file.size,
+                title: draft.formData.title,
+                folderId: draft.formData.folderId,
+                formData: submitFormData
+            };
+        });
+
+        onUpload({ items });
+    };
+
+    const renderInputWithDropdown = (draftId, field, options, placeholder) => {
+        const draft = drafts.find(item => item.id === draftId);
+        const value = draft?.formData?.[field] || '';
         const hasOptions = Array.isArray(options) && options.length > 0;
-        const isOpen = activeFieldMenu === field;
+        const menuKey = `${draftId}:${field}`;
+        const isOpen = activeFieldMenu === menuKey;
 
         return (
             <div className="input-with-menu">
                 <input
                     type="text"
                     value={value}
-                    onChange={e => setFormData(prev => ({ ...prev, [field]: e.target.value }))}
+                    onChange={e => updateDraft(draftId, item => ({
+                        ...item,
+                        formData: {
+                            ...item.formData,
+                            [field]: e.target.value
+                        }
+                    }))}
                     placeholder={placeholder}
                 />
                 <button
@@ -2180,7 +2301,7 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                     className="input-menu-toggle"
                     title="选择历史值"
                     disabled={!hasOptions}
-                    onClick={() => setActiveFieldMenu(prev => (prev === field ? '' : field))}
+                    onClick={() => setActiveFieldMenu(prev => (prev === menuKey ? '' : menuKey))}
                 >
                     <ChevronDown size={14} />
                 </button>
@@ -2192,11 +2313,24 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                                 type="button"
                                 className="input-menu-item"
                                 onClick={() => {
-                                    if (field === 'tags') {
-                                        setFormData(prev => ({ ...prev, tags: mergeCsvTags(prev.tags, [option]) }));
-                                    } else {
-                                        setFormData(prev => ({ ...prev, [field]: option }));
-                                    }
+                                    updateDraft(draftId, item => {
+                                        if (field === 'tags') {
+                                            return {
+                                                ...item,
+                                                formData: {
+                                                    ...item.formData,
+                                                    tags: mergeCsvTags(item.formData.tags, [option])
+                                                }
+                                            };
+                                        }
+                                        return {
+                                            ...item,
+                                            formData: {
+                                                ...item.formData,
+                                                [field]: option
+                                            }
+                                        };
+                                    });
                                     setActiveFieldMenu('');
                                 }}
                             >
@@ -2213,125 +2347,200 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
         <div className="dialog-overlay" onClick={onClose}>
             <div className="dialog upload-dialog" onClick={e => e.stopPropagation()}>
                 <div className="dialog-header">
-                    <h3>上传文档</h3>
+                    <h3>批量上传文档</h3>
                     <button className="btn-close" onClick={onClose}>
                         <X size={20} />
                     </button>
                 </div>
                 <form className="dialog-body" onSubmit={handleSubmit}>
                     <div className="upload-dropzone">
-                        {selectedFile ? (
-                            <div className="selected-file">
-                                <FileText size={32} />
-                                <div className="file-info">
-                                    <div className="file-name">{selectedFile.name}</div>
-                                    <div className="file-size">{(selectedFile.size / 1024).toFixed(1)} KB</div>
-                                </div>
-                                <button type="button" className="btn-remove" onClick={() => setSelectedFile(null)}>
-                                    <X size={16} />
-                                </button>
-                            </div>
-                        ) : (
-                            <label className="dropzone-label">
-                                <Upload size={32} />
-                                <p>点击或拖拽文件到此处</p>
-                                <p className="file-types">支持 PDF, DOC, DOCX, MD, TXT, HTML</p>
-                                <input type="file" onChange={handleFileChange} accept=".pdf,.doc,.docx,.md,.txt,.html" />
-                            </label>
-                        )}
-                    </div>
-
-                    <div className="extract-toolbar">
-                        <button
-                            type="button"
-                            className="btn-secondary"
-                            onClick={handleExtract}
-                            disabled={!selectedFile || isExtracting}
-                        >
-                            {isExtracting ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                            {isExtracting ? '提取中...' : '智能提取'}
-                        </button>
-                        <span>自动填充分类、标签、来源、摘要，提交前请人工审核</span>
-                    </div>
-                    {extractError && <div className="extract-error">{extractError}</div>}
-
-                    <div className="form-grid">
-                        <div className="form-group">
-                            <label>目标文件夹</label>
-                            <select
-                                value={formData.folderId || ''}
-                                onChange={e => setFormData(prev => ({ ...prev, folderId: e.target.value ? Number(e.target.value) : null }))}
-                            >
-                                <option value="">根目录</option>
-                                {flattenFoldersTree(folders).map(folder => (
-                                    <option key={folder.id} value={folder.id}>
-                                        {' '.repeat(folder.depth * 2)}{folder.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="form-group">
-                            <label>嵌入模型</label>
-                            <select
-                                value={formData.embeddingModel}
-                                onChange={e => setFormData(prev => ({ ...prev, embeddingModel: e.target.value }))}
-                            >
-                                {embeddingModels.map(model => (
-                                    <option key={model.id} value={model.id}>
-                                        {model.name} ({model.dimensions}维)
-                                        {model.isDefault && ' (默认)'}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="form-group">
-                        <label>文档标题</label>
-                        <input
-                            type="text"
-                            value={formData.title}
-                            onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                            placeholder="请输入文档标题"
-                        />
-                    </div>
-
-                    <div className="form-grid">
-                        <div className="form-group">
-                            <label>分类</label>
-                            {renderInputWithDropdown('category', cache.categories, '如: 补贴政策')}
-                        </div>
-                        <div className="form-group">
-                            <label>标签 (逗号分隔)</label>
-                            {renderInputWithDropdown('tags', cache.tags, '如: 济南市, 2024, 以旧换新')}
-                        </div>
-                    </div>
-
-                    <div className="form-grid">
-                        <div className="form-group">
-                            <label>发布日期</label>
+                        <label className="dropzone-label">
+                            <Upload size={32} />
+                            <p>点击或拖拽文件到此处（可多选）</p>
+                            <p className="file-types">支持 PDF, DOC, DOCX, MD, TXT, HTML</p>
                             <input
-                                type="date"
-                                value={formData.publishDate}
-                                onChange={e => setFormData(prev => ({ ...prev, publishDate: e.target.value }))}
+                                type="file"
+                                onChange={handleFileChange}
+                                accept=".pdf,.doc,.docx,.md,.txt,.html"
+                                multiple
                             />
-                        </div>
-                        <div className="form-group">
-                            <label>来源</label>
-                            {renderInputWithDropdown('source', cache.sources, '如: 济南市人民政府')}
-                        </div>
+                        </label>
                     </div>
 
-                    <div className="form-group">
-                        <label>摘要</label>
-                        <textarea
-                            value={formData.summary}
-                            onChange={e => setFormData(prev => ({ ...prev, summary: e.target.value }))}
-                            rows={3}
-                            placeholder="文档摘要（可选）"
-                        />
-                    </div>
+                    {drafts.length > 0 && (
+                        <>
+                            <div className="upload-file-queue">
+                                {drafts.map(draft => (
+                                    <button
+                                        key={draft.id}
+                                        type="button"
+                                        className={`selected-file ${activeDraft?.id === draft.id ? 'active' : ''}`}
+                                        onClick={() => setActiveDraftId(draft.id)}
+                                    >
+                                        <FileText size={28} />
+                                        <div className="file-info">
+                                            <div className="file-name">{draft.file.name}</div>
+                                            <div className="file-size">
+                                                {(draft.file.size / 1024).toFixed(1)} KB
+                                                {draft.isExtracting ? ' · 提取中' : ''}
+                                                {draft.extractError ? ' · 提取失败' : ''}
+                                            </div>
+                                        </div>
+                                        <span
+                                            className="btn-remove"
+                                            onClick={event => {
+                                                event.stopPropagation();
+                                                handleRemoveDraft(draft.id);
+                                            }}
+                                        >
+                                            <X size={16} />
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="extract-toolbar">
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={() => activeDraft && handleExtractSingle(activeDraft.id)}
+                                    disabled={!activeDraft || extractingCount > 0}
+                                >
+                                    {extractingCount > 0 ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                                    智能提取当前
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={handleExtractAll}
+                                    disabled={drafts.length === 0 || extractingCount > 0}
+                                >
+                                    {extractingCount > 0 ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                                    一键提取全部
+                                </button>
+                                <span>
+                                    自动提取分类、标签、来源、摘要。请逐条审核后再批量入库（共 {drafts.length} 份）。
+                                </span>
+                            </div>
+
+                            {activeDraft && (
+                                <>
+                                    <div className="upload-active-file-title">正在编辑：{activeDraft.file.name}</div>
+                                    {activeDraft.extractError && (
+                                        <div className="extract-error">{activeDraft.extractError}</div>
+                                    )}
+
+                                    <div className="form-grid">
+                                        <div className="form-group">
+                                            <label>目标文件夹</label>
+                                            <select
+                                                value={activeDraft.formData.folderId || ''}
+                                                onChange={e => updateDraft(activeDraft.id, draft => ({
+                                                    ...draft,
+                                                    formData: {
+                                                        ...draft.formData,
+                                                        folderId: e.target.value ? Number(e.target.value) : null
+                                                    }
+                                                }))}
+                                            >
+                                                <option value="">根目录</option>
+                                                {flattenFoldersTree(folders).map(folder => (
+                                                    <option key={folder.id} value={folder.id}>
+                                                        {' '.repeat(folder.depth * 2)}{folder.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="form-group">
+                                            <label>嵌入模型</label>
+                                            <select
+                                                value={activeDraft.formData.embeddingModel}
+                                                onChange={e => updateDraft(activeDraft.id, draft => ({
+                                                    ...draft,
+                                                    formData: {
+                                                        ...draft.formData,
+                                                        embeddingModel: e.target.value
+                                                    }
+                                                }))}
+                                            >
+                                                {embeddingModels.map(model => (
+                                                    <option key={model.id} value={model.id}>
+                                                        {model.name} ({model.dimensions}维)
+                                                        {model.isDefault && ' (默认)'}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>文档标题</label>
+                                        <input
+                                            type="text"
+                                            value={activeDraft.formData.title}
+                                            onChange={e => updateDraft(activeDraft.id, draft => ({
+                                                ...draft,
+                                                formData: {
+                                                    ...draft.formData,
+                                                    title: e.target.value
+                                                }
+                                            }))}
+                                            placeholder="请输入文档标题"
+                                        />
+                                    </div>
+
+                                    <div className="form-grid">
+                                        <div className="form-group">
+                                            <label>分类</label>
+                                            {renderInputWithDropdown(activeDraft.id, 'category', cache.categories, '如: 补贴政策')}
+                                        </div>
+                                        <div className="form-group">
+                                            <label>标签 (逗号分隔)</label>
+                                            {renderInputWithDropdown(activeDraft.id, 'tags', cache.tags, '如: 济南市, 2024, 以旧换新')}
+                                        </div>
+                                    </div>
+
+                                    <div className="form-grid">
+                                        <div className="form-group">
+                                            <label>发布日期</label>
+                                            <input
+                                                type="date"
+                                                value={activeDraft.formData.publishDate}
+                                                onChange={e => updateDraft(activeDraft.id, draft => ({
+                                                    ...draft,
+                                                    formData: {
+                                                        ...draft.formData,
+                                                        publishDate: e.target.value
+                                                    }
+                                                }))}
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>来源</label>
+                                            {renderInputWithDropdown(activeDraft.id, 'source', cache.sources, '如: 济南市人民政府')}
+                                        </div>
+                                    </div>
+
+                                    <div className="form-group">
+                                        <label>摘要</label>
+                                        <textarea
+                                            value={activeDraft.formData.summary}
+                                            onChange={e => updateDraft(activeDraft.id, draft => ({
+                                                ...draft,
+                                                formData: {
+                                                    ...draft.formData,
+                                                    summary: e.target.value
+                                                }
+                                            }))}
+                                            rows={3}
+                                            placeholder="文档摘要（可选）"
+                                        />
+                                    </div>
+                                </>
+                            )}
+                        </>
+                    )}
 
                     {uploadProgress > 0 && (
                         <div className="upload-progress">
@@ -2342,12 +2551,16 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                         </div>
                     )}
 
+                    {hasErrors && (
+                        <div className="extract-error">存在提取失败项，请人工确认后再上传。</div>
+                    )}
+
                     <div className="dialog-footer">
                         <button type="button" className="btn-secondary" onClick={onClose}>
                             取消
                         </button>
-                        <button type="submit" className="btn-primary" disabled={!selectedFile || uploadProgress > 0}>
-                            上传并解析
+                        <button type="submit" className="btn-primary" disabled={!canSubmit}>
+                            一键上传入库 ({drafts.length})
                         </button>
                     </div>
                 </form>

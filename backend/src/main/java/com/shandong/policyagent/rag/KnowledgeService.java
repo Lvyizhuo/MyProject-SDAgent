@@ -143,6 +143,7 @@ public class KnowledgeService {
 
         KnowledgeFolder folder = folderId != null ? folderRepository.findById(folderId).orElse(null) : null;
         String folderPath = folder != null ? folder.getPath() : "/";
+        String resolvedFileType = storageService.resolveContentType(file.getOriginalFilename(), file.getContentType());
 
         EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
 
@@ -153,7 +154,7 @@ public class KnowledgeService {
                 .title(title != null ? title : file.getOriginalFilename())
                 .fileName(file.getOriginalFilename())
                 .fileSize(file.getSize())
-                .fileType(file.getContentType())
+                .fileType(resolvedFileType)
                 .storagePath(storagePath)
                 .storageBucket(minioConfig.getBucketName())
                 .embeddingModel(embeddingModelId)
@@ -207,7 +208,7 @@ public class KnowledgeService {
                 .title(documentTitle)
                 .fileName(fileName)
                 .fileSize((long) text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
-                .fileType("text/plain")
+                .fileType("text/plain; charset=UTF-8")
                 .storagePath(storagePath)
                 .storageBucket(minioConfig.getBucketName())
                 .embeddingModel(embeddingModelId)
@@ -252,7 +253,7 @@ public class KnowledgeService {
         String folderPath = folder != null ? folder.getPath() : "/";
         String safeFileName = fileName == null || fileName.isBlank() ? "imported-document.bin" : fileName.trim();
         String safeTitle = title == null || title.isBlank() ? safeFileName : title.trim();
-        String safeFileType = fileType == null || fileType.isBlank() ? "application/octet-stream" : fileType;
+        String safeFileType = storageService.resolveContentType(safeFileName, fileType);
 
         EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
         String storagePath = storageService.storeBytes(fileBytes, folderPath, safeFileName, safeFileType);
@@ -566,7 +567,7 @@ public class KnowledgeService {
     public String getDocumentPreviewUrl(Long id, int expirationMinutes) {
         KnowledgeDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
-        return storageService.getPresignedUrl(document.getStoragePath(), expirationMinutes);
+        return storageService.getPresignedPreviewUrl(document.getStoragePath(), document.getFileType(), expirationMinutes);
     }
 
     @Transactional
