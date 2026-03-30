@@ -336,19 +336,13 @@ public class QuestionSemanticCacheService {
     }
 
     private boolean shouldBypassCache(String rawQuestion, String answer) {
-        String normalizedQuestion = normalizeQuestion(rawQuestion);
         String normalizedAnswer = answer.toLowerCase(Locale.ROOT);
 
         if (normalizedAnswer.contains("暂时不可用") || normalizedAnswer.contains("稍后重试")) {
             return true;
         }
 
-        return normalizedQuestion.contains("最新")
-                || normalizedQuestion.contains("实时")
-                || normalizedQuestion.contains("今日")
-                || normalizedQuestion.contains("新闻")
-                || normalizedQuestion.contains("动态")
-                || normalizedQuestion.contains("价格");
+        return false;
     }
 
     private String normalizeQuestion(String rawQuestion) {

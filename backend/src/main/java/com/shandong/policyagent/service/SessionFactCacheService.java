@@ -26,10 +26,16 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class SessionFactCacheService {
 
+    public enum FactSource {
+        USER_INPUT,
+        WEB_SEARCH,
+        ASSISTANT_RESPONSE
+    }
+
     private static final Pattern PRICE_PATTERN = Pattern.compile("(?<!\\d)(\\d{3,6}(?:\\.\\d{1,2})?)\\s*(元|rmb|¥|￥)");
     private static final Pattern REGION_PATTERN = Pattern.compile("([\\p{IsHan}]{2,}(?:省|市|区|县))");
     private static final Pattern DEVICE_PATTERN = Pattern.compile(
-            "(iphone\\s*\\d{1,2}[a-z0-9\\s+-]{0,12}|华为[\\p{IsHan}a-z0-9\\s+-]{0,12}|小米[\\p{IsHan}a-z0-9\\s+-]{0,12}|荣耀[\\p{IsHan}a-z0-9\\s+-]{0,12}|oppo[\\p{IsHan}a-z0-9\\s+-]{0,12}|vivo[\\p{IsHan}a-z0-9\\s+-]{0,12})",
+            "(iphone\\s*\\d{1,2}[a-z0-9\\s+-]{0,12}|华为[\\p{IsHan}a-z0-9\\s+-]{0,12}|小米[\\p{IsHan}a-z0-9\\s+-]{0,12}|荣耀[\\p{IsHan}a-z0-9\\s+-]{0,12}|oppo[\\p{IsHan}a-z0-9\\s+-]{0,12}|vivo[\\p{IsHan}a-z0-9\\s+-]{0,12}|macbook\\s*[a-z0-9\\s+-]{0,18}|thinkpad\\s*[a-z0-9\\s+-]{0,18}|surface\\s*[a-z0-9\\s+-]{0,18})",
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern CATEGORY_PATTERN = Pattern.compile(
@@ -48,7 +54,7 @@ public class SessionFactCacheService {
         SessionFacts merged = existing == null ? new SessionFacts() : existing;
 
         String message = request == null ? "" : safe(request.getMessage());
-        applyTextFacts(message, merged);
+        applyTextFacts(message, merged, FactSource.USER_INPUT);
 
         if (request != null) {
             if (request.getCityCode() != null && !request.getCityCode().isBlank()) {
@@ -65,9 +71,25 @@ public class SessionFactCacheService {
         return merged;
     }
 
+    public SessionFacts mergeFactsFromText(String conversationId, String text) {
+        return mergeFactsFromText(conversationId, text, FactSource.ASSISTANT_RESPONSE);
+    }
+
+    public SessionFacts mergeFactsFromText(String conversationId, String text, FactSource source) {
+        if (conversationId == null || conversationId.isBlank() || text == null || text.isBlank()) {
+            return loadFacts(conversationId);
+        }
+        SessionFacts existing = loadFacts(conversationId);
+        SessionFacts merged = existing == null ? new SessionFacts() : existing;
+        applyTextFacts(text, merged, source == null ? FactSource.ASSISTANT_RESPONSE : source);
+        merged.setUpdatedAt(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        saveFacts(conversationId, merged);
+        return merged;
+    }
+
     SessionFacts extractFactsFromText(String message) {
         SessionFacts facts = new SessionFacts();
-        applyTextFacts(message, facts);
+        applyTextFacts(message, facts, FactSource.USER_INPUT);
         return facts;
     }
 
@@ -137,9 +159,13 @@ public class SessionFactCacheService {
     }
 
     private void extractPrice(String message, SessionFacts facts) {
-        Matcher matcher = PRICE_PATTERN.matcher(normalize(message));
+        String normalizedMessage = normalize(message);
+        Matcher matcher = PRICE_PATTERN.matcher(normalizedMessage);
         Double latest = null;
         while (matcher.find()) {
+            if (isLikelySubsidyAmount(normalizedMessage, matcher.start(), matcher.end())) {
+                continue;
+            }
             latest = Double.parseDouble(matcher.group(1));
         }
         if (latest != null) {
@@ -177,11 +203,50 @@ public class SessionFactCacheService {
         }
     }
 
-    private void applyTextFacts(String message, SessionFacts facts) {
-        extractPrice(message, facts);
-        extractRegions(message, facts);
-        extractDeviceModels(message, facts);
-        extractCategories(message, facts);
+    private void applyTextFacts(String message, SessionFacts facts, FactSource source) {
+        if (source == FactSource.USER_INPUT || source == FactSource.WEB_SEARCH) {
+            extractPrice(message, facts);
+            extractDeviceModels(message, facts);
+            if (source == FactSource.USER_INPUT) {
+                extractCategories(message, facts);
+                extractRegions(message, facts);
+            }
+            inferCategoriesFromDeviceModels(facts);
+            return;
+        }
+
+        if (source == FactSource.ASSISTANT_RESPONSE) {
+            extractDeviceModels(message, facts);
+            inferCategoriesFromDeviceModels(facts);
+        }
+    }
+
+    private boolean isLikelySubsidyAmount(String normalizedMessage, int start, int end) {
+        int from = Math.max(0, start - 12);
+        int to = Math.min(normalizedMessage.length(), end + 12);
+        String window = normalizedMessage.substring(from, to);
+        return containsAny(window, "补贴", "可获补贴", "实际补贴", "补贴额度", "优惠", "减免");
+    }
+
+    private void inferCategoriesFromDeviceModels(SessionFacts facts) {
+        if (facts == null || facts.getDeviceModels().isEmpty()) {
+            return;
+        }
+        for (String model : facts.getDeviceModels()) {
+            String normalized = normalize(model);
+            if (containsAny(normalized, "iphone", "华为", "小米", "荣耀", "oppo", "vivo", "手机")) {
+                facts.getCategories().add("手机");
+            }
+            if (containsAny(normalized, "ipad", "平板")) {
+                facts.getCategories().add("平板");
+            }
+            if (containsAny(normalized, "watch", "手表", "手环")) {
+                facts.getCategories().add("手表");
+            }
+            if (containsAny(normalized, "macbook", "thinkpad", "surface", "笔记本")) {
+                facts.getCategories().add("笔记本");
+            }
+        }
     }
 
     private String normalize(String text) {
@@ -190,6 +255,18 @@ public class SessionFactCacheService {
 
     private String safe(String text) {
         return text == null ? "" : text;
+    }
+
+    private boolean containsAny(String text, String... patterns) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        for (String pattern : patterns) {
+            if (text.contains(pattern.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static class SessionFacts {

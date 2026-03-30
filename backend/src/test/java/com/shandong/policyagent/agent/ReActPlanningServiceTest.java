@@ -59,4 +59,13 @@ class ReActPlanningServiceTest {
         assertEquals("rag", plan.steps().getFirst().toolHint());
         verifyNoInteractions(chatModel, planParser);
     }
+
+    @Test
+    void shouldTreatSubsidyAfterPriceQuestionAsSubsidyShortcut() {
+        AgentExecutionPlan plan = planningService.createPlan("conv-4", "根据26年的补贴政策，帮我计算下补贴后的价格");
+
+        assertTrue(plan.needToolCall());
+        assertEquals("calculateSubsidy", plan.steps().getFirst().toolHint());
+        verifyNoInteractions(chatModel, planParser);
+    }
 }
