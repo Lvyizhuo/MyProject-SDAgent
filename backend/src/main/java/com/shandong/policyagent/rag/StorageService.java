@@ -14,6 +14,9 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -45,6 +48,7 @@ public class StorageService {
     public String storeFile(MultipartFile file, String folderPath) {
         ensureBucketExists();
         String storagePath = buildStoragePath(folderPath, file.getOriginalFilename());
+        String contentType = resolveContentType(file.getOriginalFilename(), file.getContentType());
 
         try (InputStream inputStream = file.getInputStream()) {
             minioClient.putObject(
@@ -52,10 +56,10 @@ public class StorageService {
                             .bucket(minioConfig.getBucketName())
                             .object(storagePath)
                             .stream(inputStream, file.getSize(), -1)
-                            .contentType(file.getContentType())
+                            .contentType(contentType)
                             .build()
             );
-            log.info("Stored file to MinIO: {}", storagePath);
+            log.info("Stored file to MinIO: {} | contentType={}", storagePath, contentType);
             return storagePath;
         } catch (Exception e) {
             log.error("Failed to store file to MinIO", e);
@@ -66,16 +70,17 @@ public class StorageService {
     public String storeBytes(byte[] bytes, String folderPath, String fileName, String contentType) {
         ensureBucketExists();
         String storagePath = buildStoragePath(folderPath, fileName);
+        String resolvedContentType = resolveContentType(fileName, contentType);
         try (InputStream inputStream = new ByteArrayInputStream(bytes)) {
             minioClient.putObject(
                     PutObjectArgs.builder()
                             .bucket(minioConfig.getBucketName())
                             .object(storagePath)
                             .stream(inputStream, bytes.length, -1)
-                            .contentType(contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType)
+                            .contentType(resolvedContentType)
                             .build()
             );
-            log.info("Stored bytes to MinIO: {}", storagePath);
+            log.info("Stored bytes to MinIO: {} | contentType={}", storagePath, resolvedContentType);
             return storagePath;
         } catch (Exception e) {
             log.error("Failed to store bytes to MinIO", e);
@@ -115,6 +120,30 @@ public class StorageService {
         } catch (Exception e) {
             log.error("Failed to generate presigned URL: {}", storagePath, e);
             throw new RuntimeException("Failed to generate download URL", e);
+        }
+    }
+
+    public String getPresignedPreviewUrl(String storagePath, String fileType, int expirationMinutes) {
+        try {
+            Map<String, String> extraQueryParams = new HashMap<>();
+            String normalizedType = resolveContentType(storagePath, fileType);
+            if (normalizedType != null && !normalizedType.isBlank()) {
+                extraQueryParams.put("response-content-type", normalizedType);
+            }
+            extraQueryParams.put("response-content-disposition", "inline");
+
+            return minioClient.getPresignedObjectUrl(
+                    GetPresignedObjectUrlArgs.builder()
+                            .bucket(minioConfig.getBucketName())
+                            .object(normalizeStoragePath(storagePath))
+                            .method(Method.GET)
+                            .expiry(expirationMinutes, TimeUnit.MINUTES)
+                            .extraQueryParams(extraQueryParams)
+                            .build()
+            );
+        } catch (Exception e) {
+            log.error("Failed to generate preview URL: {}", storagePath, e);
+            throw new RuntimeException("Failed to generate preview URL", e);
         }
     }
 
@@ -167,5 +196,51 @@ public class StorageService {
             normalized = normalized.substring(1);
         }
         return normalized;
+    }
+
+    public String resolveContentType(String fileName, String rawContentType) {
+        String normalized = rawContentType == null ? "" : rawContentType.trim();
+        if (!normalized.isBlank()) {
+            return withUtf8ForText(normalized);
+        }
+
+        String extension = resolveFileExtension(fileName);
+        return switch (extension) {
+            case "pdf" -> "application/pdf";
+            case "doc" -> "application/msword";
+            case "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            case "md" -> "text/markdown; charset=UTF-8";
+            case "txt" -> "text/plain; charset=UTF-8";
+            case "html", "htm" -> "text/html; charset=UTF-8";
+            case "csv" -> "text/csv; charset=UTF-8";
+            case "json" -> "application/json; charset=UTF-8";
+            case "xml" -> "application/xml; charset=UTF-8";
+            default -> "application/octet-stream";
+        };
+    }
+
+    private String withUtf8ForText(String contentType) {
+        String normalizedLower = contentType.toLowerCase(Locale.ROOT);
+        if (normalizedLower.contains("charset=")) {
+            return contentType;
+        }
+        if (normalizedLower.startsWith("text/")
+                || normalizedLower.startsWith("application/json")
+                || normalizedLower.startsWith("application/xml")
+                || normalizedLower.startsWith("application/javascript")) {
+            return contentType + "; charset=UTF-8";
+        }
+        return contentType;
+    }
+
+    private String resolveFileExtension(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "";
+        }
+        int index = fileName.lastIndexOf('.');
+        if (index < 0 || index == fileName.length() - 1) {
+            return "";
+        }
+        return fileName.substring(index + 1).toLowerCase(Locale.ROOT);
     }
 }

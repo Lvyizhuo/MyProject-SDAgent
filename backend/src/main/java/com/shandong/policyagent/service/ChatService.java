@@ -23,8 +23,12 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -67,6 +71,12 @@ public class ChatService {
     @Value("${app.agent.pre-rag-enabled:true}")
     private boolean preRagEnabled;
 
+    @Value("${app.agent.high-confidence-reference-threshold:0.86}")
+    private double highConfidenceReferenceThreshold;
+
+    @Value("${app.qa-cache.high-confidence-threshold:0.95}")
+    private double qaCacheHighConfidenceThreshold;
+
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
         String conversationId = getOrCreateConversationId(request.getConversationId());
@@ -90,9 +100,14 @@ public class ChatService {
         if (qaCacheEnabled) {
             QuestionSemanticCacheService.CachedAnswer cachedAnswer = questionSemanticCacheService.lookup(rawQuestion).orElse(null);
             if (cachedAnswer != null) {
+                List<ChatResponse.Reference> cacheReferences = cachedAnswer.references();
+                if (cachedAnswer.similarity() >= qaCacheHighConfidenceThreshold) {
+                    RagPrefetchService.RagPrefetchResult cachePrefetchResult = ragPrefetchService.prefetch(rawQuestion);
+                    cacheReferences = mergeReferencesPreferRich(cacheReferences, cachePrefetchResult.references());
+                }
                 log.info("命中问答语义缓存 | conversationId={} | similarity={} | hash={}",
                         conversationId, cachedAnswer.similarity(), cachedAnswer.questionHash());
-                return buildResponse(conversationId, cachedAnswer.answer(), cachedAnswer.references());
+                return buildResponse(conversationId, cachedAnswer.answer(), cacheReferences);
             }
         }
 
@@ -105,9 +120,7 @@ public class ChatService {
             ragDirectResult = ensureNonBlankResponse(ragDirectResult, null, null, conversationId);
 
             List<ChatResponse.Reference> references = ragDirectResult.references();
-            if (references == null || references.isEmpty()) {
-                references = ragPrefetchResult.references();
-            }
+            references = mergeReferencesPreferRich(references, ragPrefetchResult.references());
 
             ChatResponse response = buildResponse(conversationId, ragDirectResult.content(), references);
             if (qaCacheEnabled) {
@@ -156,14 +169,88 @@ public class ChatService {
         ChatExecutionResult result = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
         result = ensureNonBlankResponse(result, webSearchResponse, subsidyResponse, conversationId);
 
+        List<ChatResponse.Reference> responseReferences = result.references();
+        if (ragPrefetchResult.topScore() >= highConfidenceReferenceThreshold) {
+            responseReferences = mergeReferencesPreferRich(result.references(), ragPrefetchResult.references());
+        }
+
         long duration = System.currentTimeMillis() - startTime;
         log.info("对话完成 | conversationId={} | 耗时={}ms", conversationId, duration);
 
-        ChatResponse response = buildResponse(conversationId, result.content(), result.references());
+        ChatResponse response = buildResponse(conversationId, result.content(), responseReferences);
         if (qaCacheEnabled) {
             questionSemanticCacheService.saveAsync(rawQuestion, response, plan.needToolCall() ? "agent-tool" : "chat");
         }
         return response;
+    }
+
+    private List<ChatResponse.Reference> mergeReferencesPreferRich(List<ChatResponse.Reference> primary,
+                                                                   List<ChatResponse.Reference> fallback) {
+        List<ChatResponse.Reference> normalizedPrimary = primary == null ? List.of() : primary;
+        List<ChatResponse.Reference> normalizedFallback = fallback == null ? List.of() : fallback;
+
+        if (normalizedPrimary.isEmpty() && normalizedFallback.isEmpty()) {
+            return List.of();
+        }
+        if (normalizedPrimary.isEmpty()) {
+            return normalizedFallback;
+        }
+        if (normalizedFallback.isEmpty()) {
+            return normalizedPrimary;
+        }
+
+        LinkedHashMap<String, ChatResponse.Reference> merged = new LinkedHashMap<>();
+        addReferences(merged, normalizedFallback);
+        addReferences(merged, normalizedPrimary);
+
+        List<ChatResponse.Reference> ordered = new ArrayList<>(merged.values());
+        if (ordered.size() > 4) {
+            return List.copyOf(ordered.subList(0, 4));
+        }
+        return List.copyOf(ordered);
+    }
+
+    private void addReferences(Map<String, ChatResponse.Reference> container,
+                               List<ChatResponse.Reference> candidates) {
+        for (ChatResponse.Reference candidate : candidates) {
+            if (candidate == null) {
+                continue;
+            }
+            String key = buildReferenceKey(candidate);
+            ChatResponse.Reference existing = container.get(key);
+            if (existing == null || referenceRichnessScore(candidate) >= referenceRichnessScore(existing)) {
+                container.put(key, candidate);
+            }
+        }
+    }
+
+    private String buildReferenceKey(ChatResponse.Reference reference) {
+        if (reference.getDocumentId() != null) {
+            return "doc:" + reference.getDocumentId();
+        }
+        String title = reference.getTitle() == null ? "" : reference.getTitle().trim().toLowerCase(Locale.ROOT);
+        String url = reference.getUrl() == null ? "" : reference.getUrl().trim().toLowerCase(Locale.ROOT);
+        return title + "|" + url;
+    }
+
+    private int referenceRichnessScore(ChatResponse.Reference reference) {
+        int score = 0;
+        if (reference.getTitle() != null && !reference.getTitle().isBlank()) {
+            score += 2;
+        }
+        if (reference.getUrl() != null && !reference.getUrl().isBlank()) {
+            score += 2;
+        }
+        if (reference.getSnippet() != null && !reference.getSnippet().isBlank()) {
+            score += 2;
+        }
+        if (reference.getSourceSite() != null && !reference.getSourceSite().isBlank()) {
+            score += 1;
+        }
+        if (reference.getKeywords() != null && !reference.getKeywords().isEmpty()) {
+            score += 1;
+        }
+        return score;
     }
 
     private ChatResponse buildResponse(String conversationId,

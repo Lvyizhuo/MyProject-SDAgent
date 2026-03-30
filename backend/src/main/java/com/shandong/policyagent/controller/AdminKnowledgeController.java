@@ -1,6 +1,5 @@
 package com.shandong.policyagent.controller;
 
-import com.shandong.policyagent.config.EmbeddingModelConfig;
 import com.shandong.policyagent.entity.DocumentStatus;
 import com.shandong.policyagent.entity.KnowledgeConfig;
 import com.shandong.policyagent.entity.KnowledgeDocument;
@@ -214,7 +213,7 @@ public class AdminKnowledgeController {
             : knowledgeService.getDocumentPreviewUrl(id, 60);
         Map<String, String> result = new HashMap<>();
         result.put("previewUrl", previewUrl);
-        result.put("previewMode", sourceMapping != null ? "external" : "file");
+        result.put("previewMode", sourceMapping != null ? "external" : "minio");
         return ResponseEntity.ok(result);
     }
 
