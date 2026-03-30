@@ -87,7 +87,7 @@ services:
         condition: service_healthy
     volumes:
       - ollama_data:/root/.ollama
-    command: ["pull", "all-minilm:latest"]
+    command: ["pull", "nomic-embed-text:latest"]
 
   backend:
     build:
@@ -114,7 +114,7 @@ services:
       APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       APP_EMBEDDING_OLLAMA_BASE_URL: http://ollama:11434
       APP_KNOWLEDGE_MIGRATION_ENABLED: "true"
-      APP_KNOWLEDGE_MIGRATION_TARGET_MODEL: ollama:all-minilm
+      APP_KNOWLEDGE_MIGRATION_TARGET_MODEL: ollama:nomic-embed-text
     depends_on:
       postgres:
         condition: service_healthy

@@ -5,7 +5,7 @@
 - 域名：`mmgg.dpdns.org`
 - 部署方式：Docker Compose + 宝塔 Nginx 反向代理
 - 数据策略：不迁移历史数据（全新部署）
-- Ollama 模型：`all-minilm:latest`
+- Ollama 模型：`nomic-embed-text:latest`
 
 ## 1. 先做 DNS 与安全组
 
@@ -66,11 +66,11 @@ cd /opt/MyProject-SDAgent/deploy
 关键说明：
 - `deploy.sh` 会自动执行 `docker compose up -d --build --remove-orphans`
 - `deploy.sh` 会等待 `postgres / redis / minio / ollama / backend / frontend` 全部就绪
-- `deploy.sh` 会检查 `all-minilm:latest` 是否已拉取
+- `deploy.sh` 会检查 `nomic-embed-text:latest` 是否已拉取
 - `deploy.sh` 会检查 `/actuator/health` 中 `knowledgeMigration=UP`，确认知识库迁移和重入库已完成
 - 如果任何一步失败，脚本会自动打印 `ollama-init / backend / frontend` 的关键日志并退出非 0
-- `ollama-init` 会自动执行 `ollama pull all-minilm:latest`
-- 后端启动后会自动把旧知识库文档迁移到 `ollama:all-minilm` 并重新入库，健康检查会等迁移结束再通过
+- `ollama-init` 会自动执行 `ollama pull nomic-embed-text:latest`
+- 后端启动后会自动把旧知识库文档迁移到 `ollama:nomic-embed-text` 并重新入库，健康检查会等迁移结束再通过
 - 前端仅监听 `127.0.0.1:5173`
 - 后端仅监听 `127.0.0.1:8080`
 - 若启用了管理员“模型管理”，生产环境应显式配置模型密钥加密主密钥，避免依赖默认回退逻辑
@@ -85,7 +85,7 @@ docker compose ps
 
 脚本已经自动校验以下项目：
 - `ollama-init` 成功退出
-- `policy-agent-ollama` 中存在 `all-minilm:latest`
+- `policy-agent-ollama` 中存在 `nomic-embed-text:latest`
 - `http://127.0.0.1:8080/actuator/health` 返回 `status=UP`
 - `knowledgeMigration.status=UP`
 - `http://127.0.0.1:5173/health` 返回成功

@@ -22,7 +22,7 @@ import java.util.Objects;
 @Service
 @RequiredArgsConstructor
 public class EmbeddingService {
-    public static final String BUILT_IN_DEFAULT_MODEL_ID = "ollama:all-minilm";
+    public static final String BUILT_IN_DEFAULT_MODEL_ID = "ollama:nomic-embed-text";
     private static final int DEFAULT_OLLAMA_MAX_INPUT_CHARS = 900;
     private static final int DEFAULT_REMOTE_MAX_INPUT_CHARS = 6000;
 
