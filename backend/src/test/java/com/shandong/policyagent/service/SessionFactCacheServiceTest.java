@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SessionFactCacheServiceTest {
@@ -27,5 +28,20 @@ class SessionFactCacheServiceTest {
 
         assertEquals(java.util.Set.of("电视"), facts.getCategories());
         assertTrue(sessionFactCacheService.toPromptContext(facts).contains("商品类别：电视"));
+    }
+
+    @Test
+    void shouldIgnoreSubsidyAmountWhenExtractingPurchasePrice() {
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.extractFactsFromText("实际补贴149.85元，优惠后到手");
+
+        assertNull(facts.getLatestPrice());
+    }
+
+    @Test
+    void shouldInferLaptopCategoryFromMacbookModel() {
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.extractFactsFromText("查一下MacBook Pro m5pro的价格");
+
+        assertTrue(facts.getDeviceModels().stream().anyMatch(model -> model.toLowerCase().contains("macbook")));
+        assertTrue(facts.getCategories().contains("笔记本"));
     }
 }

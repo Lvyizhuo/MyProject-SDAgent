@@ -29,6 +29,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -45,6 +46,10 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ChatService {
 
     private static final String CHAT_MEMORY_CONVERSATION_ID = "chat_memory_conversation_id";
+    private static final Set<String> SUPPORTED_SUBSIDY_CATEGORIES = Set.of(
+            "手机", "平板", "平板电脑", "智能手表", "手表", "手环", "智能手环",
+            "空调", "冰箱", "洗衣机", "电视", "热水器", "微波炉", "油烟机", "洗碗机", "燃气灶", "净水器"
+    );
 
     private final DynamicChatClientFactory dynamicChatClientFactory;
     private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
@@ -141,6 +146,13 @@ public class ChatService {
             intentDecision,
             conversationId
         );
+        if (webSearchResponse != null) {
+            sessionFactCacheService.mergeFactsFromText(
+                    conversationId,
+                    formatWebSearchResponse(webSearchResponse),
+                    SessionFactCacheService.FactSource.WEB_SEARCH
+            );
+        }
         SubsidyCalculatorTool.SubsidyResponse subsidyResponse = executeDirectSubsidyIfNeeded(
                 facts,
                 plan,
@@ -471,6 +483,9 @@ public class ChatService {
         if (plan == null || !requiresRealtimeSearch(userMessage)) {
             return plan;
         }
+        if (containsToolHint(plan, "calculateSubsidy") || isSubsidyQuestion(userMessage)) {
+            return plan;
+        }
         if (plan.steps() != null && plan.steps().stream().anyMatch(step -> "webSearch".equals(step.toolHint()))) {
             return plan;
         }
@@ -514,6 +529,18 @@ public class ChatService {
                 || normalized.contains("官网")
                 || normalized.contains("search")
                 || normalized.contains("websearch");
+    }
+
+    private boolean isSubsidyQuestion(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return false;
+        }
+        String normalized = userMessage.toLowerCase(Locale.ROOT);
+        return normalized.contains("补贴")
+                || normalized.contains("国补")
+                || normalized.contains("以旧换新")
+                || normalized.contains("到手价")
+                || normalized.contains("补贴后");
     }
 
     private String extractQueryForWebSearch(String userMessage) {
@@ -578,6 +605,17 @@ public class ChatService {
 
         String category = extractSubsidyCategory(facts);
         Double price = facts != null ? facts.getLatestPrice() : null;
+        if (category != null && !category.isBlank() && !SUPPORTED_SUBSIDY_CATEGORIES.contains(category)) {
+            return new SubsidyCalculatorTool.SubsidyResponse(
+                    category,
+                    price == null ? 0 : price,
+                    0,
+                    0,
+                    0,
+                    0,
+                    "当前国补政策中，数码补贴仅覆盖手机/平板/智能手表手环，笔记本电脑暂不在该政策范围，无法按此规则计算补贴。"
+            );
+        }
         if (category == null || category.isBlank() || price == null || price <= 0) {
             return null;
         }
@@ -728,13 +766,48 @@ public class ChatService {
 
     private String extractSubsidyCategory(SessionFactCacheService.SessionFacts facts) {
         if (facts == null || facts.getCategories() == null || facts.getCategories().isEmpty()) {
-            return null;
+            return inferCategoryFromDeviceModels(facts);
         }
         String category = null;
         for (String item : facts.getCategories()) {
             category = item;
         }
-        return category;
+        return category == null || category.isBlank() ? inferCategoryFromDeviceModels(facts) : category;
+    }
+
+    private String inferCategoryFromDeviceModels(SessionFactCacheService.SessionFacts facts) {
+        if (facts == null || facts.getDeviceModels() == null || facts.getDeviceModels().isEmpty()) {
+            return null;
+        }
+
+        for (String model : facts.getDeviceModels()) {
+            if (model == null || model.isBlank()) {
+                continue;
+            }
+            String normalized = model.toLowerCase(Locale.ROOT);
+            if (normalized.contains("iphone")
+                    || normalized.contains("华为")
+                    || normalized.contains("小米")
+                    || normalized.contains("荣耀")
+                    || normalized.contains("oppo")
+                    || normalized.contains("vivo")
+                    || normalized.contains("手机")) {
+                return "手机";
+            }
+            if (normalized.contains("ipad") || normalized.contains("平板")) {
+                return "平板";
+            }
+            if (normalized.contains("watch") || normalized.contains("手表") || normalized.contains("手环")) {
+                return "手表";
+            }
+            if (normalized.contains("macbook")
+                    || normalized.contains("thinkpad")
+                    || normalized.contains("surface")
+                    || normalized.contains("笔记本")) {
+                return "笔记本";
+            }
+        }
+        return null;
     }
 
     private String buildWebSearchFallbackAnswer(WebSearchTool.SearchResponse response) {

@@ -99,18 +99,6 @@ public class ReActPlanningService {
             );
         }
 
-        if (requiresRealtimeSearch(normalized)) {
-            log.info("ReAct 规划命中实时查询快捷路径 | conversationId={}", conversationId);
-            return new AgentExecutionPlan(
-                    "问题需要实时信息，先联网检索后回答",
-                    true,
-                    List.of(
-                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(userMessage), "webSearch"),
-                            new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", "none")
-                )
-            );
-        }
-
         if (requiresSubsidyCalculation(normalized)) {
             log.info("ReAct 规划命中补贴计算快捷路径 | conversationId={}", conversationId);
             return new AgentExecutionPlan(
@@ -122,6 +110,18 @@ public class ReActPlanningService {
                     )
             );
         }
+
+                if (requiresRealtimeSearch(normalized)) {
+                    log.info("ReAct 规划命中实时查询快捷路径 | conversationId={}", conversationId);
+                    return new AgentExecutionPlan(
+                        "问题需要实时信息，先联网检索后回答",
+                        true,
+                        List.of(
+                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(userMessage), "webSearch"),
+                            new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", "none")
+                        )
+                    );
+                }
 
         if (requiresMapSearch(normalized)) {
             log.info("ReAct 规划命中地图检索快捷路径 | conversationId={}", conversationId);
@@ -192,7 +192,8 @@ public class ReActPlanningService {
 
     private boolean requiresSubsidyCalculation(String normalized) {
         return containsAny(normalized,
-                "算补贴", "补多少", "能补多少", "补贴金额", "补贴额度", "核算补贴", "国补能有多少")
+                "算补贴", "补多少", "能补多少", "补贴金额", "补贴额度", "核算补贴", "国补能有多少",
+                "补贴后", "补贴后的价格", "到手价", "计算补贴")
                 || (containsAny(normalized, "补贴", "国补", "以旧换新")
                 && hasPrice(normalized)
                 && hasCategory(normalized));
