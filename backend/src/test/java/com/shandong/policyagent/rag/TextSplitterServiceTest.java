@@ -32,14 +32,14 @@ class TextSplitterServiceTest {
                 .chunkOverlap(300)
                 .minChunkSizeChars(350)
                 .noSplitMaxChars(6000)
-                .defaultEmbeddingModel("ollama:nomic-embed-text")
+            .defaultEmbeddingModel("ollama:all-minilm")
                 .build();
         TextSplitterService service = new TextSplitterService(ragConfig, knowledgeConfigRepository, embeddingService);
         Document source = new Document("doc-1", "甲".repeat(2500), Map.of());
 
         when(knowledgeConfigRepository.findById(1L)).thenReturn(Optional.of(knowledgeConfig));
-        when(embeddingService.resolveDefaultModelId("ollama:nomic-embed-text")).thenReturn("ollama:nomic-embed-text");
-        when(embeddingService.resolveMaxInputChars("ollama:nomic-embed-text")).thenReturn(900);
+        when(embeddingService.resolveDefaultModelId("ollama:all-minilm")).thenReturn("ollama:all-minilm");
+        when(embeddingService.resolveMaxInputChars("ollama:all-minilm")).thenReturn(900);
 
         List<Document> chunks = service.splitDocuments(List.of(source));
 

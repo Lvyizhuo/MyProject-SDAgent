@@ -10,5 +10,5 @@ import org.springframework.context.annotation.Configuration;
 public class KnowledgeMigrationProperties {
 
     private boolean enabled;
-    private String targetModel = "ollama:nomic-embed-text";
+    private String targetModel = "ollama:all-minilm";
 }

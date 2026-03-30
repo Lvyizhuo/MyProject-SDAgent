@@ -20,8 +20,10 @@ import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -112,6 +114,164 @@ public class MultiVectorStoreService {
                 buildFolderDescendantPattern(normalizedFolderPath),
                 embeddingStr,
                 topK);
+    }
+
+    public List<Document> similaritySearch(String modelId,
+                                           String query,
+                                           int topK,
+                                           String folderPath,
+                                           String chunkLevel) {
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(modelId);
+        initializeVectorTable(modelConfig.getVectorTable(), modelConfig.getDimensions());
+
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        String safeTableName = sanitizeTableName(modelConfig.getVectorTable());
+        float[] queryEmbedding = embeddingService.embedTexts(modelId, List.of(query)).get(0);
+        String embeddingStr = "[" + arrayToString(queryEmbedding) + "]";
+
+        String normalizedFolderPath = normalizeFolderPath(folderPath);
+        boolean hasFolderScope = normalizedFolderPath != null && !normalizedFolderPath.isBlank() && !"/".equals(normalizedFolderPath);
+        boolean hasChunkLevel = chunkLevel != null && !chunkLevel.isBlank();
+
+        StringBuilder sql = new StringBuilder();
+        sql.append("SELECT v.id, v.content, v.metadata FROM ")
+                .append(safeTableName)
+                .append(" v ");
+
+        List<Object> params = new ArrayList<>();
+
+        if (hasFolderScope) {
+            sql.append("JOIN knowledge_documents d ON d.id = CAST(v.metadata->>'knowledgeDocumentId' AS BIGINT) ")
+                    .append("LEFT JOIN knowledge_folders f ON f.id = d.folder_id ");
+        }
+
+        sql.append("WHERE 1=1 ");
+
+        if (hasFolderScope) {
+            sql.append("AND (COALESCE(f.path, '/') = ? OR COALESCE(f.path, '/') LIKE ?) ");
+            params.add(normalizedFolderPath);
+            params.add(buildFolderDescendantPattern(normalizedFolderPath));
+        }
+
+        if (hasChunkLevel) {
+            sql.append("AND COALESCE(v.metadata->>'chunkLevel', '') = ? ");
+            params.add(chunkLevel);
+        }
+
+        sql.append("ORDER BY v.embedding <=> ?::vector LIMIT ?");
+        params.add(embeddingStr);
+        params.add(Math.max(1, topK));
+
+        return jdbcTemplate.query(
+                sql.toString(),
+                (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
+                params.toArray()
+        );
+    }
+
+    public List<Document> keywordSearch(String modelId,
+                                        String query,
+                                        int topK,
+                                        String folderPath,
+                                        String chunkLevel) {
+        String normalizedQuery = normalizeKeywordQuery(query);
+        if (normalizedQuery.isBlank()) {
+            return List.of();
+        }
+
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(modelId);
+        initializeVectorTable(modelConfig.getVectorTable(), modelConfig.getDimensions());
+
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        String safeTableName = sanitizeTableName(modelConfig.getVectorTable());
+        String normalizedFolderPath = normalizeFolderPath(folderPath);
+        boolean hasFolderScope = normalizedFolderPath != null && !normalizedFolderPath.isBlank() && !"/".equals(normalizedFolderPath);
+        boolean hasChunkLevel = chunkLevel != null && !chunkLevel.isBlank();
+        String likePattern = "%" + normalizedQuery + "%";
+
+        StringBuilder sql = new StringBuilder();
+        sql.append("SELECT v.id, v.content, v.metadata, ")
+                .append("ts_rank_cd(to_tsvector('simple', COALESCE(v.content, '')), plainto_tsquery('simple', ?)) AS bm25_score ")
+                .append("FROM ")
+                .append(safeTableName)
+                .append(" v ");
+
+        List<Object> params = new ArrayList<>();
+        params.add(normalizedQuery);
+
+        if (hasFolderScope) {
+            sql.append("JOIN knowledge_documents d ON d.id = CAST(v.metadata->>'knowledgeDocumentId' AS BIGINT) ")
+                    .append("LEFT JOIN knowledge_folders f ON f.id = d.folder_id ");
+        }
+
+        sql.append("WHERE 1=1 ");
+
+        if (hasFolderScope) {
+            sql.append("AND (COALESCE(f.path, '/') = ? OR COALESCE(f.path, '/') LIKE ?) ");
+            params.add(normalizedFolderPath);
+            params.add(buildFolderDescendantPattern(normalizedFolderPath));
+        }
+
+        if (hasChunkLevel) {
+            sql.append("AND COALESCE(v.metadata->>'chunkLevel', '') = ? ");
+            params.add(chunkLevel);
+        }
+
+        sql.append("AND (")
+                .append("to_tsvector('simple', COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?) ")
+                .append("OR v.content ILIKE ?")
+                .append(") ")
+                .append("ORDER BY bm25_score DESC NULLS LAST, LENGTH(COALESCE(v.content, '')) ASC ")
+                .append("LIMIT ?");
+
+        params.add(normalizedQuery);
+        params.add(likePattern);
+        params.add(Math.max(1, topK));
+
+        return jdbcTemplate.query(
+                sql.toString(),
+                (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
+                params.toArray()
+        );
+    }
+
+    public Map<String, Document> loadDocumentsByIds(String tableName, List<String> chunkIds) {
+        if (chunkIds == null || chunkIds.isEmpty()) {
+            return Map.of();
+        }
+
+        String safeTableName = sanitizeTableName(tableName);
+        List<String> validIds = chunkIds.stream()
+                .filter(id -> {
+                    try {
+                        UUID.fromString(id);
+                        return true;
+                    } catch (Exception ignored) {
+                        return false;
+                    }
+                })
+                .distinct()
+                .toList();
+
+        if (validIds.isEmpty()) {
+            return Map.of();
+        }
+
+        String placeholders = String.join(", ", java.util.Collections.nCopies(validIds.size(), "?::uuid"));
+        String sql = String.format("SELECT id, content, metadata FROM %s WHERE id IN (%s)", safeTableName, placeholders);
+
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        List<Document> documents = jdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
+                validIds.toArray()
+        );
+
+        Map<String, Document> result = new LinkedHashMap<>();
+        for (Document document : documents) {
+            result.put(document.getId(), document);
+        }
+        return result;
     }
 
     public DocumentChunksPageResponse listDocumentChunks(String tableName, Long documentId, int page, int size) {
@@ -337,6 +497,16 @@ public class MultiVectorStoreService {
 
     private String buildFolderDescendantPattern(String folderPath) {
         return "/".equals(folderPath) ? "/%" : folderPath + "/%";
+    }
+
+    private String normalizeKeywordQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+        return query.trim()
+                .replaceAll("[\\p{Punct}]+", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private static Document mapDocument(String id, String content, String metadataJson) {

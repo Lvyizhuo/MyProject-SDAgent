@@ -176,8 +176,8 @@ verify_backend_health() {
 verify_ollama_model() {
   local model_list
   model_list="$(docker exec "$OLLAMA_CONTAINER" ollama list 2>/dev/null || true)"
-  [[ "$model_list" == *'nomic-embed-text:latest'* ]] || return 1
-  log "Ollama 已加载 nomic-embed-text:latest。"
+  [[ "$model_list" == *'all-minilm:latest'* ]] || return 1
+  log "Ollama 已加载 all-minilm:latest。"
 }
 
 main() {
@@ -204,7 +204,7 @@ main() {
   wait_for_container_status "$FRONTEND_CONTAINER" healthy "$FRONTEND_TIMEOUT_SEC" \
     || die "前端未在 ${FRONTEND_TIMEOUT_SEC}s 内变为 healthy"
 
-  verify_ollama_model || die "未检测到 nomic-embed-text:latest 已拉取完成"
+  verify_ollama_model || die "未检测到 all-minilm:latest 已拉取完成"
   wait_for_http_200 "http://127.0.0.1:8080/actuator/health" "$BACKEND_TIMEOUT_SEC" \
     || die "后端健康接口未在 ${BACKEND_TIMEOUT_SEC}s 内可访问"
   verify_backend_health || die "后端健康接口未报告 status=UP 或 knowledgeMigration=UP"

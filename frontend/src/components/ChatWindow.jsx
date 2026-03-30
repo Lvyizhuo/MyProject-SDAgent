@@ -21,42 +21,6 @@ const STATUS_PHASES = [
 ];
 const AUTO_SCROLL_THRESHOLD = 120;
 
-const consumeSseEvents = (chunk, onData) => {
-    const events = chunk.split('\n\n');
-    const rest = events.pop() || '';
-
-    for (const event of events) {
-        const lines = event.split('\n');
-        const dataLines = lines
-            .filter(line => line.startsWith('data:'))
-            .map(line => line.replace(/^data:\s?/, ''));
-        if (dataLines.length > 0) {
-            onData(dataLines.join('\n'));
-        }
-    }
-    return rest;
-};
-
-const parseStreamPayload = (payload) => {
-    if (!payload) {
-        return { type: 'delta', content: '' };
-    }
-
-    try {
-        const parsed = JSON.parse(payload);
-        if (parsed && typeof parsed === 'object' && parsed.type) {
-            return parsed;
-        }
-    } catch {
-        // 兼容旧版纯文本流式响应
-    }
-
-    return {
-        type: 'delta',
-        content: payload
-    };
-};
-
 const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const [greetingContent, setGreetingContent] = useState(DEFAULT_WELCOME_CONTENT);
     const [messages, setMessages] = useState(() => {
@@ -239,7 +203,6 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                 meta: {
                     transient: true,
                     statusOnly: true,
-                    isStreaming: true,
                     statusText: STATUS_PHASES[0]
                 }
             }
@@ -257,87 +220,13 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                 );
             }
 
-            const response = await chatApi.createStreamRequest(text, sessionId, imageBase64List, location);
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let aiContent = '';
-            let references = [];
-            let streamErrorMessage = '';
-            let buffer = '';
-            const INITIAL_STREAM_TIMEOUT = 45000;
-            const IDLE_STREAM_TIMEOUT = 15000;
-
-            const readWithTimeout = async (timeoutMs) => {
-                let timeoutId;
-                try {
-                    return await Promise.race([
-                        reader.read(),
-                        new Promise((_, reject) => {
-                            timeoutId = setTimeout(() => reject(new Error('STREAM_TIMEOUT')), timeoutMs);
-                        })
-                    ]);
-                } finally {
-                    clearTimeout(timeoutId);
-                }
-            };
-
-            while (true) {
-                let result;
-                try {
-                    const timeoutMs = aiContent ? IDLE_STREAM_TIMEOUT : INITIAL_STREAM_TIMEOUT;
-                    result = await readWithTimeout(timeoutMs);
-                } catch (timeoutError) {
-                    if (aiContent) {
-                        break;
-                    }
-                    throw timeoutError;
-                }
-
-                const { done, value } = result;
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                buffer = consumeSseEvents(buffer, (data) => {
-                    const payload = parseStreamPayload(data);
-                    if (payload.type === 'delta' && payload.content) {
-                        aiContent += payload.content;
-                    }
-                    if (payload.type === 'references' && Array.isArray(payload.references)) {
-                        references = payload.references;
-                    }
-                    if (payload.type === 'error' && payload.message) {
-                        streamErrorMessage = payload.message;
-                    }
-                });
-            }
-
-            // 处理结束时残留事件
-            if (buffer) {
-                consumeSseEvents(`${buffer}\n\n`, (data) => {
-                    const payload = parseStreamPayload(data);
-                    if (payload.type === 'delta' && payload.content) {
-                        aiContent += payload.content;
-                    }
-                    if (payload.type === 'references' && Array.isArray(payload.references)) {
-                        references = payload.references;
-                    }
-                    if (payload.type === 'error' && payload.message) {
-                        streamErrorMessage = payload.message;
-                    }
-                });
-            }
-
-            const finalContent = aiContent || streamErrorMessage || '抱歉，本次未获取到有效回复，请稍后重试。';
+            const response = await chatApi.sendMessage(text, sessionId, imageBase64List, location);
+            const finalContent = response?.content || '抱歉，本次未获取到有效回复，请稍后重试。';
             const assistantMsg = {
-                id: `assistant-${Date.now()}`,
+                id: response?.id || `assistant-${Date.now()}`,
                 role: 'assistant',
                 content: finalContent,
-                references
+                references: response?.references || []
             };
 
             setMessages(prev => [

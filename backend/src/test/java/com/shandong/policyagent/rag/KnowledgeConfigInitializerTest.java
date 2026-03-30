@@ -37,8 +37,8 @@ class KnowledgeConfigInitializerTest {
                 .build();
 
         when(configRepository.findById(1L)).thenReturn(Optional.of(existingConfig));
-        when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:nomic-embed-text");
-        when(embeddingService.resolveMaxInputChars("ollama:nomic-embed-text")).thenReturn(900);
+        when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:all-minilm");
+        when(embeddingService.resolveMaxInputChars("ollama:all-minilm")).thenReturn(900);
 
         KnowledgeConfigInitializer initializer = new KnowledgeConfigInitializer(
                 configRepository,
@@ -51,7 +51,7 @@ class KnowledgeConfigInitializerTest {
 
         ArgumentCaptor<KnowledgeConfig> captor = ArgumentCaptor.forClass(KnowledgeConfig.class);
         verify(configRepository).save(captor.capture());
-        assertEquals("ollama:nomic-embed-text", captor.getValue().getDefaultEmbeddingModel());
+        assertEquals("ollama:all-minilm", captor.getValue().getDefaultEmbeddingModel());
         verify(storageService).ensureBucketExists();
     }
 
@@ -62,8 +62,8 @@ class KnowledgeConfigInitializerTest {
                 .build();
 
         when(configRepository.findById(1L)).thenReturn(Optional.of(existingConfig));
-        when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:nomic-embed-text");
-        when(embeddingService.resolveMaxInputChars("ollama:nomic-embed-text")).thenReturn(900);
+        when(embeddingService.resolveDefaultModelId(null)).thenReturn("ollama:all-minilm");
+        when(embeddingService.resolveMaxInputChars("ollama:all-minilm")).thenReturn(900);
 
         KnowledgeConfigInitializer initializer = new KnowledgeConfigInitializer(
                 configRepository,

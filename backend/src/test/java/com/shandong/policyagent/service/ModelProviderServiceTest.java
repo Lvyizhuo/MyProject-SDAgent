@@ -36,9 +36,9 @@ class ModelProviderServiceTest {
     @Test
     void shouldExposeBuiltInEmbeddingModelsInModelManagementList() {
         EmbeddingModelConfig embeddingConfig = new EmbeddingModelConfig();
-        embeddingConfig.setDefaultModel("ollama:nomic-embed-text");
+        embeddingConfig.setDefaultModel("ollama:all-minilm");
         embeddingConfig.setModels(List.of(
-                embeddingModel("ollama:nomic-embed-text", "ollama", "nomic-embed-text:latest", 768)
+                embeddingModel("ollama:all-minilm", "ollama", "all-minilm:latest", 384)
         ));
         EmbeddingService embeddingService = new EmbeddingService(embeddingConfig, new ObjectMapper(), mock(RestClient.Builder.class));
 
@@ -68,7 +68,7 @@ class ModelProviderServiceTest {
         assertEquals(2, models.size());
         assertTrue(models.stream().anyMatch(model ->
                 Boolean.TRUE.equals(model.getBuiltIn())
-                        && "ollama:nomic-embed-text".equals(model.getBuiltinCode())
+                        && "ollama:all-minilm".equals(model.getBuiltinCode())
                         && Boolean.TRUE.equals(model.getIsDefault())
         ));
     }

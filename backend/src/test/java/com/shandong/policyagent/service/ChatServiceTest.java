@@ -59,6 +59,15 @@ class ChatServiceTest {
     @Mock
     private SessionFactCacheService sessionFactCacheService;
 
+        @Mock
+        private FastPathService fastPathService;
+
+        @Mock
+        private QuestionSemanticCacheService questionSemanticCacheService;
+
+        @Mock
+        private RagPrefetchService ragPrefetchService;
+
     @Mock
     private ToolFailurePolicyCenter toolFailurePolicyCenter;
 
@@ -88,6 +97,9 @@ class ChatServiceTest {
                 planningService,
                 toolIntentClassifier,
                 sessionFactCacheService,
+                fastPathService,
+                questionSemanticCacheService,
+                ragPrefetchService,
                 toolFailurePolicyCenter,
                 modelProviderService,
                 webSearchTool,
