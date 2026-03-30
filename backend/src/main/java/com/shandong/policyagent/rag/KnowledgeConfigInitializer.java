@@ -21,8 +21,7 @@ public class KnowledgeConfigInitializer implements CommandLineRunner {
     private static final int DEFAULT_MIN_CHUNK_SIZE = 250;
     private static final Set<String> LEGACY_DEFAULT_MODELS = Set.of(
             "dashscope:text-embedding-v3",
-            "ollama:qwen3-embedding",
-            "ollama:nomic-embed-text"
+            "ollama:qwen3-embedding"
     );
 
     private final KnowledgeConfigRepository configRepository;

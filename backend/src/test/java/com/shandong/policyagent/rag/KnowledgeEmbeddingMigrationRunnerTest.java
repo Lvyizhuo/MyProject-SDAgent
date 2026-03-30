@@ -39,7 +39,7 @@ class KnowledgeEmbeddingMigrationRunnerTest {
     @Test
     void shouldReingestOnlyDocumentsThatNeedMigration() throws Exception {
         EmbeddingModelConfig.EmbeddingModel targetModel = new EmbeddingModelConfig.EmbeddingModel();
-                targetModel.setVectorTable("vector_store_ollama_all_minilm_384");
+        targetModel.setVectorTable("vector_store_ollama_nomic_768");
 
         KnowledgeDocument legacyDocument = KnowledgeDocument.builder()
                 .id(1L)
@@ -50,29 +50,29 @@ class KnowledgeEmbeddingMigrationRunnerTest {
                 .build();
         KnowledgeDocument alreadyMigrated = KnowledgeDocument.builder()
                 .id(2L)
-                .embeddingModel("ollama:all-minilm")
-                .vectorTableName("vector_store_ollama_all_minilm_384")
+                .embeddingModel("ollama:nomic-embed-text")
+                .vectorTableName("vector_store_ollama_nomic_768")
                 .status(DocumentStatus.COMPLETED)
                 .chunkCount(2)
                 .build();
         KnowledgeDocument tableMismatch = KnowledgeDocument.builder()
                 .id(3L)
-                .embeddingModel("ollama:all-minilm")
+                .embeddingModel("ollama:nomic-embed-text")
                 .vectorTableName("vector_store_legacy")
                 .status(DocumentStatus.COMPLETED)
                 .chunkCount(2)
                 .build();
         KnowledgeDocument failedDocument = KnowledgeDocument.builder()
                 .id(4L)
-                .embeddingModel("ollama:all-minilm")
-                .vectorTableName("vector_store_ollama_all_minilm_384")
+                .embeddingModel("ollama:nomic-embed-text")
+                .vectorTableName("vector_store_ollama_nomic_768")
                 .status(DocumentStatus.FAILED)
                 .chunkCount(0)
                 .build();
 
         when(migrationProperties.isEnabled()).thenReturn(true);
-        when(migrationProperties.getTargetModel()).thenReturn("ollama:all-minilm");
-        when(embeddingService.getModelConfig("ollama:all-minilm")).thenReturn(targetModel);
+        when(migrationProperties.getTargetModel()).thenReturn("ollama:nomic-embed-text");
+        when(embeddingService.getModelConfig("ollama:nomic-embed-text")).thenReturn(targetModel);
         when(knowledgeDocumentRepository.findAll()).thenReturn(List.of(legacyDocument, alreadyMigrated, tableMismatch, failedDocument));
 
         KnowledgeEmbeddingMigrationRunner runner = new KnowledgeEmbeddingMigrationRunner(
@@ -86,10 +86,10 @@ class KnowledgeEmbeddingMigrationRunnerTest {
         runner.initializeMigrationState();
         runner.run(new DefaultApplicationArguments(new String[0]));
 
-        verify(knowledgeService).reingestDocument(1L, "ollama:all-minilm");
-        verify(knowledgeService).reingestDocument(3L, "ollama:all-minilm");
-        verify(knowledgeService).reingestDocument(4L, "ollama:all-minilm");
-        verify(knowledgeService, never()).reingestDocument(2L, "ollama:all-minilm");
+        verify(knowledgeService).reingestDocument(1L, "ollama:nomic-embed-text");
+        verify(knowledgeService).reingestDocument(3L, "ollama:nomic-embed-text");
+        verify(knowledgeService).reingestDocument(4L, "ollama:nomic-embed-text");
+        verify(knowledgeService, never()).reingestDocument(2L, "ollama:nomic-embed-text");
     }
 
     @Test
