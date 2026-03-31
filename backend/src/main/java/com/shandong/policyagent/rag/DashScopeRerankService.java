@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 @Slf4j
@@ -63,26 +64,7 @@ public class DashScopeRerankService {
                     docTexts.size(),
                     Math.min(topK, documents.size()));
 
-            Map<String, Object> body = new HashMap<>();
-                body.put("model", runtime.modelName());
-            body.put("input", Map.of(
-                    "query", query,
-                    "documents", docTexts
-            ));
-            body.put("parameters", Map.of(
-                    "top_n", Math.min(topK, documents.size()),
-                    "return_documents", false
-            ));
-
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = RestClient.create()
-                    .post()
-                    .uri(runtime.endpoint())
-                    .header("Authorization", "Bearer " + runtime.apiKey())
-                    .header("Content-Type", "application/json")
-                    .body(body)
-                    .retrieve()
-                    .body(Map.class);
+            Map<String, Object> response = callRerankEndpoint(runtime.endpoint(), runtime, query, docTexts, topK);
 
             List<ScoredIndex> scores = parseScores(response);
             if (scores.isEmpty()) {
@@ -106,12 +88,78 @@ public class DashScopeRerankService {
             }
             return shrink(reranked, topK);
         } catch (Exception e) {
+            String fallbackEndpoint = buildDashScopeApiFallbackEndpoint(runtime.endpoint());
+            if (isNotFoundError(e)
+                    && fallbackEndpoint != null
+                    && !fallbackEndpoint.equals(runtime.endpoint())) {
+                try {
+                    log.warn("Rerank 调用返回 404，切换备用 endpoint 重试 | model={} | from={} | to={}",
+                            runtime.modelName(), runtime.endpoint(), fallbackEndpoint);
+                    Map<String, Object> retriedResponse = callRerankEndpoint(
+                            fallbackEndpoint,
+                            runtime,
+                            query,
+                            buildRerankDocs(documents),
+                            topK
+                    );
+                    List<ScoredIndex> retryScores = parseScores(retriedResponse);
+                    if (!retryScores.isEmpty()) {
+                        List<Document> reranked = new ArrayList<>();
+                        for (ScoredIndex item : retryScores) {
+                            if (item.index < 0 || item.index >= documents.size()) {
+                                continue;
+                            }
+                            Document original = documents.get(item.index);
+                            Map<String, Object> metadata = original.getMetadata() == null
+                                    ? new HashMap<>()
+                                    : new HashMap<>(original.getMetadata());
+                            metadata.put("rerankScore", item.score);
+                            reranked.add(new Document(original.getId(), original.getText(), metadata));
+                        }
+                        if (!reranked.isEmpty()) {
+                            return shrink(reranked, topK);
+                        }
+                    }
+                } catch (Exception retryException) {
+                    log.warn("Rerank 备用 endpoint 调用失败，回退纯向量检索 | model={} | endpoint={} | error={}",
+                            runtime.modelName(), fallbackEndpoint, retryException.getMessage());
+                }
+            }
+
             log.warn("Rerank 调用失败，回退为纯向量检索 | model={} | endpoint={} | error={}",
                     runtime.modelName(),
                     runtime.endpoint(),
                     e.getMessage());
             return shrink(documents, topK);
         }
+    }
+
+    private Map<String, Object> callRerankEndpoint(String endpoint,
+                                                   RerankRuntime runtime,
+                                                   String query,
+                                                   List<String> docTexts,
+                                                   int topK) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", runtime.modelName());
+        body.put("input", Map.of(
+                "query", query,
+                "documents", docTexts
+        ));
+        body.put("parameters", Map.of(
+                "top_n", Math.min(topK, docTexts.size()),
+                "return_documents", false
+        ));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = RestClient.create()
+                .post()
+                .uri(endpoint)
+                .header("Authorization", "Bearer " + runtime.apiKey())
+                .header("Content-Type", "application/json")
+                .body(body)
+                .retrieve()
+                .body(Map.class);
+        return response == null ? Map.of() : response;
     }
 
     private RerankRuntime resolveRuntime(Long rerankModelId, String rerankModelName) {
@@ -139,10 +187,42 @@ public class DashScopeRerankService {
         while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
+
+        if (normalized.contains("dashscope.aliyuncs.com/compatible-mode/v1/services/rerank/")) {
+            return normalized.replace("/compatible-mode/v1/services/rerank/", "/api/v1/services/rerank/");
+        }
+        if (normalized.contains("dashscope.aliyuncs.com/compatible-mode/v1")) {
+            return normalized.replace("/compatible-mode/v1", "/api/v1")
+                    + "/services/rerank/text-rerank/text-rerank";
+        }
+        if (normalized.contains("dashscope.aliyuncs.com/compatible-mode")) {
+            return normalized.replace("/compatible-mode", "/api/v1")
+                    + "/services/rerank/text-rerank/text-rerank";
+        }
+
         if (normalized.contains("/services/rerank/")) {
             return normalized;
         }
         return normalized + "/services/rerank/text-rerank/text-rerank";
+    }
+
+    private String buildDashScopeApiFallbackEndpoint(String endpoint) {
+        if (endpoint == null || endpoint.isBlank()) {
+            return null;
+        }
+        String normalized = endpoint.trim();
+        if (normalized.contains("dashscope.aliyuncs.com/compatible-mode/")) {
+            return normalized.replace("/compatible-mode/", "/api/");
+        }
+        return null;
+    }
+
+    private boolean isNotFoundError(Exception exception) {
+        if (exception instanceof HttpClientErrorException.NotFound) {
+            return true;
+        }
+        String message = exception.getMessage();
+        return message != null && message.contains("404");
     }
 
     private List<String> buildRerankDocs(List<Document> documents) {

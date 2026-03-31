@@ -486,12 +486,9 @@ const KnowledgeBaseTab = () => {
             return;
         }
 
-        const folderHint = selectedFolderId
-            ? `将统一入库到当前目录。`
-            : '将按各自导入任务的默认目录入库。';
         const confirmed = await confirm({
             title: '一键入库',
-            message: `确定要一键审批并入库当前 ${itemIds.length} 条候选内容吗？${folderHint}`,
+            message: `确定要一键审批并入库当前 ${itemIds.length} 条候选内容吗？将沿用各导入任务绑定的知识库。`,
             confirmText: '确认入库',
             tone: 'primary'
         });
@@ -501,8 +498,7 @@ const KnowledgeBaseTab = () => {
 
         try {
             const result = await adminKnowledgeApi.batchConfirmUrlImports({
-                ids: itemIds,
-                folderId: selectedFolderId || null
+                ids: itemIds
             });
             const summary = result.failedCount > 0
                 ? `已入库 ${result.successCount} 条，失败 ${result.failedCount} 条`
@@ -1182,7 +1178,7 @@ const KnowledgeBaseTab = () => {
                                                 </button>
                                                 <button
                                                     className="btn-icon success"
-                                                    onClick={() => handleConfirmImportItem(doc.importItemId, { folderId: selectedFolderId || null })}
+                                                    onClick={() => handleConfirmImportItem(doc.importItemId, {})}
                                                     title="确认入库"
                                                 >
                                                     <CheckCircle2 size={16} />
@@ -1396,7 +1392,7 @@ const KnowledgeBaseTab = () => {
                     onCancelTask={handleCancelImportJob}
                     onDeleteTask={handleDeleteImportJob}
                     onPreviewImportItem={handlePreviewImportItem}
-                    onConfirmImportItem={(itemId) => handleConfirmImportItem(itemId, { folderId: selectedFolderId || null })}
+                    onConfirmImportItem={(itemId) => handleConfirmImportItem(itemId, {})}
                     onRejectImportItem={handleRejectImportItem}
                     onDeleteImportItem={handleDeleteImportItem}
                     onPreviewDocument={handlePreviewDocument}
@@ -1439,8 +1435,6 @@ const KnowledgeBaseTab = () => {
             {showImportPreviewDialog && selectedImportItem && (
                 <UrlImportPreviewDialog
                     item={selectedImportItem}
-                    folders={folders}
-                    defaultFolderId={selectedFolderId}
                     onClose={() => {
                         setShowImportPreviewDialog(false);
                         setSelectedImportItem(null);
@@ -1973,6 +1967,7 @@ const TaskListDialog = ({
 const UrlImportDialog = ({ folders, defaultFolderId, onClose, onSubmit }) => {
     const flatFolders = flattenFoldersTree(folders).filter(folder => (folder.initStatus || 'READY') === 'READY');
     const defaultKnowledgeBaseId = defaultFolderId || flatFolders[0]?.id || null;
+    const targetFolder = flatFolders.find(folder => folder.id === defaultKnowledgeBaseId) || null;
     const [formData, setFormData] = useState({
         url: 'http://commerce.shandong.gov.cn/col/col352659/index.html',
         folderId: defaultKnowledgeBaseId,
@@ -2011,22 +2006,13 @@ const UrlImportDialog = ({ folders, defaultFolderId, onClose, onSubmit }) => {
 
                     <div className="form-grid">
                         <div className="form-group">
-                            <label>目标文件夹</label>
-                            <select
-                                value={formData.folderId || ''}
-                                onChange={event => setFormData(prev => ({
-                                    ...prev,
-                                    folderId: event.target.value ? Number(event.target.value) : null
-                                }))}
-                                required
-                            >
-                                <option value="" disabled>请选择知识库</option>
-                                {flatFolders.map(folder => (
-                                    <option key={folder.id} value={folder.id}>
-                                        {' '.repeat(folder.depth * 2)}{folder.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <label>目标知识库（固定）</label>
+                            <input
+                                type="text"
+                                value={targetFolder ? `${targetFolder.name} (${targetFolder.path || '/'})` : '未选择知识库'}
+                                readOnly
+                                disabled
+                            />
                         </div>
                     </div>
 
@@ -2068,9 +2054,8 @@ const UrlImportDialog = ({ folders, defaultFolderId, onClose, onSubmit }) => {
     );
 };
 
-const UrlImportPreviewDialog = ({ item, folders, defaultFolderId, onClose, onConfirm, onReject }) => {
+const UrlImportPreviewDialog = ({ item, onClose, onConfirm, onReject }) => {
     const [formData, setFormData] = useState({
-        folderId: defaultFolderId || item.defaultFolderId || '',
         title: item.title || '',
         category: item.category || '',
         tags: Array.isArray(item.tags) ? item.tags.join(', ') : '',
@@ -2080,7 +2065,6 @@ const UrlImportPreviewDialog = ({ item, folders, defaultFolderId, onClose, onCon
     const handleSubmit = (event) => {
         event.preventDefault();
         onConfirm({
-            folderId: formData.folderId ? Number(formData.folderId) : null,
             title: formData.title,
             category: formData.category,
             tags: formData.tags
@@ -2135,20 +2119,6 @@ const UrlImportPreviewDialog = ({ item, folders, defaultFolderId, onClose, onCon
                     )}
 
                     <div className="form-grid">
-                        <div className="form-group">
-                            <label>目标文件夹</label>
-                            <select
-                                value={formData.folderId}
-                                onChange={event => setFormData(prev => ({ ...prev, folderId: event.target.value }))}
-                            >
-                                <option value="">沿用导入任务配置</option>
-                                {flattenFoldersTree(folders).filter(folder => (folder.initStatus || 'READY') === 'READY').map(folder => (
-                                    <option key={folder.id} value={folder.id}>
-                                        {' '.repeat(folder.depth * 2)}{folder.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
                         <div className="form-group">
                             <label>分类</label>
                             <input

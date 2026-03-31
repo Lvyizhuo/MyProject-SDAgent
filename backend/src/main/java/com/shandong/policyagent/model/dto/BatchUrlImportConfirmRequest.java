@@ -13,5 +13,6 @@ import java.util.List;
 @AllArgsConstructor
 public class BatchUrlImportConfirmRequest {
     private List<Long> ids;
+    // 兼容旧参数：批量确认固定使用各任务绑定知识库，不支持覆盖。
     private Long folderId;
 }

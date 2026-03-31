@@ -18,6 +18,15 @@ public class KnowledgeImportBridgeService {
     private final KnowledgeDocumentSourceRepository knowledgeDocumentSourceRepository;
 
     public KnowledgeDocument importCandidate(UrlImportItem item, UrlImportConfirmRequest request, User currentUser) {
+        if (item == null || item.getJob() == null || item.getJob().getTargetFolder() == null || item.getJob().getTargetFolder().getId() == null) {
+            throw new IllegalArgumentException("导入任务未绑定目标知识库，无法确认入库");
+        }
+
+        Long fixedFolderId = item.getJob().getTargetFolder().getId();
+        if (request != null && request.getFolderId() != null && !fixedFolderId.equals(request.getFolderId())) {
+            throw new IllegalArgumentException("网站导入任务的目标知识库已固定，不支持确认入库时修改");
+        }
+
         String title = request.getTitle() != null && !request.getTitle().isBlank()
                 ? request.getTitle().trim()
                 : item.getSourceTitle();
@@ -25,13 +34,9 @@ public class KnowledgeImportBridgeService {
                 ? request.getSource().trim()
                 : item.getSourceSite();
 
-        Long targetFolderId = request.getFolderId() != null
-                ? request.getFolderId()
-                : (item.getJob().getTargetFolder() != null ? item.getJob().getTargetFolder().getId() : null);
-
         KnowledgeDocument document = knowledgeService.importTextDocument(
                 item.getCleanedText(),
-                targetFolderId,
+                fixedFolderId,
                 title,
                 null,
                 request.getCategory() != null ? request.getCategory() : item.getCategory(),

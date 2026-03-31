@@ -5,9 +5,11 @@ import com.shandong.policyagent.entity.KnowledgeDocument;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -152,4 +154,24 @@ public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocu
     Optional<KnowledgeDocument> findFirstByFolderPathAndTitleAndFileName(@Param("folderPath") String folderPath,
                                                                          @Param("title") String title,
                                                                          @Param("fileName") String fileName);
+
+    @Query("""
+            SELECT d.id FROM KnowledgeDocument d
+            WHERE d.status = :status
+            ORDER BY d.createdAt ASC
+            """)
+    List<Long> findIdsByStatus(@Param("status") DocumentStatus status, Pageable pageable);
+
+    @Modifying
+    @Transactional
+    @Query("""
+            UPDATE KnowledgeDocument d
+            SET d.status = :newStatus,
+                d.updatedAt = CURRENT_TIMESTAMP
+            WHERE d.id = :id
+                AND d.status = :expectedStatus
+            """)
+    int updateStatusIfMatch(@Param("id") Long id,
+                            @Param("expectedStatus") DocumentStatus expectedStatus,
+                            @Param("newStatus") DocumentStatus newStatus);
 }

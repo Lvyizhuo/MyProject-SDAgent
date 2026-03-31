@@ -23,7 +23,9 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class ReActPlanningService {
 
-    private static final Pattern PRICE_PATTERN = Pattern.compile(".*\\d{3,6}(?:\\.\\d{1,2})?\\s*(元|rmb|¥|￥).*");
+    private static final Pattern PRICE_PATTERN = Pattern.compile(".*\\d{3,6}(?:\\.\\d{1,2})?\\s*(元|rmb|人民币|¥|￥).*");
+    private static final String CURRENT_QUESTION_MARKER = "【用户当前问题】";
+    private static final String CONTEXT_MARKER = "【会话结构化摘要】";
 
     private static final String PLANNER_SYSTEM_PROMPT = """
             你是智能体规划器，只输出 JSON，不要输出 Markdown。
@@ -42,8 +44,10 @@ public class ReActPlanningService {
             3. 涉及补贴金额计算时，toolHint 必须包含 calculateSubsidy。
             4. 涉及政策依据时，优先使用 rag。
             5. 涉及“最新/实时/今日/当前/新闻/价格/市场价/电商报价/官网报价/政策动态”的问题时，
-               必须将关键步骤的 toolHint 设为 webSearch，并将 needToolCall 设为 true。
-            6. 不要声称“没有 webSearch 工具”或“无法联网搜索”；若属于实时信息查询，必须规划 webSearch。
+                    优先考虑 webSearch。
+                6. 若同时涉及“政策/补贴规则 + 价格咨询”，先用 rag 给出本地政策结论，
+                    仅在需要补充实时价格时再追加 webSearch，且放在后续步骤。
+                7. 不要声称“没有 webSearch 工具”或“无法联网搜索”；若属于实时信息查询，必须规划 webSearch。
             """;
 
     private final ChatModel chatModel;
@@ -82,7 +86,8 @@ public class ReActPlanningService {
     }
 
     private AgentExecutionPlan tryBuildShortcutPlan(String conversationId, String userMessage) {
-        String normalized = normalize(userMessage);
+        String shortcutSource = extractCurrentQuestion(userMessage);
+        String normalized = normalize(shortcutSource);
         if (normalized.isBlank()) {
             return null;
         }
@@ -99,6 +104,19 @@ public class ReActPlanningService {
             );
         }
 
+        if (requiresPriceLookupBeforeSubsidy(normalized)) {
+            log.info("ReAct 规划命中先查价再补贴路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "缺少成交价，先联网查价再计算补贴",
+                    true,
+                    List.of(
+                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询该型号近期价格区间", "webSearch"),
+                            new AgentExecutionPlan.AgentStep(2, "根据检索到的成交价调用 calculateSubsidy 计算补贴", "calculateSubsidy"),
+                            new AgentExecutionPlan.AgentStep(3, "输出补贴测算并提示用户确认成交价", "none")
+                    )
+            );
+        }
+
         if (requiresSubsidyCalculation(normalized)) {
             log.info("ReAct 规划命中补贴计算快捷路径 | conversationId={}", conversationId);
             return new AgentExecutionPlan(
@@ -111,13 +129,25 @@ public class ReActPlanningService {
             );
         }
 
+            if (isPolicyPriceMixedQuestion(normalized)) {
+                log.info("ReAct 规划命中政策+价格混合路径（先政策后价格） | conversationId={}", conversationId);
+                return new AgentExecutionPlan(
+                    "先给政策结论，再按需补充实时价格",
+                    false,
+                    List.of(
+                        new AgentExecutionPlan.AgentStep(1, "从知识库检索并总结本地政策口径", "rag"),
+                        new AgentExecutionPlan.AgentStep(2, "先回答政策结论，再提示可继续补充实时价格", "none")
+                    )
+                );
+            }
+
                 if (requiresRealtimeSearch(normalized)) {
                     log.info("ReAct 规划命中实时查询快捷路径 | conversationId={}", conversationId);
                     return new AgentExecutionPlan(
                         "问题需要实时信息，先联网检索后回答",
                         true,
                         List.of(
-                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(userMessage), "webSearch"),
+                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(shortcutSource), "webSearch"),
                             new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", "none")
                         )
                     );
@@ -178,6 +208,9 @@ public class ReActPlanningService {
         if (hasSubsidyComputationIntent(normalized)) {
             return false;
         }
+        if (isPolicyPriceMixedQuestion(normalized)) {
+            return false;
+        }
         return normalized.contains("最新")
                 || normalized.contains("实时")
                 || normalized.contains("今日")
@@ -210,6 +243,19 @@ public class ReActPlanningService {
                 && subsidyTargetHint);
     }
 
+    private boolean requiresPriceLookupBeforeSubsidy(String normalized) {
+        boolean subsidyOrBenefitContext = containsAny(normalized, "补贴", "国补", "以旧换新", "优惠");
+        boolean computationIntent = hasSubsidyComputationIntent(normalized)
+                || hasSubsidyBenefitQueryIntent(normalized);
+        boolean deviceHint = hasSubsidyDeviceHint(normalized);
+        return subsidyOrBenefitContext && computationIntent && deviceHint && !hasPrice(normalized);
+    }
+
+    private boolean hasSubsidyBenefitQueryIntent(String normalized) {
+        return containsAny(normalized,
+                "优惠多少", "能优惠多少", "享受多少优惠", "能享受多少优惠", "补多少", "补贴多少", "有多少优惠");
+    }
+
     private boolean requiresMapSearch(String normalized) {
         return containsAny(normalized, "地图", "导航", "路线", "门店", "附近", "回收点", "高德", "amap");
     }
@@ -222,12 +268,41 @@ public class ReActPlanningService {
         return containsAny(normalized, "政策", "申请", "流程", "条件", "资格", "标准", "规则", "材料", "怎么办");
     }
 
+    private boolean isPolicyPriceMixedQuestion(String normalized) {
+        boolean hasPolicy = containsAny(normalized,
+                "政策", "补贴", "国补", "以旧换新", "申领", "流程", "条件", "资格", "标准", "规则");
+        boolean hasPrice = containsAny(normalized,
+                "价格", "报价", "市场价", "多少钱", "优惠", "到手价", "售价", "价位", "价");
+        return hasPolicy && hasPrice;
+    }
+
     private String summarizeQuery(String userMessage) {
         if (userMessage == null || userMessage.isBlank()) {
             return "山东以旧换新最新政策";
         }
         String condensed = userMessage.replace("\n", " ").replaceAll("\\s+", " ").trim();
         return condensed.length() > 120 ? condensed.substring(0, 120) : condensed;
+    }
+
+    private String extractCurrentQuestion(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return "";
+        }
+
+        String raw = userMessage.trim();
+        int questionStart = raw.indexOf(CURRENT_QUESTION_MARKER);
+        if (questionStart < 0) {
+            return raw;
+        }
+
+        int contentStart = questionStart + CURRENT_QUESTION_MARKER.length();
+        int contextStart = raw.indexOf(CONTEXT_MARKER, contentStart);
+        String extracted = contextStart > contentStart
+                ? raw.substring(contentStart, contextStart)
+                : raw.substring(contentStart);
+
+        extracted = extracted.replaceFirst("^[：:\\s]+", "").trim();
+        return extracted.isBlank() ? raw : extracted;
     }
 
     private String normalize(String userMessage) {
@@ -246,7 +321,7 @@ public class ReActPlanningService {
 
     private boolean hasSubsidyDeviceHint(String normalized) {
         return containsAny(normalized,
-                "macbook", "thinkpad", "surface", "matebook", "笔记本", "电脑",
+                "macbook", "thinkpad", "surface", "matebook",
                 "iphone", "ipad", "华为", "小米", "荣耀", "oppo", "vivo");
     }
 

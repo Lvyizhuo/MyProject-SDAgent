@@ -44,4 +44,19 @@ class SessionFactCacheServiceTest {
         assertTrue(facts.getDeviceModels().stream().anyMatch(model -> model.toLowerCase().contains("macbook")));
         assertTrue(facts.getCategories().contains("笔记本"));
     }
+
+    @Test
+    void shouldExtractPlainNumericPriceInput() {
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.extractFactsFromText("17999");
+
+        assertEquals(17999D, facts.getLatestPrice());
+    }
+
+    @Test
+    void shouldNotTreatPolicyYearAsPriceWithoutCurrency() {
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.extractFactsFromText("根据2026年的政策帮我看下");
+
+        assertNull(facts.getLatestPrice());
+        assertEquals(2026, facts.getLatestPolicyYear());
+    }
 }

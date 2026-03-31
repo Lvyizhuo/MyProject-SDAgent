@@ -25,6 +25,9 @@ public class RagPrefetchService {
     @Value("${app.agent.pre-rag-direct-threshold:0.86}")
     private double directAnswerThreshold;
 
+    @Value("${app.agent.pre-rag-context-max-chars-per-doc:0}")
+    private int preRagContextMaxCharsPerDoc;
+
     public RagPrefetchResult prefetch(String query) {
         if (query == null || query.isBlank()) {
             return RagPrefetchResult.empty();
@@ -99,8 +102,9 @@ public class RagPrefetchService {
             Map<String, Object> metadata = document.getMetadata();
             String title = resolveTitle(metadata, i + 1);
             String content = document.getText() == null ? "" : document.getText().trim();
-            if (content.length() > 400) {
-                content = content.substring(0, 400).trim() + "...";
+            if (preRagContextMaxCharsPerDoc > 0
+                    && content.length() > preRagContextMaxCharsPerDoc) {
+                content = content.substring(0, preRagContextMaxCharsPerDoc).trim() + "...";
             }
             builder.append(i + 1)
                     .append(". ")

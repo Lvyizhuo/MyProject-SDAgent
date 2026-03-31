@@ -1,5 +1,7 @@
 package com.shandong.policyagent.rag;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -7,6 +9,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,6 +25,7 @@ public class RagRetrievalService {
     private static final int DEFAULT_RRF_K = 60;
     private static final double VECTOR_RRF_WEIGHT = 0.65;
     private static final double KEYWORD_RRF_WEIGHT = 0.35;
+    private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)(20\\d{2})(?!\\d)");
 
     private final RuntimeRagVectorStore runtimeRagVectorStore;
     private final MultiVectorStoreService multiVectorStoreService;
@@ -43,9 +48,11 @@ public class RagRetrievalService {
         int finalTopK = Math.max(1, retrievalConfig.getTopK());
         int candidateTopK = Math.max(finalTopK, retrievalConfig.getCandidateTopK());
 
+        String expandedQuery = expandQueryForSynonyms(query);
+
         List<Document> vectorCandidates = multiVectorStoreService.similaritySearch(
                 context.embeddingModelId(),
-                query,
+                expandedQuery,
                 candidateTopK,
                 context.folderPath(),
                 "child"
@@ -54,7 +61,7 @@ public class RagRetrievalService {
         if (vectorCandidates.isEmpty()) {
             vectorCandidates = multiVectorStoreService.similaritySearch(
                     context.embeddingModelId(),
-                    query,
+                    expandedQuery,
                     candidateTopK,
                     context.folderPath(),
                     null
@@ -63,7 +70,7 @@ public class RagRetrievalService {
 
         List<Document> keywordCandidates = multiVectorStoreService.keywordSearch(
                 context.embeddingModelId(),
-                query,
+                expandedQuery,
                 candidateTopK,
                 context.folderPath(),
                 "child"
@@ -71,14 +78,19 @@ public class RagRetrievalService {
 
         List<Document> fusedCandidates = fuseByRrf(vectorCandidates, keywordCandidates, candidateTopK);
         List<Document> reranked = rerankService.rerank(
-            query,
+            expandedQuery,
             fusedCandidates,
             finalTopK,
             context.rerankModelId(),
             context.rerankModelName()
         );
-        List<Document> thresholdFiltered = applyRerankThreshold(reranked, knowledgeService.resolveRerankScoreThreshold());
+        List<Document> thresholdFiltered = applyRerankThreshold(
+            reranked,
+            knowledgeService.resolveRerankScoreThreshold(),
+            finalTopK
+        );
         List<Document> expanded = expandChildHitsToParent(context.vectorTableName(), thresholdFiltered, finalTopK);
+        List<Document> ordered = preferLatestPolicyDocuments(expanded, finalTopK);
 
         log.debug("检索完成 | query={} | vector={} | keyword={} | fused={} | reranked={} | expanded={}",
                 truncateQuery(query),
@@ -86,9 +98,9 @@ public class RagRetrievalService {
                 keywordCandidates.size(),
                 fusedCandidates.size(),
                 thresholdFiltered.size(),
-                expanded.size());
+                ordered.size());
 
-        return expanded;
+            return ordered;
     }
 
     public List<Document> retrieveWithFilter(String query, String filterExpression) {
@@ -235,18 +247,31 @@ public class RagRetrievalService {
         return finalDocs.values().stream().limit(Math.max(1, topK)).toList();
     }
 
-    private List<Document> applyRerankThreshold(List<Document> reranked, double threshold) {
+    private List<Document> applyRerankThreshold(List<Document> reranked,
+                                                double threshold,
+                                                int topK) {
         if (reranked == null || reranked.isEmpty()) {
             return List.of();
         }
 
-        List<Document> passed = reranked.stream()
+        List<Document> scoredDocs = reranked.stream()
+                .filter(this::hasUsableScore)
+                .toList();
+        if (scoredDocs.isEmpty()) {
+            return shrink(reranked, topK);
+        }
+
+        List<Document> passed = scoredDocs.stream()
                 .filter(document -> extractScore(document) >= threshold)
                 .toList();
         if (!passed.isEmpty()) {
-            return passed;
+            return shrink(passed, topK);
         }
-        return List.of(reranked.getFirst());
+        return shrink(scoredDocs, topK);
+    }
+
+    private boolean hasUsableScore(Document document) {
+        return extractScore(document) > 0.0D;
     }
 
     private double extractScore(Document document) {
@@ -292,6 +317,134 @@ public class RagRetrievalService {
 
     private String truncateQuery(String query) {
         return query.length() > 50 ? query.substring(0, 50) + "..." : query;
+    }
+
+    private List<Document> shrink(List<Document> documents, int topK) {
+        if (documents == null || documents.isEmpty()) {
+            return List.of();
+        }
+        int limit = Math.max(1, topK);
+        if (documents.size() <= limit) {
+            return documents;
+        }
+        return documents.subList(0, limit);
+    }
+
+    private String expandQueryForSynonyms(String query) {
+        if (query == null || query.isBlank()) {
+            return "";
+        }
+        String normalized = query.toLowerCase(Locale.ROOT);
+        StringBuilder expanded = new StringBuilder(query.trim());
+
+        boolean hasNotebook = normalized.contains("笔记本") || normalized.contains("笔记本电脑");
+        boolean hasComputer = normalized.contains("电脑");
+        if (hasNotebook && !hasComputer) {
+            expanded.append(" 电脑");
+        } else if (hasComputer && !hasNotebook) {
+            expanded.append(" 笔记本");
+        }
+
+        if (normalized.contains("macbook") && !hasNotebook) {
+            expanded.append(" 笔记本电脑");
+        }
+
+        return expanded.toString();
+    }
+
+    private List<Document> preferLatestPolicyDocuments(List<Document> documents, int topK) {
+        if (documents == null || documents.isEmpty()) {
+            return List.of();
+        }
+
+        List<RankedDocument> ranked = new ArrayList<>(documents.size());
+        for (int i = 0; i < documents.size(); i++) {
+            Document doc = documents.get(i);
+            ranked.add(new RankedDocument(doc, extractDocumentYear(doc), extractScore(doc), i));
+        }
+
+        ranked.sort(Comparator
+                .comparingInt(RankedDocument::year).reversed()
+                .thenComparingDouble(RankedDocument::score).reversed()
+                .thenComparingInt(RankedDocument::index));
+
+        return ranked.stream()
+                .limit(Math.max(1, topK))
+                .map(RankedDocument::document)
+                .toList();
+    }
+
+    private int extractDocumentYear(Document document) {
+        if (document == null || document.getMetadata() == null) {
+            return 0;
+        }
+        Map<String, Object> metadata = document.getMetadata();
+        Integer year = parseYearValue(metadata.get("publishYear"));
+        if (year != null) {
+            return year;
+        }
+        year = parseYearValue(metadata.get("year"));
+        if (year != null) {
+            return year;
+        }
+        Object publishDate = metadata.get("publishDate");
+        if (publishDate != null) {
+            Integer parsed = parseYearFromDate(String.valueOf(publishDate));
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        Object title = metadata.get("title");
+        Integer fromTitle = parseYearFromText(title == null ? "" : String.valueOf(title));
+        return fromTitle == null ? 0 : fromTitle;
+    }
+
+    private Integer parseYearValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            int year = number.intValue();
+            return year >= 2020 && year <= 2099 ? year : null;
+        }
+        try {
+            int year = Integer.parseInt(String.valueOf(value));
+            return year >= 2020 && year <= 2099 ? year : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Integer parseYearFromDate(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(text.trim()).getYear();
+        } catch (DateTimeParseException ignored) {
+            return parseYearFromText(text);
+        }
+    }
+
+    private Integer parseYearFromText(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = YEAR_PATTERN.matcher(text);
+        Integer latest = null;
+        while (matcher.find()) {
+            int year = Integer.parseInt(matcher.group(1));
+            if (year < 2020 || year > 2099) {
+                continue;
+            }
+            if (latest == null || year > latest) {
+                latest = year;
+            }
+        }
+        return latest;
+    }
+
+    private record RankedDocument(Document document, int year, double score, int index) {
     }
 
     private record FusedCandidate(Document document, double fusedScore, int bestRank) {

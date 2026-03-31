@@ -174,6 +174,10 @@ public class UrlImportService {
 
     @Transactional
     public BatchUrlImportConfirmResponse batchConfirmImports(BatchUrlImportConfirmRequest request, User currentUser) {
+        if (request != null && request.getFolderId() != null) {
+            throw new IllegalArgumentException("一键入库不支持修改目标知识库，请沿用导入任务默认配置");
+        }
+
         List<UrlImportItem> items = resolveBatchConfirmItems(request);
         List<Long> importedIds = new ArrayList<>();
         List<String> errors = new ArrayList<>();
@@ -181,7 +185,6 @@ public class UrlImportService {
         for (UrlImportItem item : items) {
             try {
                 UrlImportConfirmRequest confirmRequest = UrlImportConfirmRequest.builder()
-                        .folderId(request.getFolderId())
                         .publishDate(item.getPublishDate())
                         .source(item.getSourceSite())
                         .build();
