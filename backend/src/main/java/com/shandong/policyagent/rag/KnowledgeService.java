@@ -91,8 +91,11 @@ public class KnowledgeService {
             throw new IllegalArgumentException("Folder path already exists: " + path);
         }
 
-        modelProviderService.validateRuntimeModelBinding(rerankModelId, ModelType.RERANK);
-        ModelProvider rerankModel = modelProviderService.getModelEntity(rerankModelId);
+        ModelProvider rerankModel = null;
+        if (rerankModelId != null) {
+            modelProviderService.validateRuntimeModelBinding(rerankModelId, ModelType.RERANK);
+            rerankModel = modelProviderService.getModelEntity(rerankModelId);
+        }
 
         KnowledgeFolder folder = KnowledgeFolder.builder()
                 .parent(null)
@@ -102,8 +105,8 @@ public class KnowledgeService {
                 .depth(1)
                 .embeddingModel(modelConfig.getId())
                 .vectorTableName(modelConfig.getVectorTable())
-                .rerankModelId(rerankModel.getId())
-                .rerankModelName(rerankModel.getModelName())
+                .rerankModelId(rerankModel != null ? rerankModel.getId() : null)
+                .rerankModelName(rerankModel != null ? rerankModel.getModelName() : null)
                 .initStatus(KnowledgeBaseInitStatus.INITIALIZING)
                 .createdBy(createdBy)
                 .build();
