@@ -82,6 +82,9 @@ class ChatServiceTest {
     @Mock
     private SubsidyCalculatorTool subsidyCalculatorTool;
 
+        @Mock
+        private ProductPriceCacheService productPriceCacheService;
+
     @Mock
     private RagFailureDetector ragFailureDetector;
 
@@ -106,6 +109,7 @@ class ChatServiceTest {
                 modelProviderService,
                 webSearchTool,
                 subsidyCalculatorTool,
+                                productPriceCacheService,
                 ragFailureDetector,
                 knowledgeReferenceService
         );
@@ -294,6 +298,60 @@ class ChatServiceTest {
         verify(dynamicChatClientFactory, never()).create(true, true);
         verify(dynamicChatClientFactory, never()).create(false, true);
         verify(dynamicChatClientFactory, never()).create(false, false);
+    }
+
+    @Test
+    void shouldDeferSubsidyCalculationToReactWhenPriceOnlyFromWebSearch() {
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "缺少成交价，先联网查价再计算补贴",
+                true,
+                List.of(
+                        new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询该型号近期价格区间", "webSearch"),
+                        new AgentExecutionPlan.AgentStep(2, "根据检索到的成交价调用 calculateSubsidy 计算补贴", "calculateSubsidy")
+                )
+        );
+        ToolIntentClassifier.IntentDecision decision =
+                new ToolIntentClassifier.IntentDecision(true, "webSearch", "", "先查价再计算");
+        SessionFactCacheService.SessionFacts factsWithoutPrice = new SessionFactCacheService.SessionFacts();
+        factsWithoutPrice.getCategories().add("笔记本");
+        factsWithoutPrice.getDeviceModels().add("macbook pro m5pro");
+        factsWithoutPrice.getIntentHints().add("补贴测算");
+
+        SessionFactCacheService.SessionFacts factsWithPrice = new SessionFactCacheService.SessionFacts();
+        factsWithPrice.getCategories().add("笔记本");
+        factsWithPrice.getDeviceModels().add("macbook pro m5pro");
+        factsWithPrice.setLatestPrice(17999D);
+
+        ChatClient reactClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class))).thenReturn(factsWithoutPrice);
+        when(productPriceCacheService.lookupPrice(factsWithoutPrice)).thenReturn(java.util.Optional.empty());
+        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
+        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
+        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
+        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
+        when(webSearchTool.webSearch()).thenReturn(request -> new WebSearchTool.SearchResponse(
+                request.query(),
+                List.of(new WebSearchTool.SearchResult("MacBook Pro m5pro 价格", "https://example.com", "成交价约 17999 元")),
+                1,
+                "成交价约 17999 元"
+        ));
+        when(sessionFactCacheService.mergeFactsFromText(anyString(), anyString(), eq(SessionFactCacheService.FactSource.WEB_SEARCH)))
+                .thenReturn(factsWithPrice);
+        when(dynamicChatClientFactory.create(true, false)).thenReturn(reactClient);
+        when(reactClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
+                .thenReturn(chatClientResponse("我已查到候选价格区间，请确认您的实际成交价后，我再调用补贴工具精确计算。"));
+        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
+
+        ChatResponse response = chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-5")
+                .message("我想购买 MacBook Pro m5pro，我能享受多少优惠")
+                .build());
+
+        assertTrue(response.getContent().contains("请确认您的实际成交价"));
+        verify(webSearchTool).webSearch();
+        verify(subsidyCalculatorTool, never()).calculateSubsidy();
+        verify(dynamicChatClientFactory).create(true, false);
     }
 
     private ChatClientResponse chatClientResponse(String content) {

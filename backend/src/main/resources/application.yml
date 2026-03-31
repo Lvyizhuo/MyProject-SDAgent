@@ -138,6 +138,12 @@ app:
 
   # Knowledge Base 配置 (新方式)
   knowledge:
+    ingest:
+      scheduler-enabled: true
+      poll-interval-ms: 2000
+      batch-size: 20
+      max-concurrent: 2
+      max-per-minute: 30
     minio:
       endpoint: http://localhost:9000
       access-key: minioadmin
@@ -172,14 +178,7 @@ app:
       chunk-overlap: 150
       keep-separator: true
       no-split-max-chars: 900
-    retrieval:
-      top-k: 3
-      similarity-threshold: 0.5
-      candidate-top-k: 20
-      rerank-enabled: true
-      rerank-model: qwen3-vl-rerank
-      rerank-endpoint: https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
-      rerank-max-doc-chars: 3000
+    # 检索参数统一走 app.rag.retrieval，避免与 app.knowledge.retrieval 双轨导致配置混淆
 
   # Advisor 配置
   advisor:

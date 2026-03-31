@@ -1,6 +1,7 @@
 package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.EmbeddingModelConfig;
+import com.shandong.policyagent.config.KnowledgeIngestProperties;
 import com.shandong.policyagent.config.MinioConfig;
 import com.shandong.policyagent.entity.*;
 import com.shandong.policyagent.model.dto.DocumentMetadataExtractResponse;
@@ -63,11 +64,12 @@ public class KnowledgeService {
     private final ModelProviderService modelProviderService;
     private final RagConfig ragConfig;
     private final MinioConfig minioConfig;
+    private final KnowledgeIngestProperties ingestProperties;
     private static final Pattern SOURCE_LABEL_PATTERN = Pattern.compile("(来源|发布单位|印发单位)[:：]\\s*([^\\n\\r]{2,50})");
     private static final Pattern REGION_PATTERN = Pattern.compile("(济南|青岛|淄博|枣庄|东营|烟台|潍坊|济宁|泰安|威海|日照|临沂|德州|聊城|滨州|菏泽)");
     private static final Pattern YEAR_PATTERN = Pattern.compile("20\\d{2}");
     private static final String PROVINCE_TAG = "山东省";
-    private static final int PARENT_CHUNK_MAX_CHARS = 1024;
+    private static final int PARENT_CHUNK_MAX_CHARS = 768;
     private static final int CHILD_CHUNK_MAX_CHARS = 512;
     private static final double DEFAULT_RERANK_SCORE_THRESHOLD = 0.5D;
 
@@ -227,6 +229,11 @@ public class KnowledgeService {
             .orElseThrow(() -> new IllegalArgumentException("Knowledge base not found"));
         assertKnowledgeBaseReady(folder);
         String folderPath = folder != null ? folder.getPath() : "/";
+        String normalizedText = normalizeTextForChunking(text);
+        if (normalizedText.isBlank()) {
+            throw new IllegalArgumentException("待入库文本预处理后为空，请检查抓取内容");
+        }
+
         String documentTitle = title == null || title.isBlank() ? "网页导入文档" : title.trim();
         String fileName = documentTitle.replaceAll("[\\/:*?\"<>|\\s]+", "-") + ".txt";
 
@@ -237,13 +244,13 @@ public class KnowledgeService {
         String vectorTableName = folder.getVectorTableName() != null && !folder.getVectorTableName().isBlank()
             ? folder.getVectorTableName()
             : modelConfig.getVectorTable();
-        String storagePath = storageService.storeText(text, folderPath, fileName);
+        String storagePath = storageService.storeText(normalizedText, folderPath, fileName);
 
         KnowledgeDocument document = KnowledgeDocument.builder()
                 .folder(folder)
                 .title(documentTitle)
                 .fileName(fileName)
-                .fileSize((long) text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                .fileSize((long) normalizedText.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
                 .fileType("text/plain; charset=UTF-8")
                 .storagePath(storagePath)
                 .storageBucket(minioConfig.getBucketName())
@@ -449,6 +456,17 @@ public class KnowledgeService {
             parentMetadata.put("title", document.getTitle());
             parentMetadata.put("documentName", document.getFileName());
             parentMetadata.put("source", document.getSource() == null ? "" : document.getSource());
+            parentMetadata.put("category", document.getCategory() == null ? "" : document.getCategory());
+            if (document.getTags() != null && !document.getTags().isEmpty()) {
+                parentMetadata.put("tags", document.getTags());
+            }
+            if (document.getPublishDate() != null) {
+                parentMetadata.put("publishDate", document.getPublishDate().toString());
+            }
+            Integer publishYear = resolveDocumentYear(document);
+            if (publishYear != null) {
+                parentMetadata.put("publishYear", publishYear);
+            }
             parentMetadata.put("chunkLevel", "parent");
             parentMetadata.put("parentChunkId", parentChunkId);
             parentMetadata.put("parentChunkIndex", i + 1);
@@ -502,7 +520,7 @@ public class KnowledgeService {
                 continue;
             }
 
-            List<String> segments = splitBySeparator(normalized, "\\n\\n", PARENT_CHUNK_MAX_CHARS);
+            List<String> segments = splitBySeparator(normalized, "\\n\\n", "\n\n", PARENT_CHUNK_MAX_CHARS);
             Map<String, Object> sourceMetadata = loadedDoc.getMetadata() == null
                     ? Map.of()
                     : loadedDoc.getMetadata();
@@ -522,10 +540,7 @@ public class KnowledgeService {
     }
 
     private List<String> splitIntoChildChunks(String text) {
-        String normalized = text.replace("\r\n", "\n")
-                .replace('\r', '\n')
-                .replaceAll("\\s{2,}", " ")
-                .trim();
+        String normalized = normalizeTextForChunking(text);
         if (normalized.isBlank()) {
             return List.of();
         }
@@ -533,10 +548,10 @@ public class KnowledgeService {
             return List.of(normalized);
         }
 
-        return splitBySeparator(normalized, "\\n", CHILD_CHUNK_MAX_CHARS);
+        return splitBySeparator(normalized, "\\n", "\n", CHILD_CHUNK_MAX_CHARS);
     }
 
-    private List<String> splitBySeparator(String text, String separatorRegex, int maxChars) {
+    private List<String> splitBySeparator(String text, String separatorRegex, String joinSeparator, int maxChars) {
         List<String> chunks = new ArrayList<>();
         String[] parts = text.split(separatorRegex);
         StringBuilder current = new StringBuilder();
@@ -552,9 +567,9 @@ public class KnowledgeService {
                 continue;
             }
 
-            int joinedLength = current.length() + trimmed.length() + 1;
+            int joinedLength = current.length() + trimmed.length() + joinSeparator.length();
             if (joinedLength <= maxChars) {
-                current.append("\n").append(trimmed);
+                current.append(joinSeparator).append(trimmed);
             } else {
                 appendWithHardLimit(chunks, current.toString().trim(), maxChars);
                 current.setLength(0);
@@ -597,7 +612,9 @@ public class KnowledgeService {
     private String normalizeTextForChunking(String text) {
         return text.replace("\r\n", "\n")
                 .replace('\r', '\n')
-                .replaceAll("[ \\t]+", " ")
+                .replace('\u00A0', ' ')
+                .replaceAll("[\\t\\x0B\\f]+", " ")
+                .replaceAll("[ ]{2,}", " ")
                 .replaceAll("\\n{3,}", "\\n\\n")
                 .trim();
     }
@@ -795,6 +812,11 @@ public class KnowledgeService {
     }
 
     private void scheduleDocumentProcessing(Long documentId) {
+        if (ingestProperties.isSchedulerEnabled()) {
+            log.info("知识库文档已进入待处理队列: documentId={}", documentId);
+            return;
+        }
+
         Runnable task = () -> {
             try {
                 processDocumentAsync(documentId);
@@ -1057,6 +1079,47 @@ public class KnowledgeService {
             return condensed;
         }
         return condensed.substring(0, 140) + "...";
+    }
+
+    private Integer resolveDocumentYear(KnowledgeDocument document) {
+        if (document == null) {
+            return null;
+        }
+        if (document.getPublishDate() != null) {
+            return document.getPublishDate().getYear();
+        }
+        StringBuilder haystack = new StringBuilder();
+        if (document.getTitle() != null && !document.getTitle().isBlank()) {
+            haystack.append(document.getTitle()).append(' ');
+        }
+        if (document.getFileName() != null && !document.getFileName().isBlank()) {
+            haystack.append(document.getFileName()).append(' ');
+        }
+        if (document.getSummary() != null && !document.getSummary().isBlank()) {
+            haystack.append(document.getSummary()).append(' ');
+        }
+        if (document.getTags() != null && !document.getTags().isEmpty()) {
+            haystack.append(String.join(" ", document.getTags()));
+        }
+        return extractLatestYear(haystack.toString());
+    }
+
+    private Integer extractLatestYear(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = YEAR_PATTERN.matcher(text);
+        Integer latest = null;
+        while (matcher.find()) {
+            int year = Integer.parseInt(matcher.group());
+            if (year < 2020 || year > 2099) {
+                continue;
+            }
+            if (latest == null || year > latest) {
+                latest = year;
+            }
+        }
+        return latest;
     }
 
     private boolean containsAny(String text, String... patterns) {

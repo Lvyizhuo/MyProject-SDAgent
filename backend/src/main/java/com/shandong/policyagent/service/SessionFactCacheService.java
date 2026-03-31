@@ -34,7 +34,9 @@ public class SessionFactCacheService {
         ASSISTANT_RESPONSE
     }
 
-    private static final Pattern PRICE_PATTERN = Pattern.compile("(?<!\\d)(\\d{3,6}(?:\\.\\d{1,2})?)\\s*(元|rmb|¥|￥)");
+        private static final Pattern PRICE_PATTERN = Pattern.compile(
+            "(?<!\\d)((?:\\d{1,3}(?:[,，]\\d{3})+|\\d{3,6})(?:\\.\\d{1,2})?)\\s*(元|rmb|人民币|¥|￥)?"
+        );
     private static final Pattern REGION_PATTERN = Pattern.compile("([\\p{IsHan}]{2,}(?:省|市|区|县))");
         private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)(20\\d{2})年?");
     private static final Pattern DEVICE_PATTERN = Pattern.compile(
@@ -217,13 +219,37 @@ public class SessionFactCacheService {
         Matcher matcher = PRICE_PATTERN.matcher(normalizedMessage);
         Double latest = null;
         while (matcher.find()) {
+            Double candidate = parsePriceCandidate(matcher.group(1));
+            if (candidate == null || candidate <= 0) {
+                continue;
+            }
+
+            String unit = matcher.group(2);
+            if ((unit == null || unit.isBlank()) && candidate < 1000) {
+                continue;
+            }
             if (isLikelySubsidyAmount(normalizedMessage, matcher.start(), matcher.end())) {
                 continue;
             }
-            latest = Double.parseDouble(matcher.group(1));
+            if (isLikelyPolicyYear(normalizedMessage, matcher.start(), matcher.end(), candidate, unit)) {
+                continue;
+            }
+            latest = candidate;
         }
         if (latest != null) {
             facts.setLatestPrice(latest);
+        }
+    }
+
+    private Double parsePriceCandidate(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String normalized = raw.replace(",", "").replace("，", "").trim();
+        try {
+            return Double.parseDouble(normalized);
+        } catch (Exception ignored) {
+            return null;
         }
     }
 
@@ -328,6 +354,29 @@ public class SessionFactCacheService {
         int to = Math.min(normalizedMessage.length(), end + 12);
         String window = normalizedMessage.substring(from, to);
         return containsAny(window, "补贴", "可获补贴", "实际补贴", "补贴额度", "优惠", "减免");
+    }
+
+    private boolean isLikelyPolicyYear(String normalizedMessage,
+                                       int start,
+                                       int end,
+                                       Double candidate,
+                                       String unit) {
+        if (candidate == null) {
+            return false;
+        }
+        if (unit != null && !unit.isBlank()) {
+            return false;
+        }
+
+        int rounded = (int) Math.round(candidate);
+        if (rounded < 2020 || rounded > 2099) {
+            return false;
+        }
+
+        int from = Math.max(0, start - 8);
+        int to = Math.min(normalizedMessage.length(), end + 8);
+        String window = normalizedMessage.substring(from, to);
+        return containsAny(window, "年", "政策", "补贴", "国补", "以旧换新");
     }
 
     private void inferCategoriesFromDeviceModels(SessionFacts facts) {

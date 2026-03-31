@@ -13,6 +13,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UrlImportConfirmRequest {
+    // 兼容旧参数：网站导入确认入库固定使用任务绑定知识库，不支持通过该字段修改。
     private Long folderId;
     private String title;
     private String category;

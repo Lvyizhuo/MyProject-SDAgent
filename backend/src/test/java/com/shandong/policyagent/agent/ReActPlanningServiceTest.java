@@ -68,4 +68,53 @@ class ReActPlanningServiceTest {
         assertEquals("calculateSubsidy", plan.steps().getFirst().toolHint());
         verifyNoInteractions(chatModel, planParser);
     }
+
+    @Test
+    void shouldNotMisfireRealtimeShortcutFromPlanningContextWrapper() {
+        String plannerWrappedMessage = """
+                【用户当前问题】
+                根据2026年的电脑补贴政策，我能有优惠多少？
+
+                【会话结构化摘要】
+                年份=2026 | 品类=笔记本 | 诉求=价格查询
+
+                【规划提示】
+                请优先依据结构化摘要理解上下文，再判断是否需要 ReAct 工具调用。
+                """;
+
+        AgentExecutionPlan plan = planningService.createPlan("conv-5", plannerWrappedMessage);
+
+        assertFalse(plan.needToolCall());
+        assertEquals("rag", plan.steps().getFirst().toolHint());
+        verifyNoInteractions(chatModel, planParser);
+    }
+
+    @Test
+    void shouldPreferPolicyConclusionForPolicyPriceMixedQuestion() {
+        AgentExecutionPlan plan = planningService.createPlan("conv-6", "根据2026年山东电脑补贴政策，MacBook 价格大概多少？");
+
+        assertFalse(plan.needToolCall());
+        assertEquals("rag", plan.steps().getFirst().toolHint());
+        verifyNoInteractions(chatModel, planParser);
+    }
+
+    @Test
+    void shouldLookupPriceBeforeSubsidyWhenPriceMissing() {
+        AgentExecutionPlan plan = planningService.createPlan("conv-7", "MacBook Pro m5pro有多少优惠，帮我算一下");
+
+        assertTrue(plan.needToolCall());
+        assertEquals("webSearch", plan.steps().get(0).toolHint());
+        assertEquals("calculateSubsidy", plan.steps().get(1).toolHint());
+        verifyNoInteractions(chatModel, planParser);
+    }
+
+    @Test
+    void shouldLookupPriceBeforeSubsidyForBenefitQuestionWithoutComputeKeyword() {
+        AgentExecutionPlan plan = planningService.createPlan("conv-8", "我想购买 MacBook Pro m5pro，我能享受多少优惠");
+
+        assertTrue(plan.needToolCall());
+        assertEquals("webSearch", plan.steps().get(0).toolHint());
+        assertEquals("calculateSubsidy", plan.steps().get(1).toolHint());
+        verifyNoInteractions(chatModel, planParser);
+    }
 }
