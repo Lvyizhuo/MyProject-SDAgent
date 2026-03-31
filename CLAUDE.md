@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **前端**: React 19 + Vite 7 (JavaScript/JSX)
 - **后端**: Spring Boot 3.4.1 + Spring AI 1.0.3 (Java 21)
 - **AI 模型**: 阿里云 DashScope（默认 `qwen3.5-plus`，支持可配置嵌入模型）
-- **模型管理**: 管理员可在控制台维护 LLM / VISION / AUDIO / EMBEDDING 四类第三方模型，并绑定到智能体配置
+- **模型管理**: 管理员可在控制台维护 LLM / VISION / AUDIO / EMBEDDING / RERANK 五类第三方模型，并绑定到智能体配置
 - **向量数据库**: PostgreSQL 16 + pgvector
 - **会话存储**: Redis 7
 - **对象存储**: MinIO
@@ -168,6 +168,8 @@ docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
 - `POST /api/admin/knowledge/documents/{id}/reingest` - 重新入库文档（需管理员 JWT）
 - `POST /api/admin/knowledge/documents/batch-delete` - 批量删除文档（需管理员 JWT）
 - `POST /api/admin/knowledge/documents/batch-move` - 批量移动文档（需管理员 JWT）
+- `GET /api/admin/knowledge/archive/export` - 导出知识库归档（需管理员 JWT）
+- `POST /api/admin/knowledge/archive/import` - 导入知识库归档（需管理员 JWT）
 - `GET /api/admin/knowledge/embedding-models` - 获取可用嵌入模型（需管理员 JWT）
 - `GET /api/admin/knowledge/config` - 获取知识库配置（需管理员 JWT）
 - `PUT /api/admin/knowledge/config` - 更新知识库配置（需管理员 JWT）

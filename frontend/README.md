@@ -42,8 +42,8 @@ npm run preview
 
 - `AdminConsolePage` 提供 `agent / knowledge / tools / models` 四个一级页面。
 - `ConfigPanel` 支持从模型管理中选择 LLM、视觉、语音、嵌入模型，也支持在未绑定 LLM 时继续手动填写 API 地址和模型名。
-- `KnowledgeBaseTab` 支持文件夹管理、文档上传/预览/下载、查看切片、重新入库、批量移动/删除，以及“网站导入（URL Import）”的审核确认入库流程。
-- `ModelsTab` 以卡片形式管理四类模型，支持新增、编辑、删除、设为默认和连接测试。
+- `KnowledgeBaseTab` 支持文件夹管理、文档上传/预览/下载、查看切片、重新入库、批量移动/删除、归档导出/导入，以及“网站导入（URL Import）”的审核确认入库流程。
+- `ModelsTab` 以卡片形式管理五类模型（LLM/视觉/语音/嵌入/重排序），支持新增、编辑、删除、设为默认和连接测试。
 - `PreviewPanel` 中的测试对话会展示“当前生效模型”，便于确认运行时到底走的是手动配置还是模型管理绑定。
 - `AdminConsoleProvider` 为管理员子页面提供统一 toast、确认弹层和输入弹层。
 

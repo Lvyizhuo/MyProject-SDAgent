@@ -131,6 +131,8 @@ export APP_MODEL_PROVIDER_ENCRYPTION_SECRET="your-model-provider-secret"
 - `POST /api/admin/knowledge/documents/{id}/reingest`
 - `POST /api/admin/knowledge/documents/batch-delete`
 - `POST /api/admin/knowledge/documents/batch-move`
+- `GET /api/admin/knowledge/archive/export`
+- `POST /api/admin/knowledge/archive/import`
 - `GET /api/admin/knowledge/embedding-models`
 - `GET|PUT /api/admin/knowledge/config`
 - `POST /api/admin/knowledge/url-imports`
