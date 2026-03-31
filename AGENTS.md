@@ -277,6 +277,8 @@ docker compose --env-file .env up -d --build
 | POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
 | POST | `/api/admin/knowledge/documents/batch-delete` | 批量删除文档 |
 | POST | `/api/admin/knowledge/documents/batch-move` | 批量移动文档 |
+| GET | `/api/admin/knowledge/archive/export` | 导出知识库归档 |
+| POST | `/api/admin/knowledge/archive/import` | 导入知识库归档 |
 | GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
 | GET | `/api/admin/knowledge/config` | 获取知识库配置 |
 | PUT | `/api/admin/knowledge/config` | 更新知识库配置 |
@@ -322,7 +324,7 @@ docker compose --env-file .env up -d --build
 7. **公开配置：** `/api/public/config/agent` 无需登录，可供前端读取当前开场白等公开信息。
 8. **工具调用：** 通过 `ToolIntentClassifier` 进行前置校验，参数不足时会先向用户补充必要参数；实时查询场景会优先走 `webSearch`。
 9. **会话事实：** `SessionFactCacheService` 会将关键事实（价格、地区、设备型号等）缓存到 Redis 供多轮对话复用。
-10. **模型联动：** 管理员在“智能体配置”里选择 LLM/视觉/语音/嵌入模型后，运行时会分别影响对话模型和 RAG 嵌入模型选择。
+10. **模型联动：** 管理员在“智能体配置”里选择 LLM/视觉/语音/嵌入模型后，运行时会分别影响对话模型和 RAG 嵌入模型选择；知识库文件夹支持绑定重排序模型。
 
 #### Advisor 执行顺序
 

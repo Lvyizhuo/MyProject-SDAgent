@@ -125,9 +125,9 @@ vi deploy/.env
 当前管理员控制台包含 4 个主模块：
 
 - 智能体：配置系统提示词、开场白、技能开关，并可绑定大语言/视觉/语音/嵌入模型
-- 知识库：管理文件夹、上传文档/网站导入、批量移动/删除、查看切片结果、重新入库
+- 知识库：管理文件夹、上传文档/网站导入、批量移动/删除、查看切片结果、重新入库、归档导出/导入
 - 工具：展示统一工具治理的信息架构与后续接入方向
-- 模型：维护 LLM、视觉、语音、嵌入四类模型，支持新增、编辑、删除、设为默认、连接测试
+- 模型：维护 LLM、视觉、语音、嵌入、重排序五类模型，支持新增、编辑、删除、设为默认、连接测试
 
 智能体测试面板会展示“当前生效模型”，区分是来自模型管理绑定还是手动配置。
 
@@ -258,6 +258,8 @@ docker compose --env-file .env up -d --build
 | POST | `/api/admin/knowledge/documents/{id}/reingest` | 重新入库文档 |
 | POST | `/api/admin/knowledge/documents/batch-delete` | 批量删除文档 |
 | POST | `/api/admin/knowledge/documents/batch-move` | 批量移动文档 |
+| GET | `/api/admin/knowledge/archive/export` | 导出知识库归档 |
+| POST | `/api/admin/knowledge/archive/import` | 导入知识库归档 |
 | GET | `/api/admin/knowledge/embedding-models` | 获取可用嵌入模型 |
 | GET | `/api/admin/knowledge/config` | 获取知识库配置 |
 | PUT | `/api/admin/knowledge/config` | 更新知识库配置 |
