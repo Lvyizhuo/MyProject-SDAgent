@@ -19,6 +19,13 @@ public class FolderTreeResponse {
     private String description;
     private String path;
     private Integer depth;
+    private String embeddingModel;
+    private String vectorTableName;
+    private Long rerankModelId;
+    private String rerankModelName;
+    private String initStatus;
+    private String initError;
+    private java.time.LocalDateTime initializedAt;
     @Builder.Default
     private List<FolderTreeResponse> children = new ArrayList<>();
 }

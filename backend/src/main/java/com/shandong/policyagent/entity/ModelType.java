@@ -22,5 +22,10 @@ public enum ModelType {
     /**
      * 嵌入模型 - 对应向量嵌入能力
      */
-    EMBEDDING
+    EMBEDDING,
+
+    /**
+     * 重排序模型 - 对应检索结果重排能力
+     */
+    RERANK
 }

@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.time.LocalDateTime;
@@ -89,6 +90,12 @@ public class ChatService {
 
         SessionFactCacheService.SessionFacts facts = sessionFactCacheService.mergeFacts(conversationId, request);
         String userMessage = buildUserMessage(request, facts);
+        ClarificationStep clarificationStep = resolveClarificationStep(rawQuestion, facts);
+        if (clarificationStep != null) {
+            sessionFactCacheService.markPendingSlot(conversationId, clarificationStep.slotName());
+            log.info("进入澄清提问阶段 | conversationId={} | slot={}", conversationId, clarificationStep.slotName());
+            return buildResponse(conversationId, clarificationStep.question(), List.of());
+        }
 
         if (fastPathEnabled) {
             String directAnswer = fastPathService.tryDirectAnswer(rawQuestion, facts);
@@ -121,7 +128,19 @@ public class ChatService {
                 : RagPrefetchService.RagPrefetchResult.empty();
         if (shouldReturnDirectRagAnswer(userMessage, ragPrefetchResult)) {
             String ragPrompt = buildRagDirectAnswerPrompt(userMessage, ragPrefetchResult.contextSnippet());
-            ChatExecutionResult ragDirectResult = executeChatWithFallback(ragPrompt, conversationId, false, false);
+            ChatExecutionResult ragDirectResult;
+            try {
+                ragDirectResult = executeChatWithFallback(ragPrompt, conversationId, false, false);
+            } catch (RuntimeException exception) {
+                ragDirectResult = fallbackForSyncChatFailure(
+                        exception,
+                        request.getMessage(),
+                        conversationId,
+                        null,
+                        null,
+                        ragPrefetchResult
+                );
+            }
             ragDirectResult = ensureNonBlankResponse(ragDirectResult, null, null, conversationId);
 
             List<ChatResponse.Reference> references = ragDirectResult.references();
@@ -136,8 +155,9 @@ public class ChatService {
             return response;
         }
 
-        AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
-        ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
+        String plannerMessage = buildPlannerMessage(rawQuestion, facts);
+        AgentExecutionPlan plan = planningService.createPlan(conversationId, plannerMessage);
+        ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(plannerMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
         plan = enforceRealtimeWebSearch(userMessage, plan, intentDecision, conversationId);
         WebSearchTool.SearchResponse webSearchResponse = executeDirectWebSearchIfNeeded(
@@ -178,7 +198,19 @@ public class ChatService {
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, subsidyResponse);
         boolean enableRag = shouldEnableRag(plan, webSearchResponse, ragPrefetchResult);
 
-        ChatExecutionResult result = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
+        ChatExecutionResult result;
+        try {
+            result = executeChatWithFallback(executionPrompt, conversationId, enableToolCallbacks, enableRag);
+        } catch (RuntimeException exception) {
+            result = fallbackForSyncChatFailure(
+                    exception,
+                    request.getMessage(),
+                    conversationId,
+                    webSearchResponse,
+                    subsidyResponse,
+                    ragPrefetchResult
+            );
+        }
         result = ensureNonBlankResponse(result, webSearchResponse, subsidyResponse, conversationId);
 
         List<ChatResponse.Reference> responseReferences = result.references();
@@ -283,8 +315,16 @@ public class ChatService {
 
         SessionFactCacheService.SessionFacts facts = sessionFactCacheService.mergeFacts(conversationId, request);
         String userMessage = buildUserMessage(request, facts);
-        AgentExecutionPlan plan = planningService.createPlan(conversationId, userMessage);
-        ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(userMessage, plan);
+        ClarificationStep clarificationStep = resolveClarificationStep(request.getMessage(), facts);
+        if (clarificationStep != null) {
+            sessionFactCacheService.markPendingSlot(conversationId, clarificationStep.slotName());
+            log.info("流式会话进入澄清提问阶段 | conversationId={} | slot={}", conversationId, clarificationStep.slotName());
+            return Flux.just(ChatStreamEvent.delta(clarificationStep.question()));
+        }
+
+        String plannerMessage = buildPlannerMessage(request.getMessage(), facts);
+        AgentExecutionPlan plan = planningService.createPlan(conversationId, plannerMessage);
+        ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(plannerMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
         plan = enforceRealtimeWebSearch(userMessage, plan, intentDecision, conversationId);
         WebSearchTool.SearchResponse webSearchResponse = executeDirectWebSearchIfNeeded(
@@ -412,6 +452,128 @@ public class ChatService {
                 请结合以上图片识别结果和用户问题进行回答。如果识别出了设备类型，请主动调用 calculateSubsidy 工具计算补贴金额。\
                 如果缺少购买价格信息，请询问用户新家电的购买价格。""",
                 baseMessage, imageAnalysis);
+    }
+
+    private String buildPlannerMessage(String rawUserMessage, SessionFactCacheService.SessionFacts facts) {
+        String planningContext = sessionFactCacheService.toPlanningContext(facts);
+        if (planningContext == null || planningContext.isBlank()) {
+            return rawUserMessage;
+        }
+
+        return """
+                【用户当前问题】
+                %s
+
+                【会话结构化摘要】
+                %s
+
+                【规划提示】
+                请优先依据结构化摘要理解上下文，再判断是否需要 ReAct 工具调用。
+                """.formatted(rawUserMessage, planningContext);
+    }
+
+    private ClarificationStep resolveClarificationStep(String rawUserMessage,
+                                                       SessionFactCacheService.SessionFacts facts) {
+        String normalized = rawUserMessage == null ? "" : rawUserMessage.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return null;
+        }
+
+        String pendingSlot = facts == null ? null : facts.getPendingSlot();
+        if ("商品类别".equals(pendingSlot) && !hasUsableCategory(facts, normalized)) {
+            return new ClarificationStep("商品类别", "请问您要查询哪类产品？例如手机、平板、家电、汽车或笔记本电脑。");
+        }
+        if ("购买价格".equals(pendingSlot) && !hasUsablePrice(facts, normalized)) {
+            return new ClarificationStep("购买价格", "请提供商品成交价（单位：元），我再为您计算补贴金额。比如：17999元。");
+        }
+        if ("政策年份".equals(pendingSlot) && !hasPolicyYear(facts, normalized)) {
+            return new ClarificationStep("政策年份", "请问您要查询哪一年的政策？例如 2025 年或 2026 年。 ");
+        }
+
+        boolean subsidyIntent = isSubsidyCalculationIntent(normalized, facts);
+        boolean policyIntent = isPolicyConsultingIntent(normalized, facts);
+
+        if (subsidyIntent) {
+            if (!hasUsableCategory(facts, normalized)) {
+                return new ClarificationStep("商品类别", "为了准确计算补贴，请先告诉我商品类别（如手机、平板、电视、空调、笔记本等）。");
+            }
+            if (hasBroadCategoryOnly(facts, normalized)) {
+                return new ClarificationStep("商品类别", "您给的是大类信息，请再补充具体品类（如电视/空调/冰箱/手机/平板/笔记本）。");
+            }
+            if (!hasUsablePrice(facts, normalized)) {
+                return new ClarificationStep("购买价格", "还差购买价格。请告诉我成交价（单位：元），我即可继续计算。 ");
+            }
+        }
+
+        if (policyIntent) {
+            if (!hasUsableCategory(facts, normalized)) {
+                return new ClarificationStep("商品类别", "请问您重点关注哪类产品政策？例如家电、数码、汽车或笔记本电脑。 ");
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isPolicyConsultingIntent(String normalized,
+                                             SessionFactCacheService.SessionFacts facts) {
+        if (containsAny(normalized, "政策", "国补", "以旧换新", "流程", "条件", "资格", "标准")) {
+            return true;
+        }
+        return facts != null && facts.getIntentHints().contains("政策咨询");
+    }
+
+    private boolean isSubsidyCalculationIntent(String normalized,
+                                               SessionFactCacheService.SessionFacts facts) {
+        if (containsAny(normalized, "计算", "帮我算", "算一下", "补贴后", "到手价", "补贴金额", "补多少")) {
+            return true;
+        }
+        return facts != null && facts.getIntentHints().contains("补贴测算");
+    }
+
+    private boolean hasUsableCategory(SessionFactCacheService.SessionFacts facts, String normalized) {
+        if (facts != null && facts.getCategories() != null && !facts.getCategories().isEmpty()) {
+            return true;
+        }
+        return containsAny(normalized,
+                "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器",
+                "笔记本", "电脑", "家电", "数码", "汽车", "新能源车");
+    }
+
+    private boolean hasUsablePrice(SessionFactCacheService.SessionFacts facts, String normalized) {
+        if (facts != null && facts.getLatestPrice() != null && facts.getLatestPrice() > 0) {
+            return true;
+        }
+        return normalized.matches(".*\\d{3,6}(?:\\.\\d{1,2})?\\s*(元|rmb|¥|￥).*");
+    }
+
+    private boolean hasPolicyYear(SessionFactCacheService.SessionFacts facts, String normalized) {
+        if (facts != null && facts.getLatestPolicyYear() != null) {
+            return true;
+        }
+        return normalized.matches(".*20\\d{2}年?.*");
+    }
+
+    private boolean hasBroadCategoryOnly(SessionFactCacheService.SessionFacts facts, String normalized) {
+        if (facts != null && facts.getCategories() != null && !facts.getCategories().isEmpty()) {
+            return facts.getCategories().stream().allMatch(category -> "家电".equals(category) || "数码".equals(category));
+        }
+        return containsAny(normalized, "家电", "数码")
+                && !containsAny(normalized, "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器", "笔记本", "电脑");
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        for (String keyword : keywords) {
+            if (text.contains(keyword.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record ClarificationStep(String slotName, String question) {
     }
 
     private String buildExecutionPrompt(String userMessage,
@@ -945,8 +1107,105 @@ public class ChatService {
                         conversationId, e.getMessage());
                 return Flux.empty();
             }
+            if (isTimeoutOrNetworkError(e)) {
+                String fallback = ensureNonBlankResponse((String) null, webSearchResponse, subsidyResponse, conversationId);
+                if (fallback == null || fallback.isBlank()) {
+                    fallback = "当前模型服务响应超时，请稍后重试。";
+                }
+                return Flux.just(ChatStreamEvent.delta(fallback));
+            }
             return Flux.just(ChatStreamEvent.error(toolFailurePolicyCenter.fallbackMessage("chat", e.getMessage())));
         }
+    }
+
+    private ChatExecutionResult fallbackForSyncChatFailure(RuntimeException exception,
+                                                           String rawUserMessage,
+                                                           String conversationId,
+                                                           WebSearchTool.SearchResponse webSearchResponse,
+                                                           SubsidyCalculatorTool.SubsidyResponse subsidyResponse,
+                                                           RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
+        if (!isTimeoutOrNetworkError(exception)) {
+            throw exception;
+        }
+
+        log.warn("模型调用超时/网络异常，使用本地兜底应答 | conversationId={} | error={}",
+                conversationId, exception.getMessage());
+
+        if (subsidyResponse != null) {
+            return new ChatExecutionResult(buildDirectSubsidyAnswer(subsidyResponse), List.of());
+        }
+
+        if (webSearchResponse != null) {
+            return new ChatExecutionResult(buildWebSearchFallbackAnswer(webSearchResponse), List.of());
+        }
+
+        String ragFallback = buildRagPrefetchFallbackAnswer(rawUserMessage, ragPrefetchResult);
+        if (ragFallback != null && !ragFallback.isBlank()) {
+            return new ChatExecutionResult(
+                    ragFallback,
+                    ragPrefetchResult == null || ragPrefetchResult.references() == null
+                            ? List.of()
+                            : ragPrefetchResult.references()
+            );
+        }
+
+        ChatExecutionResult directFallback = tryDirectOpenAiCompatibleFallback(rawUserMessage, conversationId);
+        if (directFallback != null) {
+            return directFallback;
+        }
+
+        return new ChatExecutionResult("当前模型服务响应超时，请稍后重试。", List.of());
+    }
+
+    private ChatExecutionResult tryDirectOpenAiCompatibleFallback(String userMessage, String conversationId) {
+        try {
+            DynamicChatClientFactory.ResolvedChatModelConfig runtimeConfig = dynamicChatClientFactory.resolveRuntimeConfig();
+            if (runtimeConfig == null
+                    || runtimeConfig.baseUrl() == null || runtimeConfig.baseUrl().isBlank()
+                    || runtimeConfig.apiKey() == null || runtimeConfig.apiKey().isBlank()
+                    || runtimeConfig.modelName() == null || runtimeConfig.modelName().isBlank()) {
+                return null;
+            }
+
+            ModelProvider fallbackModel = ModelProvider.builder()
+                    .provider("openai-compatible")
+                    .apiUrl(runtimeConfig.baseUrl())
+                    .apiKey(runtimeConfig.apiKey())
+                    .modelName(runtimeConfig.modelName())
+                    .temperature(runtimeConfig.temperature() == null ? null : BigDecimal.valueOf(runtimeConfig.temperature()))
+                    .maxTokens(runtimeConfig.maxTokens())
+                    .topP(runtimeConfig.topP())
+                    .build();
+
+            String content = modelProviderService.executeChatCompletion(
+                    fallbackModel,
+                    dynamicAgentConfigHolder.getSystemPrompt(),
+                    userMessage
+            );
+            log.warn("已通过原生 REST 完成超时降级调用 | conversationId={} | model={}",
+                    conversationId, runtimeConfig.modelName());
+            return new ChatExecutionResult(content, List.of());
+        } catch (Exception exception) {
+            log.warn("原生 REST 超时降级失败 | conversationId={} | error={}",
+                    conversationId, exception.getMessage());
+            return null;
+        }
+    }
+
+    private String buildRagPrefetchFallbackAnswer(String rawUserMessage,
+                                                  RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
+        if (ragPrefetchResult == null || !ragPrefetchResult.hasDocuments()) {
+            return "";
+        }
+
+        String context = ragPrefetchResult.contextSnippet();
+        if (context == null || context.isBlank()) {
+            return "";
+        }
+
+        return "当前模型服务响应超时，我先基于已检索到的政策内容给出摘要：\n\n"
+                + truncate(context, 620)
+                + "\n\n如需更完整解读，请稍后重试，或把问题拆成更具体的小问题继续咨询。";
     }
 
     private boolean isClientAbortError(Throwable throwable) {

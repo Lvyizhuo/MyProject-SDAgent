@@ -4,7 +4,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.entity.KnowledgeDocument;
 import com.shandong.policyagent.entity.KnowledgeDocumentSource;
+import com.shandong.policyagent.entity.KnowledgeBaseInitStatus;
 import com.shandong.policyagent.entity.KnowledgeFolder;
+import com.shandong.policyagent.entity.ModelProvider;
+import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.entity.UrlImportItem;
 import com.shandong.policyagent.entity.UrlImportItemType;
 import com.shandong.policyagent.entity.UrlImportJob;
@@ -41,7 +44,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
@@ -56,6 +58,7 @@ public class KnowledgeArchiveService {
     private static final String ARCHIVE_VERSION = "1";
     private static final String MANIFEST_ENTRY = "manifest.json";
     private static final String FILES_PREFIX = "files/";
+    private static final String ROOT_IMPORT_KNOWLEDGE_BASE_PATH = "/导入知识库";
 
     private final KnowledgeService knowledgeService;
     private final StorageService storageService;
@@ -65,6 +68,7 @@ public class KnowledgeArchiveService {
     private final UrlImportJobRepository urlImportJobRepository;
     private final UrlImportItemRepository urlImportItemRepository;
     private final EmbeddingService embeddingService;
+    private final ModelProviderService modelProviderService;
     private final ObjectMapper objectMapper;
 
     public byte[] exportArchive() {
@@ -145,17 +149,18 @@ public class KnowledgeArchiveService {
         ArchiveBundle bundle = readArchive(archive);
         KnowledgeArchiveManifest manifest = parseManifest(bundle.manifestBytes());
         Map<String, KnowledgeFolder> folderMapping = loadExistingFolders();
+        List<String> messages = new ArrayList<>();
+        String archiveDefaultEmbeddingModel = resolveImportEmbeddingModel(manifest.getDefaultEmbeddingModel(), messages);
 
         if (manifest.getFolders() != null) {
             manifest.getFolders().stream()
                     .sorted(Comparator.comparingInt(folder -> folder.getDepth() == null ? 0 : folder.getDepth()))
-                    .forEach(folder -> ensureFolder(folder.getPath(), folder.getDescription(), currentUser, folderMapping));
+                    .forEach(folder -> ensureFolder(folder.getPath(), folder.getDescription(), archiveDefaultEmbeddingModel, currentUser, folderMapping, messages));
         }
 
         int importedCount = 0;
         int skippedCount = 0;
         int failedCount = 0;
-        List<String> messages = new ArrayList<>();
         ArchiveImportSourceContext sourceContext = new ArchiveImportSourceContext();
 
         for (DocumentEntry entry : manifest.getDocuments()) {
@@ -166,21 +171,28 @@ public class KnowledgeArchiveService {
                     throw new IllegalArgumentException("归档中缺少文件内容: " + entry.getFileEntryPath());
                 }
 
-                if (isDuplicate(entry, folderPath)) {
+                KnowledgeFolder folder = ensureFolder(folderPath, null, archiveDefaultEmbeddingModel, currentUser, folderMapping, messages);
+
+                if (isDuplicate(entry, folder.getPath())) {
                     skippedCount++;
                     messages.add("跳过重复文档: " + safeTitle(entry));
                     continue;
                 }
 
-                KnowledgeFolder folder = "/".equals(folderPath) ? null : ensureFolder(folderPath, null, currentUser, folderMapping);
                 String resolvedEmbeddingModel = resolveImportEmbeddingModel(entry.getEmbeddingModel(), messages);
+                if (!resolvedEmbeddingModel.equals(folder.getEmbeddingModel())) {
+                    messages.add("归档文档嵌入模型与目标知识库不一致，已按知识库模型导入: "
+                            + safeTitle(entry)
+                            + " | docModel=" + resolvedEmbeddingModel
+                            + " -> knowledgeBaseModel=" + folder.getEmbeddingModel());
+                }
                 KnowledgeDocument importedDocument = knowledgeService.importArchivedDocument(
                         fileBytes,
-                        folder != null ? folder.getId() : null,
+                        folder.getId(),
                         entry.getTitle(),
                         entry.getFileName(),
                         entry.getFileType(),
-                        resolvedEmbeddingModel,
+                        null,
                         entry.getCategory(),
                         entry.getTags(),
                         entry.getPublishDate(),
@@ -285,56 +297,75 @@ public class KnowledgeArchiveService {
 
     private KnowledgeFolder ensureFolder(String rawPath,
                                          String description,
+                                         String defaultEmbeddingModel,
                                          User currentUser,
-                                         Map<String, KnowledgeFolder> folderMapping) {
+                                         Map<String, KnowledgeFolder> folderMapping,
+                                         List<String> messages) {
         String path = normalizeFolderPath(rawPath);
         if ("/".equals(path)) {
-            return null;
+            path = ROOT_IMPORT_KNOWLEDGE_BASE_PATH;
         }
+
+        String resolvedEmbeddingModel = resolveImportEmbeddingModel(defaultEmbeddingModel, messages);
+        String vectorTableName = embeddingService.getModelConfig(resolvedEmbeddingModel).getVectorTable();
+        ModelProvider defaultRerankModel = modelProviderService.getDefaultModel(ModelType.RERANK);
 
         if (folderMapping.containsKey(path)) {
             KnowledgeFolder existing = folderMapping.get(path);
+            boolean changed = false;
             if ((existing.getDescription() == null || existing.getDescription().isBlank())
                     && description != null
                     && !description.isBlank()) {
                 existing.setDescription(description);
+                changed = true;
+            }
+            if (existing.getEmbeddingModel() == null || existing.getEmbeddingModel().isBlank()) {
+                existing.setEmbeddingModel(resolvedEmbeddingModel);
+                changed = true;
+            }
+            if (existing.getVectorTableName() == null || existing.getVectorTableName().isBlank()) {
+                existing.setVectorTableName(vectorTableName);
+                changed = true;
+            }
+            if (existing.getRerankModelId() == null && defaultRerankModel != null) {
+                existing.setRerankModelId(defaultRerankModel.getId());
+                existing.setRerankModelName(defaultRerankModel.getModelName());
+                changed = true;
+            }
+            if (existing.getInitStatus() == null) {
+                existing.setInitStatus(KnowledgeBaseInitStatus.READY);
+                changed = true;
+            }
+            if (changed) {
                 existing = knowledgeFolderRepository.save(existing);
                 folderMapping.put(path, existing);
             }
             return existing;
         }
 
-        String[] segments = path.split("/");
-        KnowledgeFolder parent = null;
-        StringBuilder currentPath = new StringBuilder();
-        int depth = 0;
-        for (String segment : segments) {
-            if (segment == null || segment.isBlank()) {
-                continue;
-            }
-            depth++;
-            currentPath.append("/").append(segment);
-            String pathKey = currentPath.toString();
-            KnowledgeFolder existing = folderMapping.get(pathKey);
-            if (existing != null) {
-                parent = existing;
-                continue;
-            }
-
-            KnowledgeFolder created = KnowledgeFolder.builder()
-                    .parent(parent)
-                    .name(segment)
-                    .description(pathKey.equals(path) ? description : null)
-                    .path(pathKey)
-                    .depth(depth)
-                    .sortOrder(0)
-                    .createdBy(currentUser)
-                    .build();
-            created = knowledgeFolderRepository.save(created);
-            folderMapping.put(pathKey, created);
-            parent = created;
+        String name = path.substring(1).replace('/', '·');
+        if (name.length() > 200) {
+            name = name.substring(0, 200);
         }
-        return folderMapping.get(path);
+
+        KnowledgeFolder created = KnowledgeFolder.builder()
+                .parent(null)
+                .name(name)
+                .description(description)
+                .path(path)
+                .depth(1)
+                .sortOrder(0)
+                .embeddingModel(resolvedEmbeddingModel)
+                .vectorTableName(vectorTableName)
+                .rerankModelId(defaultRerankModel != null ? defaultRerankModel.getId() : null)
+                .rerankModelName(defaultRerankModel != null ? defaultRerankModel.getModelName() : null)
+                .initStatus(KnowledgeBaseInitStatus.READY)
+                .initializedAt(LocalDateTime.now())
+                .createdBy(currentUser)
+                .build();
+        created = knowledgeFolderRepository.save(created);
+        folderMapping.put(path, created);
+        return created;
     }
 
     private boolean isDuplicate(DocumentEntry entry, String folderPath) {
@@ -436,14 +467,6 @@ public class KnowledgeArchiveService {
         sourceContext.job.setCandidateCount(sourceContext.importedSourceCount);
         sourceContext.job.setImportedCount(sourceContext.importedSourceCount);
         urlImportJobRepository.save(sourceContext.job);
-    }
-
-    private void copy(InputStream inputStream, ByteArrayOutputStream outputStream) throws IOException {
-        byte[] buffer = new byte[8192];
-        int read;
-        while ((read = inputStream.read(buffer)) >= 0) {
-            outputStream.write(buffer, 0, read);
-        }
     }
 
     private void copy(InputStream inputStream, ZipOutputStream outputStream) throws IOException {

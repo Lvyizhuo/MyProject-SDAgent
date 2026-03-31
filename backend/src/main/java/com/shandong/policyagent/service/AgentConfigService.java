@@ -50,8 +50,12 @@ public class AgentConfigService {
         config.setLlmModelId(request.getLlmModelId());
         config.setVisionModelId(request.getVisionModelId());
         config.setAudioModelId(request.getAudioModelId());
-        config.setEmbeddingModelId(request.getEmbeddingModelId());
-        config.setKnowledgeBaseFolderId(request.getKnowledgeBaseFolderId());
+        // Agent 侧不再单独配置 embedding，统一由知识库绑定决定。
+        config.setEmbeddingModelId(null);
+        Long knowledgeBaseId = request.getKnowledgeBaseId() != null
+            ? request.getKnowledgeBaseId()
+            : request.getKnowledgeBaseFolderId();
+        config.setKnowledgeBaseFolderId(knowledgeBaseId);
 
         if (request.getLlmModelId() == null) {
             config.setModelProvider(request.getModelProvider());
@@ -153,8 +157,9 @@ public class AgentConfigService {
         validateModelSelection(request.getLlmModelId(), ModelType.LLM, "大语言");
         validateModelSelection(request.getVisionModelId(), ModelType.VISION, "视觉");
         validateModelSelection(request.getAudioModelId(), ModelType.AUDIO, "语音");
-        validateModelSelection(request.getEmbeddingModelId(), ModelType.EMBEDDING, "嵌入");
-        validateKnowledgeBaseFolderSelection(request.getKnowledgeBaseFolderId());
+        validateKnowledgeBaseFolderSelection(request.getKnowledgeBaseId() != null
+            ? request.getKnowledgeBaseId()
+            : request.getKnowledgeBaseFolderId());
 
         if (request.getLlmModelId() == null) {
             if (request.getModelName() == null || request.getModelName().trim().isEmpty()) {
@@ -209,7 +214,6 @@ public class AgentConfigService {
                 AgentConfigResponse.ResolvedModelSnapshot resolvedLlmModel = resolveModelSnapshot(config.getLlmModelId());
                 AgentConfigResponse.ResolvedModelSnapshot resolvedVisionModel = resolveModelSnapshot(config.getVisionModelId());
                 AgentConfigResponse.ResolvedModelSnapshot resolvedAudioModel = resolveModelSnapshot(config.getAudioModelId());
-                AgentConfigResponse.ResolvedModelSnapshot resolvedEmbeddingModel = resolveModelSnapshot(config.getEmbeddingModelId());
                 KnowledgeFolder knowledgeBaseFolder = resolveKnowledgeBaseFolder(config.getKnowledgeBaseFolderId());
 
                 String effectiveConfigSource = resolvedLlmModel != null ? "MODEL_PROVIDER" : "MANUAL";
@@ -232,7 +236,11 @@ public class AgentConfigService {
                     .llmModelId(config.getLlmModelId())
                     .visionModelId(config.getVisionModelId())
                     .audioModelId(config.getAudioModelId())
-                    .embeddingModelId(config.getEmbeddingModelId())
+                    .embeddingModelId(null)
+                    .knowledgeBaseId(config.getKnowledgeBaseFolderId())
+                    .knowledgeBaseName(knowledgeBaseFolder != null ? knowledgeBaseFolder.getName() : null)
+                    .knowledgeBasePath(knowledgeBaseFolder != null ? knowledgeBaseFolder.getPath() : null)
+                    .knowledgeBaseEmbeddingModel(knowledgeBaseFolder != null ? knowledgeBaseFolder.getEmbeddingModel() : null)
                     .knowledgeBaseFolderId(config.getKnowledgeBaseFolderId())
                     .knowledgeBaseFolderName(knowledgeBaseFolder != null ? knowledgeBaseFolder.getName() : null)
                     .knowledgeBaseFolderPath(knowledgeBaseFolder != null ? knowledgeBaseFolder.getPath() : null)
@@ -246,7 +254,7 @@ public class AgentConfigService {
                     .resolvedLlmModel(resolvedLlmModel)
                     .resolvedVisionModel(resolvedVisionModel)
                     .resolvedAudioModel(resolvedAudioModel)
-                    .resolvedEmbeddingModel(resolvedEmbeddingModel)
+                    .resolvedEmbeddingModel(null)
                     .systemPrompt(config.getSystemPrompt())
                     .greetingMessage(config.getGreetingMessage())
                     .skills(skills)

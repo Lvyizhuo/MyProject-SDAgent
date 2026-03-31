@@ -20,8 +20,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -33,6 +35,8 @@ import java.util.Locale;
 @Service
 @RequiredArgsConstructor
 public class ModelProviderService {
+
+    private static final String BUILT_IN_NOMIC_EMBEDDING_ID = EmbeddingService.BUILT_IN_DEFAULT_MODEL_ID;
 
     private final ModelProviderRepository modelProviderRepository;
     private final ApiKeyCipherService apiKeyCipherService;
@@ -50,19 +54,16 @@ public class ModelProviderService {
                 ? modelProviderRepository.findByType(type)
                 : modelProviderRepository.findAll();
 
-        List<ModelProviderResponse> managedModels = models.stream()
+        List<ModelProviderResponse> responses = models.stream()
                 .sorted(Comparator.comparing(ModelProvider::getIsDefault, Comparator.nullsLast(Boolean::compareTo)).reversed()
                         .thenComparing(ModelProvider::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(ModelProviderResponse::fromEntity)
                 .toList();
 
-        if (type != null && type != ModelType.EMBEDDING) {
-            return managedModels;
+        if (type == null || type == ModelType.EMBEDDING) {
+            return prependBuiltInNomicEmbedding(responses);
         }
-
-        List<ModelProviderResponse> result = new java.util.ArrayList<>(managedModels);
-        result.addAll(getBuiltInEmbeddingModels());
-        return result;
+        return responses;
     }
 
     public ModelProviderResponse getModelById(Long id) {
@@ -227,51 +228,58 @@ public class ModelProviderService {
         return result;
     }
 
+    private List<ModelProviderResponse> prependBuiltInNomicEmbedding(List<ModelProviderResponse> managedModels) {
+        if (!embeddingService.hasModel(BUILT_IN_NOMIC_EMBEDDING_ID)) {
+            return managedModels;
+        }
+
+        EmbeddingModelConfig.EmbeddingModel builtInModel = embeddingService.getModelConfig(BUILT_IN_NOMIC_EMBEDDING_ID);
+        ModelProviderResponse builtInResponse = ModelProviderResponse.builder()
+                .id(null)
+                .name("nomic-embed-text（系统内置）")
+                .type(ModelType.EMBEDDING)
+                .provider(builtInModel.getProvider())
+                .apiUrl(builtInModel.getBaseUrl())
+                .modelName(builtInModel.getModelName())
+                .builtinCode(BUILT_IN_NOMIC_EMBEDDING_ID)
+                .dimensions(builtInModel.getDimensions())
+                .temperature(null)
+                .maxTokens(null)
+                .topP(null)
+                .isDefault(true)
+                .isEnabled(true)
+                .builtIn(true)
+                .createdAt(null)
+                .updatedAt(null)
+                .build();
+
+        List<ModelProviderResponse> merged = new ArrayList<>();
+        merged.add(builtInResponse);
+        merged.addAll(managedModels.stream()
+                .filter(model -> !Boolean.TRUE.equals(model.getBuiltIn()))
+                .toList());
+        return merged;
+    }
+
     private List<ModelOption> mergeBuiltInEmbeddingOption(List<ModelOption> managedOptions) {
-        String builtInDefaultModelId = embeddingService.resolveDefaultModelId(null);
-        EmbeddingModelConfig.EmbeddingModel builtInDefaultModel = embeddingService.getModelConfig(builtInDefaultModelId);
+        if (!embeddingService.hasModel(BUILT_IN_NOMIC_EMBEDDING_ID)) {
+            return managedOptions;
+        }
+
+        EmbeddingModelConfig.EmbeddingModel builtInDefaultModel = embeddingService.getModelConfig(BUILT_IN_NOMIC_EMBEDDING_ID);
 
         ModelOption builtInOption = ModelOption.builder()
                 .id(null)
                 .name("系统内置默认 · " + builtInDefaultModel.getProvider() + " - " + builtInDefaultModel.getModelName())
                 .isDefault(true)
                 .builtIn(true)
-                .builtinCode(builtInDefaultModelId)
+                .builtinCode(BUILT_IN_NOMIC_EMBEDDING_ID)
                 .build();
 
         List<ModelOption> result = new java.util.ArrayList<>();
         result.add(builtInOption);
         result.addAll(managedOptions);
         return result;
-    }
-
-    private List<ModelProviderResponse> getBuiltInEmbeddingModels() {
-        String builtInDefaultModelId = embeddingService.resolveDefaultModelId(null);
-        return embeddingService.getAvailableModels().stream()
-                .map(model -> toBuiltInEmbeddingModel(model, builtInDefaultModelId))
-                .toList();
-    }
-
-    private ModelProviderResponse toBuiltInEmbeddingModel(EmbeddingModelConfig.EmbeddingModel model,
-                                                          String builtInDefaultModelId) {
-        return ModelProviderResponse.builder()
-                .id(null)
-                .name("系统内置 · " + model.getModelName())
-                .type(ModelType.EMBEDDING)
-                .provider(model.getProvider())
-                .apiUrl(model.getBaseUrl())
-                .modelName(model.getModelName())
-                .builtinCode(model.getId())
-                .dimensions(model.getDimensions())
-                .temperature(null)
-                .maxTokens(null)
-                .topP(null)
-                .isDefault(model.getId().equals(builtInDefaultModelId))
-                .isEnabled(true)
-                .builtIn(true)
-                .createdAt(null)
-                .updatedAt(null)
-                .build();
     }
 
     @Transactional
@@ -294,16 +302,13 @@ public class ModelProviderService {
     public Map<String, Object> testConnection(Long id) {
         ModelProvider model = getModelEntityForRuntime(id, null);
         String baseUrl = normalizeBaseUrl(model.getApiUrl());
-        String modelsUrl = baseUrl.endsWith("/") ? baseUrl + "models" : baseUrl + "/models";
+        String healthCheckUrl = resolveHealthCheckUrl(baseUrl, model.getType());
         long startTime = System.currentTimeMillis();
 
         try {
-            RestClient client = restClientBuilder
-                    .baseUrl(baseUrl)
-                    .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + model.getApiKey())
-                    .build();
+            RestClient client = createTimeoutRestClient(baseUrl, model.getApiKey());
 
-                ResponseEntity<String> response = switch (model.getType()) {
+            ResponseEntity<String> response = switch (model.getType()) {
                 case LLM -> client.post()
                     .uri("/chat/completions")
                     .body(Map.of(
@@ -315,24 +320,44 @@ public class ModelProviderService {
                     .retrieve()
                     .toEntity(String.class);
                 default -> client.get()
-                    .uri("/models")
+                    .uri(healthCheckUrl)
                     .retrieve()
                     .toEntity(String.class);
                 };
 
             long latencyMs = System.currentTimeMillis() - startTime;
-            log.info("模型连接测试成功: id={}, status={}, latencyMs={}, url={}",
-                    id, response.getStatusCode(), latencyMs, modelsUrl);
+            log.info("模型连接测试成功: id={}, type={}, status={}, latencyMs={}, url={}",
+                    id, model.getType(), response.getStatusCode(), latencyMs, healthCheckUrl);
 
             Map<String, Object> result = new HashMap<>();
             result.put("success", true);
             result.put("message", "连接成功");
             result.put("latencyMs", latencyMs);
             return result;
+        } catch (RestClientResponseException ex) {
+            long latencyMs = System.currentTimeMillis() - startTime;
+            int statusCode = ex.getStatusCode().value();
+            if (model.getType() != ModelType.LLM && (statusCode == 400 || statusCode == 404 || statusCode == 405)) {
+                log.info("模型连通性测试通过（服务已响应业务状态码）: id={}, type={}, status={}, latencyMs={}, url={}",
+                        id, model.getType(), statusCode, latencyMs, healthCheckUrl);
+                Map<String, Object> result = new HashMap<>();
+                result.put("success", true);
+                result.put("message", "连接成功（服务可达，响应状态码 " + statusCode + "）");
+                result.put("latencyMs", latencyMs);
+                return result;
+            }
+            log.warn("模型连接测试失败: id={}, type={}, status={}, latencyMs={}, url={}, error={}",
+                    id, model.getType(), statusCode, latencyMs, healthCheckUrl, ex.getMessage());
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", false);
+            result.put("message", buildTestErrorMessage(ex));
+            result.put("latencyMs", latencyMs);
+            result.put("error", ex.getClass().getSimpleName());
+            return result;
         } catch (Exception ex) {
             long latencyMs = System.currentTimeMillis() - startTime;
-            log.warn("模型连接测试失败: id={}, latencyMs={}, url={}, error={}",
-                    id, latencyMs, modelsUrl, ex.getMessage());
+            log.warn("模型连接测试失败: id={}, type={}, latencyMs={}, url={}, error={}",
+                    id, model.getType(), latencyMs, healthCheckUrl, ex.getMessage());
 
             Map<String, Object> result = new HashMap<>();
             result.put("success", false);
@@ -341,6 +366,22 @@ public class ModelProviderService {
             result.put("error", ex.getClass().getSimpleName());
             return result;
         }
+    }
+
+    private String resolveHealthCheckUrl(String baseUrl, ModelType type) {
+        if (type == ModelType.RERANK) {
+            if (baseUrl.contains("/services/rerank/")) {
+                return baseUrl;
+            }
+            if (baseUrl.contains("/api/v1")) {
+                return baseUrl + "/services/rerank/text-rerank/text-rerank";
+            }
+            return baseUrl;
+        }
+        if (baseUrl.endsWith("/")) {
+            return baseUrl + "models";
+        }
+        return baseUrl + "/models";
     }
 
     public String executeChatCompletion(ModelProvider model, String systemPrompt, String userPrompt) {

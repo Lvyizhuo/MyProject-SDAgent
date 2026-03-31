@@ -29,7 +29,9 @@ import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -107,6 +109,22 @@ class ChatServiceTest {
                 ragFailureDetector,
                 knowledgeReferenceService
         );
+    }
+
+    @Test
+    void shouldAskCategoryBeforePlanningForBroadPolicyQuery() {
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class)))
+                .thenReturn(new SessionFactCacheService.SessionFacts());
+
+        ChatResponse response = chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-collect-1")
+                .message("帮我查一下2026年的补贴政策")
+                .build());
+
+        assertTrue(response.getContent().contains("哪类产品"));
+        verify(sessionFactCacheService).markPendingSlot("conversation-collect-1", "商品类别");
+        verify(planningService, never()).createPlan(anyString(), anyString());
+        verify(dynamicChatClientFactory, never()).create(anyBoolean(), anyBoolean());
     }
 
     @Test

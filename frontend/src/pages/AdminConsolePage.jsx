@@ -32,12 +32,12 @@ const getEnabledSkillCount = (skills) => Object.values(skills || {}).filter((ski
 const getBoundModelCount = (config) => [
     config?.llmModelId,
     config?.visionModelId,
-    config?.audioModelId,
-    config?.embeddingModelId
+    config?.audioModelId
 ].filter((value) => value != null).length;
 
 const AdminConsolePage = () => {
     const [activeTab, setActiveTab] = useState('agent');
+    const [modelsIntent, setModelsIntent] = useState(null);
     const [config, setConfig] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -47,6 +47,26 @@ const AdminConsolePage = () => {
             loadConfig();
         }
     }, [activeTab]);
+
+    useEffect(() => {
+        const handleSetTab = (event) => {
+            const detail = event?.detail || {};
+            if (!detail.tab) {
+                return;
+            }
+            setActiveTab(detail.tab);
+            if (detail.tab === 'models') {
+                setModelsIntent({
+                    modelType: detail.modelType || 'RERANK',
+                    openCreateModel: Boolean(detail.openCreateModel),
+                    nonce: Date.now()
+                });
+            }
+        };
+
+        window.addEventListener('admin-console:set-tab', handleSetTab);
+        return () => window.removeEventListener('admin-console:set-tab', handleSetTab);
+    }, []);
 
     const loadConfig = async () => {
         setLoading(true);
@@ -116,8 +136,8 @@ const AdminConsolePage = () => {
                         },
                         {
                             label: '已绑定模型',
-                            value: `${boundModelCount}/4`,
-                            note: '覆盖 LLM、视觉、语音、嵌入'
+                            value: `${boundModelCount}/3`,
+                            note: '覆盖 LLM、视觉、语音'
                         },
                         {
                             label: '启用技能',
@@ -185,7 +205,7 @@ const AdminConsolePage = () => {
                 return (
                     <div className="admin-layout single-panel">
                         <div className="admin-full-panel">
-                            <ModelsTab />
+                            <ModelsTab intent={modelsIntent} />
                         </div>
                     </div>
                 );

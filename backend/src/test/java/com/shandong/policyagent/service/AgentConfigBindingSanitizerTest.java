@@ -4,7 +4,6 @@ import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.repository.AgentConfigRepository;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
-import com.shandong.policyagent.rag.EmbeddingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,9 +29,6 @@ class AgentConfigBindingSanitizerTest {
     @Mock
     private ModelProviderService modelProviderService;
 
-    @Mock
-    private EmbeddingService embeddingService;
-
     private AgentConfigBindingSanitizer sanitizer;
 
     @BeforeEach
@@ -40,8 +36,7 @@ class AgentConfigBindingSanitizerTest {
         sanitizer = new AgentConfigBindingSanitizer(
                 agentConfigRepository,
                 knowledgeFolderRepository,
-                modelProviderService,
-                embeddingService
+                modelProviderService
         );
     }
 

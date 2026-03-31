@@ -3,10 +3,7 @@ package com.shandong.policyagent.rag;
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.KnowledgeFolder;
-import com.shandong.policyagent.entity.ModelProvider;
-import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
-import com.shandong.policyagent.service.ModelProviderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -25,7 +22,6 @@ import java.util.Optional;
 public class RuntimeRagVectorStore implements VectorStore {
 
     private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
-    private final ModelProviderService modelProviderService;
     private final KnowledgeFolderRepository knowledgeFolderRepository;
     private final KnowledgeService knowledgeService;
     private final MultiVectorStoreService multiVectorStoreService;
@@ -34,17 +30,20 @@ public class RuntimeRagVectorStore implements VectorStore {
 
     @Override
     public void add(List<Document> documents) {
-        multiVectorStoreService.getVectorStore(resolveEmbeddingModelId()).add(documents);
+        RetrievalContext retrievalContext = resolveRetrievalContext();
+        multiVectorStoreService.getVectorStore(retrievalContext.embeddingModelId()).add(documents);
     }
 
     @Override
     public void delete(List<String> idList) {
-        multiVectorStoreService.getVectorStore(resolveEmbeddingModelId()).delete(idList);
+        RetrievalContext retrievalContext = resolveRetrievalContext();
+        multiVectorStoreService.getVectorStore(retrievalContext.embeddingModelId()).delete(idList);
     }
 
     @Override
     public void delete(Filter.Expression filterExpression) {
-        multiVectorStoreService.getVectorStore(resolveEmbeddingModelId()).delete(filterExpression);
+        RetrievalContext retrievalContext = resolveRetrievalContext();
+        multiVectorStoreService.getVectorStore(retrievalContext.embeddingModelId()).delete(filterExpression);
     }
 
     @Override
@@ -72,23 +71,31 @@ public class RuntimeRagVectorStore implements VectorStore {
     }
 
     public RetrievalContext resolveRetrievalContext() {
-        String embeddingModelId = resolveEmbeddingModelId();
         ScopeResolution scope = resolveKnowledgeBaseScope();
-        String vectorTableName = embeddingService.getModelConfig(embeddingModelId).getVectorTable();
+        String embeddingModelId = scope.enabled() && scope.embeddingModelId() != null && !scope.embeddingModelId().isBlank()
+            ? scope.embeddingModelId()
+            : resolveFallbackEmbeddingModelId();
+        String vectorTableName = scope.enabled() && scope.vectorTableName() != null && !scope.vectorTableName().isBlank()
+            ? scope.vectorTableName()
+            : embeddingService.getModelConfig(embeddingModelId).getVectorTable();
 
         if (scope.missing()) {
-            return new RetrievalContext(embeddingModelId, vectorTableName, scope.folderId(), null, true);
+            return new RetrievalContext(embeddingModelId, vectorTableName, scope.folderId(), null, null, null, true);
         }
 
         String folderPath = scope.enabled() ? scope.folderPath() : null;
         Long folderId = scope.enabled() ? scope.folderId() : null;
-        return new RetrievalContext(embeddingModelId, vectorTableName, folderId, folderPath, false);
+        Long rerankModelId = scope.enabled() ? scope.rerankModelId() : null;
+        String rerankModelName = scope.enabled() ? scope.rerankModelName() : null;
+        return new RetrievalContext(embeddingModelId, vectorTableName, folderId, folderPath, rerankModelId, rerankModelName, false);
     }
 
     public record RetrievalContext(String embeddingModelId,
                                    String vectorTableName,
                                    Long folderId,
                                    String folderPath,
+                                   Long rerankModelId,
+                                   String rerankModelName,
                                    boolean missing) {
     }
 
@@ -103,41 +110,44 @@ public class RuntimeRagVectorStore implements VectorStore {
             return ScopeResolution.missing(config.getKnowledgeBaseFolderId());
         }
 
-        return ScopeResolution.folder(folder.get().getId(), folder.get().getPath());
+        KnowledgeFolder knowledgeBase = folder.get();
+        return ScopeResolution.folder(
+                knowledgeBase.getId(),
+                knowledgeBase.getPath(),
+                knowledgeBase.getEmbeddingModel(),
+                knowledgeBase.getVectorTableName(),
+                knowledgeBase.getRerankModelId(),
+                knowledgeBase.getRerankModelName()
+        );
     }
 
-    private record ScopeResolution(Long folderId, String folderPath, boolean enabled, boolean missing) {
+    private record ScopeResolution(Long folderId,
+                                   String folderPath,
+                                   String embeddingModelId,
+                                   String vectorTableName,
+                                   Long rerankModelId,
+                                   String rerankModelName,
+                                   boolean enabled,
+                                   boolean missing) {
         private static ScopeResolution all() {
-            return new ScopeResolution(null, null, false, false);
+            return new ScopeResolution(null, null, null, null, null, null, false, false);
         }
 
-        private static ScopeResolution folder(Long folderId, String folderPath) {
-            return new ScopeResolution(folderId, folderPath, true, false);
+        private static ScopeResolution folder(Long folderId,
+                                              String folderPath,
+                                              String embeddingModelId,
+                                              String vectorTableName,
+                                              Long rerankModelId,
+                                              String rerankModelName) {
+            return new ScopeResolution(folderId, folderPath, embeddingModelId, vectorTableName, rerankModelId, rerankModelName, true, false);
         }
 
         private static ScopeResolution missing(Long folderId) {
-            return new ScopeResolution(folderId, null, false, true);
+            return new ScopeResolution(folderId, null, null, null, null, null, false, true);
         }
     }
 
-    private String resolveEmbeddingModelId() {
-        AgentConfig config = dynamicAgentConfigHolder.get();
-        if (config != null && config.getEmbeddingModelId() != null) {
-            try {
-                ModelProvider provider = modelProviderService.getModelEntity(config.getEmbeddingModelId());
-                if (provider.getType() == ModelType.EMBEDDING && Boolean.TRUE.equals(provider.getIsEnabled())) {
-                    String matchedModelId = embeddingService.findMappedModelId(provider);
-                    if (matchedModelId != null) {
-                        return matchedModelId;
-                    }
-                    log.warn("未找到与管理员嵌入模型匹配的知识库配置，回退到知识库默认模型 | modelId={} | modelName={}",
-                            provider.getId(), provider.getModelName());
-                }
-            } catch (Exception ex) {
-                log.warn("解析管理员嵌入模型失败，回退到知识库默认模型: {}", ex.getMessage());
-            }
-        }
-
+    private String resolveFallbackEmbeddingModelId() {
         return embeddingService.resolveDefaultModelId(knowledgeService.getConfig().getDefaultEmbeddingModel());
     }
 

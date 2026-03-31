@@ -11,6 +11,7 @@ import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
 import com.shandong.policyagent.repository.UrlImportJobRepository;
 import com.shandong.policyagent.repository.UrlImportItemRepository;
+import com.shandong.policyagent.service.ModelProviderService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -57,48 +58,61 @@ public class KnowledgeService {
 
     private final StorageService storageService;
     private final DocumentLoaderService documentLoaderService;
-    private final TextSplitterService textSplitterService;
     private final EmbeddingService embeddingService;
     private final MultiVectorStoreService multiVectorStoreService;
+    private final ModelProviderService modelProviderService;
+    private final RagConfig ragConfig;
     private final MinioConfig minioConfig;
     private static final Pattern SOURCE_LABEL_PATTERN = Pattern.compile("(来源|发布单位|印发单位)[:：]\\s*([^\\n\\r]{2,50})");
     private static final Pattern REGION_PATTERN = Pattern.compile("(济南|青岛|淄博|枣庄|东营|烟台|潍坊|济宁|泰安|威海|日照|临沂|德州|聊城|滨州|菏泽)");
     private static final Pattern YEAR_PATTERN = Pattern.compile("20\\d{2}");
     private static final String PROVINCE_TAG = "山东省";
+    private static final int PARENT_CHUNK_MAX_CHARS = 1024;
+    private static final int CHILD_CHUNK_MAX_CHARS = 512;
+    private static final double DEFAULT_RERANK_SCORE_THRESHOLD = 0.5D;
 
     @Transactional
-    public KnowledgeFolder createFolder(Long parentId, String name, String description, User createdBy) {
-        KnowledgeFolder parent = null;
-        String path;
-        int depth = 1;
-
+    public KnowledgeFolder createFolder(Long parentId,
+                                        String name,
+                                        String description,
+                                        String embeddingModelId,
+                                        Long rerankModelId,
+                                        User createdBy) {
         if (parentId != null) {
-            parent = folderRepository.findById(parentId)
-                    .orElseThrow(() -> new IllegalArgumentException("Parent folder not found"));
-            path = parent.getPath() + "/" + name;
-            depth = parent.getDepth() + 1;
-        } else {
-            path = "/" + name;
+            throw new IllegalArgumentException("当前版本仅支持独立知识库，不支持父子目录");
         }
+
+        String path = "/" + name;
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
 
         if (folderRepository.findByPath(path).isPresent()) {
             throw new IllegalArgumentException("Folder path already exists: " + path);
         }
 
+        modelProviderService.validateRuntimeModelBinding(rerankModelId, ModelType.RERANK);
+        ModelProvider rerankModel = modelProviderService.getModelEntity(rerankModelId);
+
         KnowledgeFolder folder = KnowledgeFolder.builder()
-                .parent(parent)
+                .parent(null)
                 .name(name)
                 .description(description)
                 .path(path)
-                .depth(depth)
+                .depth(1)
+                .embeddingModel(modelConfig.getId())
+                .vectorTableName(modelConfig.getVectorTable())
+                .rerankModelId(rerankModel.getId())
+                .rerankModelName(rerankModel.getModelName())
+                .initStatus(KnowledgeBaseInitStatus.INITIALIZING)
                 .createdBy(createdBy)
                 .build();
 
-        return folderRepository.save(folder);
+            KnowledgeFolder saved = folderRepository.save(folder);
+            scheduleKnowledgeBaseInitialization(saved.getId());
+            return saved;
     }
 
     public List<KnowledgeFolder> getFolderTree() {
-        return folderRepository.findAllRootFoldersWithChildren();
+        return folderRepository.findAllKnowledgeBases();
     }
 
     @Transactional
@@ -141,11 +155,22 @@ public class KnowledgeService {
             String summary,
             User createdBy) {
 
-        KnowledgeFolder folder = folderId != null ? folderRepository.findById(folderId).orElse(null) : null;
+        if (folderId == null) {
+            throw new IllegalArgumentException("请选择知识库后再上传文档");
+        }
+        KnowledgeFolder folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new IllegalArgumentException("Knowledge base not found"));
+        assertKnowledgeBaseReady(folder);
         String folderPath = folder != null ? folder.getPath() : "/";
         String resolvedFileType = storageService.resolveContentType(file.getOriginalFilename(), file.getContentType());
 
-        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
+        if (embeddingModelId != null && !embeddingModelId.isBlank() && !embeddingModelId.equals(folder.getEmbeddingModel())) {
+            throw new IllegalArgumentException("文档嵌入模型由知识库固定绑定，不能单独指定");
+        }
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(folder.getEmbeddingModel());
+        String vectorTableName = folder.getVectorTableName() != null && !folder.getVectorTableName().isBlank()
+                ? folder.getVectorTableName()
+                : modelConfig.getVectorTable();
 
         String storagePath = storageService.storeFile(file, folderPath);
 
@@ -157,8 +182,8 @@ public class KnowledgeService {
                 .fileType(resolvedFileType)
                 .storagePath(storagePath)
                 .storageBucket(minioConfig.getBucketName())
-                .embeddingModel(embeddingModelId)
-                .vectorTableName(modelConfig.getVectorTable())
+                .embeddingModel(folder.getEmbeddingModel())
+                .vectorTableName(vectorTableName)
                 .category(category)
                 .tags(tags)
                 .publishDate(publishDate)
@@ -195,12 +220,23 @@ public class KnowledgeService {
             throw new IllegalArgumentException("待入库文本不能为空");
         }
 
-        KnowledgeFolder folder = folderId != null ? folderRepository.findById(folderId).orElse(null) : null;
+        if (folderId == null) {
+            throw new IllegalArgumentException("请选择知识库后再导入文本");
+        }
+        KnowledgeFolder folder = folderRepository.findById(folderId)
+            .orElseThrow(() -> new IllegalArgumentException("Knowledge base not found"));
+        assertKnowledgeBaseReady(folder);
         String folderPath = folder != null ? folder.getPath() : "/";
         String documentTitle = title == null || title.isBlank() ? "网页导入文档" : title.trim();
         String fileName = documentTitle.replaceAll("[\\/:*?\"<>|\\s]+", "-") + ".txt";
 
-        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
+        if (embeddingModelId != null && !embeddingModelId.isBlank() && !embeddingModelId.equals(folder.getEmbeddingModel())) {
+            throw new IllegalArgumentException("文档嵌入模型由知识库固定绑定，不能单独指定");
+        }
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(folder.getEmbeddingModel());
+        String vectorTableName = folder.getVectorTableName() != null && !folder.getVectorTableName().isBlank()
+            ? folder.getVectorTableName()
+            : modelConfig.getVectorTable();
         String storagePath = storageService.storeText(text, folderPath, fileName);
 
         KnowledgeDocument document = KnowledgeDocument.builder()
@@ -211,8 +247,8 @@ public class KnowledgeService {
                 .fileType("text/plain; charset=UTF-8")
                 .storagePath(storagePath)
                 .storageBucket(minioConfig.getBucketName())
-                .embeddingModel(embeddingModelId)
-                .vectorTableName(modelConfig.getVectorTable())
+                .embeddingModel(folder.getEmbeddingModel())
+                .vectorTableName(vectorTableName)
                 .category(category)
                 .tags(tags)
                 .publishDate(publishDate)
@@ -249,13 +285,24 @@ public class KnowledgeService {
             throw new IllegalArgumentException("导入文件内容不能为空");
         }
 
-        KnowledgeFolder folder = folderId != null ? folderRepository.findById(folderId).orElse(null) : null;
+        if (folderId == null) {
+            throw new IllegalArgumentException("请选择知识库后再导入归档文档");
+        }
+        KnowledgeFolder folder = folderRepository.findById(folderId)
+            .orElseThrow(() -> new IllegalArgumentException("Knowledge base not found"));
+        assertKnowledgeBaseReady(folder);
         String folderPath = folder != null ? folder.getPath() : "/";
         String safeFileName = fileName == null || fileName.isBlank() ? "imported-document.bin" : fileName.trim();
         String safeTitle = title == null || title.isBlank() ? safeFileName : title.trim();
         String safeFileType = storageService.resolveContentType(safeFileName, fileType);
 
-        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(embeddingModelId);
+        if (embeddingModelId != null && !embeddingModelId.isBlank() && !embeddingModelId.equals(folder.getEmbeddingModel())) {
+            throw new IllegalArgumentException("文档嵌入模型由知识库固定绑定，不能单独指定");
+        }
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(folder.getEmbeddingModel());
+        String vectorTableName = folder.getVectorTableName() != null && !folder.getVectorTableName().isBlank()
+            ? folder.getVectorTableName()
+            : modelConfig.getVectorTable();
         String storagePath = storageService.storeBytes(fileBytes, folderPath, safeFileName, safeFileType);
 
         KnowledgeDocument document = KnowledgeDocument.builder()
@@ -266,8 +313,8 @@ public class KnowledgeService {
                 .fileType(safeFileType)
                 .storagePath(storagePath)
                 .storageBucket(minioConfig.getBucketName())
-                .embeddingModel(embeddingModelId)
-                .vectorTableName(modelConfig.getVectorTable())
+                .embeddingModel(folder.getEmbeddingModel())
+                .vectorTableName(vectorTableName)
                 .category(category)
                 .tags(tags)
                 .publishDate(publishDate)
@@ -339,19 +386,13 @@ public class KnowledgeService {
 
             List<Document> loadedDocs = documentLoaderService.loadDocumentFromResource(resource, document.getFileName());
 
-            List<Document> splitDocs = textSplitterService.splitDocuments(loadedDocs, document.getEmbeddingModel());
-
-            int baseChunkSize = Math.max(300, getConfig().getChunkSize() == null ? 900 : getConfig().getChunkSize());
-            int childTargetChars = Math.max(180, Math.min(420, baseChunkSize / 3));
-            int childHardMaxChars = Math.max(childTargetChars, childTargetChars * 2);
+                List<Document> splitDocs = buildParentChunks(loadedDocs);
 
             List<Document> indexedDocs = buildParentChildIndexDocuments(
                     splitDocs,
                     document,
                     documentId,
-                    folderPath,
-                    childTargetChars,
-                    childHardMaxChars
+                    folderPath
             );
 
             if (indexedDocs.isEmpty()) {
@@ -386,9 +427,7 @@ public class KnowledgeService {
     private List<Document> buildParentChildIndexDocuments(List<Document> parentChunks,
                                                           KnowledgeDocument document,
                                                           Long documentId,
-                                                          String folderPath,
-                                                          int childTargetChars,
-                                                          int childHardMaxChars) {
+                                                          String folderPath) {
         List<Document> result = new ArrayList<>();
         if (parentChunks == null || parentChunks.isEmpty()) {
             return result;
@@ -421,7 +460,7 @@ public class KnowledgeService {
 
             result.add(new Document(parentChunkId, parentChunk.getText(), parentMetadata));
 
-            List<String> childChunks = splitIntoChildChunks(parentChunk.getText(), childTargetChars, childHardMaxChars);
+            List<String> childChunks = splitIntoChildChunks(parentChunk.getText());
             for (int childIndex = 0; childIndex < childChunks.size(); childIndex++) {
                 String childText = childChunks.get(childIndex);
                 if (childText == null || childText.isBlank()) {
@@ -447,61 +486,120 @@ public class KnowledgeService {
         return result;
     }
 
-    private List<String> splitIntoChildChunks(String text, int targetChars, int hardMaxChars) {
+    private List<Document> buildParentChunks(List<Document> loadedDocs) {
+        List<Document> parentChunks = new ArrayList<>();
+        if (loadedDocs == null || loadedDocs.isEmpty()) {
+            return parentChunks;
+        }
+
+        for (Document loadedDoc : loadedDocs) {
+            if (loadedDoc == null || loadedDoc.getText() == null || loadedDoc.getText().isBlank()) {
+                continue;
+            }
+
+            String normalized = normalizeTextForChunking(loadedDoc.getText());
+            if (normalized.isBlank()) {
+                continue;
+            }
+
+            List<String> segments = splitBySeparator(normalized, "\\n\\n", PARENT_CHUNK_MAX_CHARS);
+            Map<String, Object> sourceMetadata = loadedDoc.getMetadata() == null
+                    ? Map.of()
+                    : loadedDoc.getMetadata();
+
+            for (String segment : segments) {
+                if (segment == null || segment.isBlank()) {
+                    continue;
+                }
+                Map<String, Object> metadata = new HashMap<>(sourceMetadata);
+                metadata.put("splitStrategy", "PARENT_CHILD_PARAGRAPH");
+                metadata.put("chunkChars", segment.length());
+                parentChunks.add(new Document(UUID.randomUUID().toString(), segment, metadata));
+            }
+        }
+
+        return parentChunks;
+    }
+
+    private List<String> splitIntoChildChunks(String text) {
         String normalized = text.replace("\r\n", "\n")
                 .replace('\r', '\n')
-                .replaceAll("[ \\t]+", " ")
+                .replaceAll("\\s{2,}", " ")
                 .trim();
         if (normalized.isBlank()) {
             return List.of();
         }
-        if (normalized.length() <= targetChars) {
+        if (normalized.length() <= CHILD_CHUNK_MAX_CHARS) {
             return List.of(normalized);
         }
 
-        String[] sentences = normalized.split("(?<=[。！？；.!?;])\\s*");
-        List<String> assembled = new ArrayList<>();
+        return splitBySeparator(normalized, "\\n", CHILD_CHUNK_MAX_CHARS);
+    }
+
+    private List<String> splitBySeparator(String text, String separatorRegex, int maxChars) {
+        List<String> chunks = new ArrayList<>();
+        String[] parts = text.split(separatorRegex);
         StringBuilder current = new StringBuilder();
 
-        for (String sentence : sentences) {
-            String trimmed = sentence == null ? "" : sentence.trim();
+        for (String part : parts) {
+            String trimmed = part == null ? "" : part.trim();
             if (trimmed.isBlank()) {
                 continue;
             }
+
             if (current.isEmpty()) {
                 current.append(trimmed);
                 continue;
             }
-            if (current.length() + trimmed.length() + 1 <= targetChars) {
-                current.append(" ").append(trimmed);
-                continue;
+
+            int joinedLength = current.length() + trimmed.length() + 1;
+            if (joinedLength <= maxChars) {
+                current.append("\n").append(trimmed);
+            } else {
+                appendWithHardLimit(chunks, current.toString().trim(), maxChars);
+                current.setLength(0);
+                current.append(trimmed);
             }
-            assembled.add(current.toString().trim());
-            current.setLength(0);
-            current.append(trimmed);
         }
 
         if (!current.isEmpty()) {
-            assembled.add(current.toString().trim());
-        }
-        if (assembled.isEmpty()) {
-            assembled.add(normalized);
+            appendWithHardLimit(chunks, current.toString().trim(), maxChars);
         }
 
-        List<String> result = new ArrayList<>();
-        for (String chunk : assembled) {
-            if (chunk.length() <= hardMaxChars) {
-                result.add(chunk);
-                continue;
-            }
-            int start = 0;
-            while (start < chunk.length()) {
-                int end = Math.min(chunk.length(), start + hardMaxChars);
-                result.add(chunk.substring(start, end).trim());
-                start = end;
-            }
+        if (chunks.isEmpty()) {
+            appendWithHardLimit(chunks, text, maxChars);
         }
-        return result;
+        return chunks;
+    }
+
+    private void appendWithHardLimit(List<String> chunks, String content, int maxChars) {
+        String normalized = content == null ? "" : content.trim();
+        if (normalized.isBlank()) {
+            return;
+        }
+
+        if (normalized.length() <= maxChars) {
+            chunks.add(normalized);
+            return;
+        }
+
+        int start = 0;
+        while (start < normalized.length()) {
+            int end = Math.min(normalized.length(), start + maxChars);
+            String section = normalized.substring(start, end).trim();
+            if (!section.isBlank()) {
+                chunks.add(section);
+            }
+            start = end;
+        }
+    }
+
+    private String normalizeTextForChunking(String text) {
+        return text.replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .replaceAll("[ \\t]+", " ")
+                .replaceAll("\\n{3,}", "\\n\\n")
+                .trim();
     }
 
     public Page<KnowledgeDocument> listDocuments(Long folderId, Long importJobId, String category, String tag, DocumentStatus status, String keyword, Pageable pageable) {
@@ -601,6 +699,9 @@ public class KnowledgeService {
 
     @Transactional
     public void batchMoveDocuments(List<Long> ids, Long targetFolderId) {
+        if (targetFolderId == null) {
+            throw new IllegalArgumentException("请选择目标知识库");
+        }
         List<KnowledgeDocument> documents = documentRepository.findAllById(ids);
         if (documents.size() != ids.size()) {
             throw new IllegalArgumentException("部分文档不存在，无法批量移动");
@@ -609,10 +710,31 @@ public class KnowledgeService {
         KnowledgeFolder targetFolder = targetFolderId != null
                 ? folderRepository.findById(targetFolderId).orElseThrow(() -> new IllegalArgumentException("目标文件夹不存在"))
                 : null;
+        assertKnowledgeBaseReady(targetFolder);
+
+        EmbeddingModelConfig.EmbeddingModel targetModelConfig = embeddingService.getModelConfig(targetFolder.getEmbeddingModel());
+        String targetVectorTable = targetFolder.getVectorTableName() != null && !targetFolder.getVectorTableName().isBlank()
+                ? targetFolder.getVectorTableName()
+                : targetModelConfig.getVectorTable();
 
         for (KnowledgeDocument document : documents) {
+            Long currentFolderId = document.getFolder() != null ? document.getFolder().getId() : null;
+            if (Objects.equals(currentFolderId, targetFolder.getId())) {
+                continue;
+            }
+
+            if (document.getVectorTableName() != null && !document.getVectorTableName().isBlank()) {
+                multiVectorStoreService.deleteDocumentChunks(document.getVectorTableName(), document.getId());
+            }
+
             document.setFolder(targetFolder);
+            document.setEmbeddingModel(targetFolder.getEmbeddingModel());
+            document.setVectorTableName(targetVectorTable);
+            document.setStatus(DocumentStatus.PENDING);
+            document.setErrorMessage(null);
+            document.setChunkCount(0);
             documentRepository.save(document);
+            scheduleDocumentProcessing(document.getId());
         }
     }
 
@@ -643,17 +765,28 @@ public class KnowledgeService {
     public void reingestDocument(Long id, String targetEmbeddingModelId) {
         KnowledgeDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
-        String resolvedEmbeddingModelId = targetEmbeddingModelId == null || targetEmbeddingModelId.isBlank()
-                ? document.getEmbeddingModel()
-                : targetEmbeddingModelId.trim();
+        if (document.getFolder() == null || document.getFolder().getId() == null) {
+            throw new IllegalArgumentException("文档未绑定知识库，无法重新入库，请先迁移到目标知识库");
+        }
+        KnowledgeFolder knowledgeBase = folderRepository.findById(document.getFolder().getId())
+            .orElseThrow(() -> new IllegalArgumentException("知识库不存在，无法重新入库"));
+        assertKnowledgeBaseReady(knowledgeBase);
+        String resolvedEmbeddingModelId = knowledgeBase.getEmbeddingModel();
+        if (targetEmbeddingModelId != null && !targetEmbeddingModelId.isBlank()
+            && !resolvedEmbeddingModelId.equals(targetEmbeddingModelId.trim())) {
+            throw new IllegalArgumentException("文档嵌入模型由知识库固定绑定，不能单独指定");
+        }
         EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(resolvedEmbeddingModelId);
+        String vectorTableName = knowledgeBase.getVectorTableName() != null && !knowledgeBase.getVectorTableName().isBlank()
+            ? knowledgeBase.getVectorTableName()
+            : modelConfig.getVectorTable();
 
         if (document.getVectorTableName() != null && !document.getVectorTableName().isBlank()) {
             multiVectorStoreService.deleteDocumentChunks(document.getVectorTableName(), document.getId());
         }
 
         document.setEmbeddingModel(resolvedEmbeddingModelId);
-        document.setVectorTableName(modelConfig.getVectorTable());
+        document.setVectorTableName(vectorTableName);
         document.setStatus(DocumentStatus.PENDING);
         document.setErrorMessage(null);
         document.setChunkCount(0);
@@ -681,6 +814,76 @@ public class KnowledgeService {
         }
 
         knowledgeIngestTaskExecutor.execute(task);
+    }
+
+    private void scheduleKnowledgeBaseInitialization(Long knowledgeBaseId) {
+        Runnable task = () -> {
+            try {
+                initializeKnowledgeBaseAsync(knowledgeBaseId);
+            } catch (Exception exception) {
+                log.error("知识库初始化失败: knowledgeBaseId={}", knowledgeBaseId, exception);
+            }
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    knowledgeIngestTaskExecutor.execute(task);
+                }
+            });
+            return;
+        }
+
+        knowledgeIngestTaskExecutor.execute(task);
+    }
+
+    @Transactional
+    public void initializeKnowledgeBaseAsync(Long knowledgeBaseId) {
+        KnowledgeFolder folder = folderRepository.findById(knowledgeBaseId)
+                .orElseThrow(() -> new IllegalArgumentException("Knowledge base not found"));
+        try {
+            folder.setInitStatus(KnowledgeBaseInitStatus.INITIALIZING);
+            folder.setInitError(null);
+            folderRepository.save(folder);
+
+            multiVectorStoreService.getVectorStore(folder.getEmbeddingModel());
+
+            folder.setInitStatus(KnowledgeBaseInitStatus.READY);
+            folder.setInitError(null);
+            folder.setInitializedAt(java.time.LocalDateTime.now());
+            folderRepository.save(folder);
+            log.info("知识库初始化完成: knowledgeBaseId={} | embeddingModel={} | vectorTable={}",
+                    folder.getId(), folder.getEmbeddingModel(), folder.getVectorTableName());
+        } catch (Exception exception) {
+            folder.setInitStatus(KnowledgeBaseInitStatus.FAILED);
+            folder.setInitError(exception.getMessage());
+            folderRepository.save(folder);
+            throw exception;
+        }
+    }
+
+    public void assertKnowledgeBaseReady(KnowledgeFolder folder) {
+        if (folder == null) {
+            throw new IllegalArgumentException("知识库不存在");
+        }
+
+        KnowledgeBaseInitStatus status = folder.getInitStatus();
+        if (status == null || status == KnowledgeBaseInitStatus.READY) {
+            return;
+        }
+        if (status == KnowledgeBaseInitStatus.INITIALIZING) {
+            throw new IllegalArgumentException("知识库正在初始化，请稍后再试");
+        }
+        throw new IllegalArgumentException("知识库初始化失败，请修复后重试: " + (folder.getInitError() == null ? "未知错误" : folder.getInitError()));
+    }
+
+    public double resolveRerankScoreThreshold() {
+        double configured = ragConfig.getRetrieval().getSimilarityThreshold();
+        if (configured <= 0 || configured >= 1) {
+            return DEFAULT_RERANK_SCORE_THRESHOLD;
+        }
+        return configured;
     }
 
     public KnowledgeConfig getConfig() {

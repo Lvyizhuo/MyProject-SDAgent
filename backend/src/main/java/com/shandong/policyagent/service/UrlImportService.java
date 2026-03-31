@@ -52,15 +52,13 @@ public class UrlImportService {
     @Transactional
     public UrlImportJobResponse createImport(UrlImportCreateRequest request, User currentUser) {
         validateSourceUrl(request.getUrl());
-        KnowledgeFolder targetFolder = null;
-        if (request.getFolderId() != null) {
-            targetFolder = folderRepository.findById(request.getFolderId())
-                    .orElseThrow(() -> new IllegalArgumentException("目标文件夹不存在"));
-        }
+        KnowledgeFolder targetFolder = folderRepository.findById(request.getFolderId())
+                .orElseThrow(() -> new IllegalArgumentException("目标知识库不存在"));
+        knowledgeService.assertKnowledgeBaseReady(targetFolder);
 
-        String embeddingModel = request.getEmbeddingModel();
+        String embeddingModel = targetFolder.getEmbeddingModel();
         if (embeddingModel == null || embeddingModel.isBlank()) {
-            embeddingModel = knowledgeService.getConfig().getDefaultEmbeddingModel();
+            throw new IllegalArgumentException("目标知识库未绑定嵌入模型，请先修复知识库配置");
         }
 
         UrlImportJob job = jobRepository.save(UrlImportJob.builder()
@@ -75,10 +73,10 @@ public class UrlImportService {
                 .build());
 
         Long jobId = job.getId();
-            log.info("创建网站导入任务: jobId={} | sourceUrl={} | folderId={} | embeddingModel={}",
+            log.info("创建网站导入任务: jobId={} | sourceUrl={} | knowledgeBaseId={} | embeddingModel={}",
                 jobId,
                 job.getSourceUrl(),
-                targetFolder != null ? targetFolder.getId() : null,
+                targetFolder.getId(),
                 embeddingModel);
             scheduleProcessJob(jobId);
         return toJobResponse(job);

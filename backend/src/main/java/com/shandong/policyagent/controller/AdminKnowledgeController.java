@@ -5,11 +5,13 @@ import com.shandong.policyagent.entity.KnowledgeConfig;
 import com.shandong.policyagent.entity.KnowledgeDocument;
 import com.shandong.policyagent.entity.KnowledgeDocumentSource;
 import com.shandong.policyagent.entity.KnowledgeFolder;
+import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.entity.User;
 import com.shandong.policyagent.model.dto.*;
 import com.shandong.policyagent.rag.EmbeddingService;
 import com.shandong.policyagent.rag.KnowledgeService;
 import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
+import com.shandong.policyagent.service.ModelProviderService;
 import com.shandong.policyagent.service.KnowledgeArchiveService;
 import com.shandong.policyagent.service.UrlImportService;
 import jakarta.validation.Valid;
@@ -47,6 +49,7 @@ public class AdminKnowledgeController {
 
     private final KnowledgeService knowledgeService;
     private final EmbeddingService embeddingService;
+    private final ModelProviderService modelProviderService;
     private final KnowledgeDocumentSourceRepository knowledgeDocumentSourceRepository;
     private final KnowledgeArchiveService knowledgeArchiveService;
     private final UrlImportService urlImportService;
@@ -59,6 +62,8 @@ public class AdminKnowledgeController {
                 request.getParentId(),
                 request.getName(),
                 request.getDescription(),
+            request.getEmbeddingModel(),
+            request.getRerankModelId(),
                 currentUser
         );
         return ResponseEntity.ok(toFolderTreeResponse(folder));
@@ -103,10 +108,6 @@ public class AdminKnowledgeController {
             @RequestParam(value = "validTo", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate validTo,
             @RequestParam(value = "summary", required = false) String summary,
             @AuthenticationPrincipal User currentUser) {
-
-        if (embeddingModel == null) {
-            embeddingModel = knowledgeService.getConfig().getDefaultEmbeddingModel();
-        }
 
         KnowledgeDocument document = knowledgeService.uploadDocument(
                 file, folderId, title, embeddingModel, category, tags,
@@ -289,20 +290,58 @@ public class AdminKnowledgeController {
 
     @GetMapping("/embedding-models")
     public ResponseEntity<Map<String, Object>> getEmbeddingModels() {
+        List<com.shandong.policyagent.model.ModelProviderResponse> configuredEmbeddingModels = modelProviderService
+            .getAllModels(ModelType.EMBEDDING)
+            .stream()
+            .filter(model -> Boolean.TRUE.equals(model.getBuiltIn()) || !Boolean.FALSE.equals(model.getIsEnabled()))
+            .toList();
+
         String defaultModelId = embeddingService.resolveDefaultModelId(knowledgeService.getConfig().getDefaultEmbeddingModel());
-        final String resolvedDefaultModelId = defaultModelId;
-        List<EmbeddingModelResponse> models = embeddingService.getAvailableModels().stream()
-                .map(m -> EmbeddingModelResponse.builder()
-                        .id(m.getId())
-                        .name(m.getProvider() + " - " + m.getModelName())
-                        .provider(m.getProvider())
-                        .dimensions(m.getDimensions())
-                        .isDefault(m.getId().equals(resolvedDefaultModelId))
-                        .build())
-                .toList();
+
+        List<EmbeddingModelResponse> mappedModels = configuredEmbeddingModels.stream()
+            .map(model -> {
+                String mappedModelId = null;
+                if (Boolean.TRUE.equals(model.getBuiltIn())
+                    && model.getBuiltinCode() != null
+                    && !model.getBuiltinCode().isBlank()) {
+                    mappedModelId = model.getBuiltinCode();
+                }
+                if (mappedModelId == null) {
+                    mappedModelId = embeddingService.findMappedModelId(model.getModelName(), model.getApiUrl());
+                }
+                if (mappedModelId == null) {
+                    mappedModelId = embeddingService.findMappedModelId(model.getModelName(), null);
+                }
+                if (mappedModelId == null) {
+                    mappedModelId = embeddingService.findMappedModelId(model.getName(), null);
+                }
+                if (mappedModelId == null) {
+                    log.warn("嵌入模型未匹配到系统向量配置，已跳过: modelId={} | name={} | modelName={} | apiUrl={}",
+                        model.getId(), model.getName(), model.getModelName(), model.getApiUrl());
+                    return null;
+                }
+                Integer dimensions = embeddingService.getModelConfig(mappedModelId).getDimensions();
+                return EmbeddingModelResponse.builder()
+                    .id(mappedModelId)
+                    .name(model.getName())
+                    .provider(model.getProvider())
+                    .dimensions(dimensions)
+                    .isDefault(Boolean.TRUE.equals(model.getIsDefault()) || mappedModelId.equals(defaultModelId))
+                    .build();
+            })
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toMap(
+                EmbeddingModelResponse::getId,
+                item -> item,
+                (left, right) -> Boolean.TRUE.equals(left.isDefault()) ? left : right,
+                java.util.LinkedHashMap::new
+            ))
+            .values()
+            .stream()
+            .toList();
 
         Map<String, Object> result = new HashMap<>();
-        result.put("models", models);
+        result.put("models", mappedModels);
         return ResponseEntity.ok(result);
     }
 
@@ -366,9 +405,14 @@ public class AdminKnowledgeController {
                 .description(folder.getDescription())
                 .path(folder.getPath())
                 .depth(folder.getDepth())
-                .children(folder.getChildren() != null
-                        ? folder.getChildren().stream().map(this::toFolderTreeResponse).collect(Collectors.toList())
-                        : List.of())
+                .embeddingModel(folder.getEmbeddingModel())
+                .vectorTableName(folder.getVectorTableName())
+                .rerankModelId(folder.getRerankModelId())
+                .rerankModelName(folder.getRerankModelName())
+                .initStatus(folder.getInitStatus() != null ? folder.getInitStatus().name() : "READY")
+                .initError(folder.getInitError())
+                .initializedAt(folder.getInitializedAt())
+                .children(List.of())
                 .build();
     }
 

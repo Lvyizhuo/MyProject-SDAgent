@@ -19,4 +19,7 @@ public interface KnowledgeFolderRepository extends JpaRepository<KnowledgeFolder
 
     @Query("SELECT f FROM KnowledgeFolder f LEFT JOIN FETCH f.children WHERE f.parent IS NULL ORDER BY f.sortOrder ASC")
     List<KnowledgeFolder> findAllRootFoldersWithChildren();
+
+    @Query("SELECT f FROM KnowledgeFolder f WHERE f.parent IS NULL ORDER BY f.updatedAt DESC")
+    List<KnowledgeFolder> findAllKnowledgeBases();
 }

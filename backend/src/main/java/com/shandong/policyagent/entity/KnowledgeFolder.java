@@ -47,6 +47,28 @@ public class KnowledgeFolder {
     @Builder.Default
     private Integer sortOrder = 0;
 
+    @Column(name = "embedding_model", nullable = false, length = 200)
+    private String embeddingModel;
+
+    @Column(name = "vector_table_name", nullable = false, length = 100)
+    private String vectorTableName;
+
+    @Column(name = "rerank_model_id")
+    private Long rerankModelId;
+
+    @Column(name = "rerank_model_name", length = 200)
+    private String rerankModelName;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "init_status", length = 32)
+    private KnowledgeBaseInitStatus initStatus;
+
+    @Column(name = "init_error", columnDefinition = "TEXT")
+    private String initError;
+
+    @Column(name = "initialized_at")
+    private LocalDateTime initializedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -137,16 +137,49 @@ public class EmbeddingService {
     public String findMappedModelId(String modelName, String apiUrl) {
         String normalizedModelName = normalize(modelName);
         String normalizedApiUrl = normalizeBaseUrl(apiUrl);
+        if (normalizedModelName.isEmpty()) {
+            return null;
+        }
 
-        return getAvailableModels().stream()
+        List<EmbeddingModelConfig.EmbeddingModel> availableModels = getAvailableModels();
+
+        String byId = availableModels.stream()
+            .filter(model -> normalize(model.getId()).equals(normalizedModelName))
+            .map(EmbeddingModelConfig.EmbeddingModel::getId)
+            .findFirst()
+            .orElse(null);
+        if (byId != null) {
+            return byId;
+        }
+
+        String byModelNameAndApi = availableModels.stream()
                 .filter(model -> matchesConfiguredModel(model, normalizedModelName, normalizedApiUrl))
                 .map(EmbeddingModelConfig.EmbeddingModel::getId)
                 .findFirst()
-                .orElseGet(() -> getAvailableModels().stream()
-                        .filter(model -> normalize(model.getModelName()).equals(normalizedModelName))
-                        .map(EmbeddingModelConfig.EmbeddingModel::getId)
-                        .findFirst()
-                        .orElse(null));
+            .orElse(null);
+        if (byModelNameAndApi != null) {
+            return byModelNameAndApi;
+        }
+
+        String byModelName = availableModels.stream()
+            .filter(model -> normalize(model.getModelName()).equals(normalizedModelName))
+            .map(EmbeddingModelConfig.EmbeddingModel::getId)
+            .findFirst()
+            .orElse(null);
+        if (byModelName != null) {
+            return byModelName;
+        }
+
+        return availableModels.stream()
+            .filter(model -> {
+                String configuredName = normalize(model.getModelName());
+                return !configuredName.isEmpty()
+                    && (normalizedModelName.contains(configuredName)
+                    || configuredName.contains(normalizedModelName));
+            })
+            .map(EmbeddingModelConfig.EmbeddingModel::getId)
+            .findFirst()
+            .orElse(null);
     }
 
     private List<float[]> embedWithOllama(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
