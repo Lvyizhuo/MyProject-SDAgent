@@ -27,7 +27,8 @@ const adminKnowledgeApi = {
             body: JSON.stringify(data)
         });
         if (!response.ok) {
-            throw new Error('创建文件夹失败');
+            const error = await response.json().catch(() => ({ message: '创建文件夹失败' }));
+            throw new Error(error.message || '创建文件夹失败');
         }
         return response.json();
     },

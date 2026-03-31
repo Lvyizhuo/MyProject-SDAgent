@@ -59,7 +59,7 @@ public class KnowledgeFolder {
     @Column(name = "rerank_model_name", length = 200)
     private String rerankModelName;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = KnowledgeBaseInitStatusConverter.class)
     @Column(name = "init_status", length = 32)
     private KnowledgeBaseInitStatus initStatus;
 

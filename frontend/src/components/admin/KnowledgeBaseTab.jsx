@@ -1499,14 +1499,11 @@ const CreateKnowledgeBaseDialog = ({ embeddingModels, rerankModels, onClose, onS
         if (!formData.embeddingModel) {
             return;
         }
-        if (!formData.rerankModelId) {
-            return;
-        }
         onSubmit({
             name: formData.name.trim(),
             description: formData.description.trim(),
             embeddingModel: formData.embeddingModel,
-            rerankModelId: Number(formData.rerankModelId)
+            rerankModelId: formData.rerankModelId ? Number(formData.rerankModelId) : null
         });
     };
 
@@ -1560,7 +1557,7 @@ const CreateKnowledgeBaseDialog = ({ embeddingModels, rerankModels, onClose, onS
 
                     <div className="form-group">
                         <div className="form-label-with-action">
-                            <label>重排序模型（创建后固定）</label>
+                            <label>重排序模型（可选，创建后固定）</label>
                             <button type="button" className="btn-icon" onClick={onNavigateModelConfig} title="前往模型管理新增重排序模型">
                                 <Plus size={14} />
                             </button>
@@ -1568,17 +1565,18 @@ const CreateKnowledgeBaseDialog = ({ embeddingModels, rerankModels, onClose, onS
                         <select
                             value={formData.rerankModelId}
                             onChange={(event) => setFormData(prev => ({ ...prev, rerankModelId: event.target.value }))}
-                            required
                         >
-                            <option value="" disabled>请选择重排序模型</option>
+                            <option value="">不配置重排序模型</option>
                             {rerankModels.map(model => (
                                 <option key={model.id} value={model.id}>
                                     {model.name} ({model.modelName} / {model.provider})
                                 </option>
                             ))}
                         </select>
-                        {rerankModels.length === 0 && (
-                            <p className="field-hint">暂无可用重排序模型，请点击 + 先在模型管理中新增 RERANK 模型。</p>
+                        {rerankModels.length === 0 ? (
+                            <p className="field-hint">当前可直接不配置重排序模型；如需启用，请点击 + 先在模型管理中新增 RERANK 模型。</p>
+                        ) : (
+                            <p className="field-hint">不选择时将跳过专用重排序模型，兼容旧环境配置。</p>
                         )}
                     </div>
 
@@ -1590,7 +1588,7 @@ const CreateKnowledgeBaseDialog = ({ embeddingModels, rerankModels, onClose, onS
                         <button type="button" className="btn-secondary" onClick={onClose}>
                             取消
                         </button>
-                        <button type="submit" className="btn-primary" disabled={!formData.name.trim() || !formData.embeddingModel || !formData.rerankModelId}>
+                        <button type="submit" className="btn-primary" disabled={!formData.name.trim() || !formData.embeddingModel}>
                             创建知识库
                         </button>
                     </div>
