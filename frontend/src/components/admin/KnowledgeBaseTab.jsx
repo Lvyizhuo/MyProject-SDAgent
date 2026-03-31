@@ -10,7 +10,6 @@ import {
     Trash2,
     RefreshCw,
     Search,
-    ChevronRight,
     ChevronDown,
     Plus,
     Download,
@@ -27,6 +26,7 @@ import {
     CheckSquare
 } from 'lucide-react';
 import './KnowledgeBaseTab.css';
+import { adminApi } from '../../services/adminApi';
 import adminKnowledgeApi from '../../services/adminKnowledgeApi';
 import { useAdminConsole } from './useAdminConsole';
 
@@ -47,11 +47,12 @@ const KnowledgeBaseTab = () => {
     const [folders, setFolders] = useState([]);
     const [documents, setDocuments] = useState([]);
     const [selectedFolderId, setSelectedFolderId] = useState(null);
-    const [expandedFolders, setExpandedFolders] = useState(new Set());
+    const [showCreateKnowledgeBaseDialog, setShowCreateKnowledgeBaseDialog] = useState(false);
     const [showUploadDialog, setShowUploadDialog] = useState(false);
     const [showConfigPanel, setShowConfigPanel] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [embeddingModels, setEmbeddingModels] = useState([]);
+    const [rerankModels, setRerankModels] = useState([]);
     const [config, setConfig] = useState(null);
     const [showChunkDialog, setShowChunkDialog] = useState(false);
     const [chunkLoading, setChunkLoading] = useState(false);
@@ -146,6 +147,25 @@ const KnowledgeBaseTab = () => {
         }
     }, [notify]);
 
+    const loadRerankModels = useCallback(async () => {
+        try {
+            const data = await adminApi.getModels('RERANK');
+            const options = (data || [])
+                .filter(model => model && model.id != null)
+                .filter(model => model.isEnabled !== false)
+                .map(model => ({
+                    id: model.id,
+                    name: model.name || model.modelName,
+                    modelName: model.modelName || model.name,
+                    provider: model.provider || '-'
+                }));
+            setRerankModels(options);
+        } catch (error) {
+            console.error('Failed to load rerank models:', error);
+            notify({ text: '加载重排序模型列表失败', type: 'error', source: '管理员-知识库' });
+        }
+    }, [notify]);
+
     const loadConfig = useCallback(async () => {
         try {
             const data = await adminKnowledgeApi.getConfig();
@@ -182,6 +202,7 @@ const KnowledgeBaseTab = () => {
             await Promise.all([
                 loadFolderTree(),
                 loadEmbeddingModels(),
+                loadRerankModels(),
                 loadConfig(),
                 loadUrlImports()
             ]);
@@ -189,7 +210,7 @@ const KnowledgeBaseTab = () => {
             setLoading(false);
         };
         initialize();
-    }, [loadFolderTree, loadDocuments, loadEmbeddingModels, loadConfig, loadUrlImports]);
+    }, [loadFolderTree, loadDocuments, loadEmbeddingModels, loadRerankModels, loadConfig, loadUrlImports]);
 
     useEffect(() => {
         const timer = window.setTimeout(() => {
@@ -232,54 +253,60 @@ const KnowledgeBaseTab = () => {
         return () => window.clearInterval(timer);
     }, [documents, loadDocuments, pagination.page, pendingDocuments.length, searchQuery, selectedFolderId]);
 
-    const toggleFolder = (folderId) => {
-        setExpandedFolders(prev => {
-            const next = new Set(prev);
-            if (next.has(folderId)) {
-                next.delete(folderId);
-            } else {
-                next.add(folderId);
-            }
-            return next;
-        });
-    };
+    useEffect(() => {
+        const hasInitializingKnowledgeBase = folders.some(folder => folder.initStatus === 'INITIALIZING');
+        if (!hasInitializingKnowledgeBase) {
+            return undefined;
+        }
+
+        const timer = window.setInterval(() => {
+            loadFolderTree();
+        }, 3000);
+
+        return () => window.clearInterval(timer);
+    }, [folders, loadFolderTree]);
 
     const handleCreateFolder = async () => {
-        const name = await prompt({
-            title: '新建文件夹',
-            message: '请输入知识库文件夹名称，用于分类政策文档。',
-            label: '文件夹名称',
-            placeholder: '例如：2025 家电补贴政策',
-            confirmText: '创建'
-        });
-        if (name === null) {
-            return;
-        }
+        await Promise.all([
+            loadEmbeddingModels(),
+            loadRerankModels()
+        ]);
+        setShowCreateKnowledgeBaseDialog(true);
+    };
 
-        const trimmedName = name.trim();
-        if (!trimmedName) {
-            notify({ text: '文件夹名称不能为空', type: 'warning', source: '管理员-知识库' });
-            return;
-        }
-
+    const handleSubmitCreateKnowledgeBase = async ({ name, description, embeddingModel, rerankModelId }) => {
         try {
-            await adminKnowledgeApi.createFolder({
-                parentId: selectedFolderId,
-                name: trimmedName,
-                description: ''
+            const created = await adminKnowledgeApi.createFolder({
+                parentId: null,
+                name,
+                description,
+                embeddingModel,
+                rerankModelId
             });
-            notify({ text: '文件夹创建成功', type: 'success', source: '管理员-知识库' });
+            notify({ text: '知识库创建成功，正在后台初始化...', type: 'success', source: '管理员-知识库' });
+            setShowCreateKnowledgeBaseDialog(false);
             await loadFolderTree();
+            setSelectedFolderId(created?.id ?? null);
         } catch (error) {
-            notify({ text: '文件夹创建失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+            notify({ text: '知识库创建失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
+    };
+
+    const jumpToRerankModelConfig = () => {
+        window.dispatchEvent(new CustomEvent('admin-console:set-tab', {
+            detail: {
+                tab: 'models',
+                modelType: 'RERANK',
+                openCreateModel: true
+            }
+        }));
     };
 
     const handleDeleteFolder = async (folderId, event) => {
         event.stopPropagation();
         const confirmed = await confirm({
-            title: '删除文件夹',
-            message: '确定要删除此文件夹及其全部内容吗？已关联的文档也会一并移除。',
+            title: '删除知识库',
+            message: '确定要删除此知识库吗？如果仍有关联文档会被拒绝删除。',
             confirmText: '确认删除',
             tone: 'danger'
         });
@@ -287,13 +314,13 @@ const KnowledgeBaseTab = () => {
 
         try {
             await adminKnowledgeApi.deleteFolder(folderId);
-            notify({ text: '文件夹删除成功', type: 'success', source: '管理员-知识库' });
+            notify({ text: '知识库删除成功', type: 'success', source: '管理员-知识库' });
             if (selectedFolderId === folderId) {
                 setSelectedFolderId(null);
             }
             await loadFolderTree();
         } catch (error) {
-            notify({ text: '文件夹删除失败: ' + error.message, type: 'error', source: '管理员-知识库' });
+            notify({ text: '知识库删除失败: ' + error.message, type: 'error', source: '管理员-知识库' });
         }
     };
 
@@ -406,12 +433,11 @@ const KnowledgeBaseTab = () => {
         }
     };
 
-    const handleCreateUrlImport = async ({ url, folderId, embeddingModel, titleOverride, remark }) => {
+    const handleCreateUrlImport = async ({ url, folderId, titleOverride, remark }) => {
         try {
             const result = await adminKnowledgeApi.createUrlImport({
                 url,
                 folderId,
-                embeddingModel,
                 titleOverride,
                 remark
             });
@@ -714,45 +740,6 @@ const KnowledgeBaseTab = () => {
         }
     };
 
-    const renderFolderTree = (folderList, depth = 0) => {
-        return folderList.map(folder => (
-            <div key={folder.id} className="folder-item" style={{ paddingLeft: `${depth * 16}px` }}>
-                <div
-                    className={`folder-node ${selectedFolderId === folder.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedFolderId(folder.id)}
-                >
-                    <button
-                        className="folder-toggle"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFolder(folder.id);
-                        }}
-                    >
-                        {folder.children?.length > 0 ? (
-                            expandedFolders.has(folder.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />
-                        ) : (
-                            <span style={{ width: '16px' }} />
-                        )}
-                    </button>
-                    <Folder size={16} className="folder-icon" />
-                    <span className="folder-name">{folder.name}</span>
-                    <button
-                        className="folder-delete"
-                        onClick={(e) => handleDeleteFolder(folder.id, e)}
-                        title="删除文件夹"
-                    >
-                        <Trash2 size={14} />
-                    </button>
-                </div>
-                {folder.children?.length > 0 && expandedFolders.has(folder.id) && (
-                    <div className="folder-children">
-                        {renderFolderTree(folder.children, depth + 1)}
-                    </div>
-                )}
-            </div>
-        ));
-    };
-
     const getStatusIcon = (status) => {
         switch (status) {
             case 'COMPLETED':
@@ -804,6 +791,18 @@ const KnowledgeBaseTab = () => {
         if (status === 'COMPLETED') return 'completed';
         if (status === 'FAILED') return 'failed';
         return 'processing';
+    };
+
+    const getKnowledgeBaseStatusText = (status) => {
+        if (status === 'INITIALIZING') return '初始化中';
+        if (status === 'FAILED') return '初始化失败';
+        return '就绪';
+    };
+
+    const getKnowledgeBaseStatusClass = (status) => {
+        if (status === 'INITIALIZING') return 'status-initializing';
+        if (status === 'FAILED') return 'status-failed';
+        return 'status-ready';
     };
 
     const normalizedSearchQuery = searchQuery.trim().toLowerCase();
@@ -874,6 +873,12 @@ const KnowledgeBaseTab = () => {
         .map(doc => doc.importItemId);
 
     const allMatchingSelected = pagination.totalElements > 0 && selectedDocumentIds.length === pagination.totalElements;
+    const selectedKnowledgeBase = selectedFolderId == null
+        ? null
+        : folders.find(folder => folder.id === selectedFolderId) || null;
+    const selectedKnowledgeBaseReady = selectedKnowledgeBase == null
+        ? false
+        : (selectedKnowledgeBase.initStatus || 'READY') === 'READY';
 
     if (loading) {
         return (
@@ -889,7 +894,7 @@ const KnowledgeBaseTab = () => {
             <div className="kb-header">
                 <div className="kb-title">
                     <h2>知识库管理</h2>
-                    <p>管理政策文档、文件夹和向量索引配置</p>
+                    <p>管理独立知识库、文档入库与站点导入任务</p>
                 </div>
                 <div className="kb-actions">
                     <button className="btn-secondary" onClick={() => setShowConfigPanel(true)}>
@@ -898,9 +903,14 @@ const KnowledgeBaseTab = () => {
                     </button>
                     <button className="btn-secondary" onClick={handleCreateFolder}>
                         <FolderPlus size={16} />
-                        新建文件夹
+                        新建知识库
                     </button>
-                    <button className="btn-secondary" onClick={() => setShowUrlImportDialog(true)}>
+                    <button
+                        className="btn-secondary"
+                        onClick={() => setShowUrlImportDialog(true)}
+                        disabled={!selectedKnowledgeBaseReady}
+                        title={selectedKnowledgeBaseReady ? '网站导入' : '请选择已初始化完成的知识库'}
+                    >
                         <Link2 size={16} />
                         网站导入
                     </button>
@@ -916,27 +926,80 @@ const KnowledgeBaseTab = () => {
                         <FolderInput size={16} />
                         导入知识库
                     </button>
-                    <button className="btn-primary" onClick={() => setShowUploadDialog(true)}>
+                    <button
+                        className="btn-primary"
+                        onClick={() => setShowUploadDialog(true)}
+                        disabled={!selectedKnowledgeBaseReady}
+                        title={selectedKnowledgeBaseReady ? '上传文档' : '请选择已初始化完成的知识库'}
+                    >
                         <Upload size={16} />
                         上传文档
                     </button>
                 </div>
             </div>
+
+            {selectedKnowledgeBase && !selectedKnowledgeBaseReady && (
+                <div className={`kb-message ${selectedKnowledgeBase.initStatus === 'FAILED' ? 'error' : 'success'}`}>
+                    {selectedKnowledgeBase.initStatus === 'FAILED'
+                        ? `当前知识库初始化失败：${selectedKnowledgeBase.initError || '未知错误'}`
+                        : '当前知识库正在初始化，完成后可上传文档与网站导入。'}
+                </div>
+            )}
+
             <div className="kb-content">
                 <div className="kb-sidebar">
                     <div className="sidebar-header">
-                        <h3>文件夹</h3>
+                        <h3>知识库</h3>
                     </div>
-                    <div className="folder-tree">
-                        <div
-                            className={`folder-node ${selectedFolderId === null ? 'selected' : ''}`}
+                    <div className="knowledge-base-cards">
+                        <button
+                            className={`knowledge-base-card all-documents ${selectedFolderId === null ? 'selected' : ''}`}
                             onClick={() => setSelectedFolderId(null)}
                         >
-                            <span style={{ width: '16px' }} />
-                            <Folder size={16} className="folder-icon" />
-                            <span className="folder-name">全部文档</span>
-                        </div>
-                        {renderFolderTree(folders)}
+                            <div className="knowledge-base-card-title">
+                                <Folder size={16} />
+                                <span>全部文档</span>
+                            </div>
+                            <p>跨知识库查看全部文档</p>
+                        </button>
+
+                        {folders.map((folder) => (
+                            <button
+                                key={folder.id}
+                                className={`knowledge-base-card ${selectedFolderId === folder.id ? 'selected' : ''}`}
+                                onClick={() => setSelectedFolderId(folder.id)}
+                            >
+                                <div className="knowledge-base-card-head">
+                                    <div className="knowledge-base-card-title">
+                                        <Folder size={16} />
+                                        <span>{folder.name}</span>
+                                    </div>
+                                    <span
+                                        className="knowledge-base-delete"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(event) => handleDeleteFolder(folder.id, event)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                handleDeleteFolder(folder.id, event);
+                                            }
+                                        }}
+                                        title="删除知识库"
+                                    >
+                                        <Trash2 size={14} />
+                                    </span>
+                                </div>
+                                <p>{folder.description || '未填写描述'}</p>
+                                <div className="knowledge-base-card-meta">
+                                    <span>{folder.path}</span>
+                                    <span>{folder.embeddingModel || '-'}</span>
+                                    <span>{folder.rerankModelName || '未配置重排模型'}</span>
+                                    <span className={getKnowledgeBaseStatusClass(folder.initStatus || 'READY')}>
+                                        {getKnowledgeBaseStatusText(folder.initStatus || 'READY')}
+                                    </span>
+                                </div>
+                            </button>
+                        ))}
                     </div>
                 </div>
 
@@ -984,7 +1047,7 @@ const KnowledgeBaseTab = () => {
                                     disabled={pagination.totalElements === 0}
                                 >
                                     {allMatchingSelected ? <CheckSquare size={16} /> : <Square size={16} />}
-                                    {allMatchingSelected ? '取消全选' : '全选当前目录'}
+                                    {allMatchingSelected ? '取消全选' : '全选当前知识库'}
                                 </button>
                                 <span className="kb-batch-count">
                                     已选 {selectedDocumentIds.length} / {pagination.totalElements} 份文档
@@ -1215,7 +1278,6 @@ const KnowledgeBaseTab = () => {
 
             {showUploadDialog && (
                 <UploadDialog
-                    embeddingModels={embeddingModels}
                     folders={folders}
                     defaultFolderId={selectedFolderId}
                     onClose={() => {
@@ -1303,6 +1365,16 @@ const KnowledgeBaseTab = () => {
                 />
             )}
 
+            {showCreateKnowledgeBaseDialog && (
+                <CreateKnowledgeBaseDialog
+                    embeddingModels={embeddingModels}
+                    rerankModels={rerankModels}
+                    onClose={() => setShowCreateKnowledgeBaseDialog(false)}
+                    onSubmit={handleSubmitCreateKnowledgeBase}
+                    onNavigateModelConfig={jumpToRerankModelConfig}
+                />
+            )}
+
             {showTaskListDialog && (
                 <TaskListDialog
                     jobs={taskJobs}
@@ -1344,7 +1416,6 @@ const KnowledgeBaseTab = () => {
 
             {showUrlImportDialog && (
                 <UrlImportDialog
-                    embeddingModels={embeddingModels}
                     folders={folders}
                     defaultFolderId={selectedFolderId}
                     onClose={() => setShowUrlImportDialog(false)}
@@ -1406,6 +1477,131 @@ const KnowledgeBaseTab = () => {
                     onSubmit={handleBatchMoveDocuments}
                 />
             )}
+        </div>
+    );
+};
+
+const CreateKnowledgeBaseDialog = ({ embeddingModels, rerankModels, onClose, onSubmit, onNavigateModelConfig }) => {
+    const [formData, setFormData] = useState({
+        name: '',
+        description: '',
+        embeddingModel: embeddingModels.find(model => model.isDefault)?.id || embeddingModels[0]?.id || '',
+        rerankModelId: rerankModels[0]?.id || ''
+    });
+
+    useEffect(() => {
+        setFormData((prev) => ({
+            ...prev,
+            embeddingModel: prev.embeddingModel || embeddingModels.find(model => model.isDefault)?.id || embeddingModels[0]?.id || '',
+            rerankModelId: prev.rerankModelId || rerankModels[0]?.id || ''
+        }));
+    }, [embeddingModels, rerankModels]);
+
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        if (!formData.name.trim()) {
+            return;
+        }
+        if (!formData.embeddingModel) {
+            return;
+        }
+        if (!formData.rerankModelId) {
+            return;
+        }
+        onSubmit({
+            name: formData.name.trim(),
+            description: formData.description.trim(),
+            embeddingModel: formData.embeddingModel,
+            rerankModelId: Number(formData.rerankModelId)
+        });
+    };
+
+    return (
+        <div className="dialog-overlay" onClick={onClose}>
+            <div className="dialog upload-dialog" onClick={event => event.stopPropagation()}>
+                <div className="dialog-header">
+                    <h3>新建知识库</h3>
+                    <button className="btn-close" onClick={onClose}>
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <form className="dialog-body" onSubmit={handleSubmit}>
+                    <div className="form-group">
+                        <label>知识库名称</label>
+                        <input
+                            type="text"
+                            value={formData.name}
+                            onChange={(event) => setFormData(prev => ({ ...prev, name: event.target.value }))}
+                            placeholder="例如：2026 山东家电补贴"
+                            required
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label>知识库描述</label>
+                        <textarea
+                            rows={3}
+                            value={formData.description}
+                            onChange={(event) => setFormData(prev => ({ ...prev, description: event.target.value }))}
+                            placeholder="简要描述该知识库的政策范围与用途"
+                        />
+                    </div>
+
+                    <div className="form-group">
+                        <label>嵌入模型（创建后固定）</label>
+                        <select
+                            value={formData.embeddingModel}
+                            onChange={(event) => setFormData(prev => ({ ...prev, embeddingModel: event.target.value }))}
+                            required
+                        >
+                            <option value="" disabled>请选择嵌入模型</option>
+                            {embeddingModels.map(model => (
+                                <option key={model.id} value={model.id}>
+                                    {model.name} {model.dimensions ? `(${model.dimensions}维)` : ''}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="form-group">
+                        <div className="form-label-with-action">
+                            <label>重排序模型（创建后固定）</label>
+                            <button type="button" className="btn-icon" onClick={onNavigateModelConfig} title="前往模型管理新增重排序模型">
+                                <Plus size={14} />
+                            </button>
+                        </div>
+                        <select
+                            value={formData.rerankModelId}
+                            onChange={(event) => setFormData(prev => ({ ...prev, rerankModelId: event.target.value }))}
+                            required
+                        >
+                            <option value="" disabled>请选择重排序模型</option>
+                            {rerankModels.map(model => (
+                                <option key={model.id} value={model.id}>
+                                    {model.name} ({model.modelName} / {model.provider})
+                                </option>
+                            ))}
+                        </select>
+                        {rerankModels.length === 0 && (
+                            <p className="field-hint">暂无可用重排序模型，请点击 + 先在模型管理中新增 RERANK 模型。</p>
+                        )}
+                    </div>
+
+                    <div className="url-import-hint">
+                        创建后该知识库会固定使用当前嵌入模型与向量表；文档上传、网站导入都将继承该配置。
+                    </div>
+
+                    <div className="dialog-footer">
+                        <button type="button" className="btn-secondary" onClick={onClose}>
+                            取消
+                        </button>
+                        <button type="submit" className="btn-primary" disabled={!formData.name.trim() || !formData.embeddingModel || !formData.rerankModelId}>
+                            创建知识库
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 };
@@ -1774,11 +1970,12 @@ const TaskListDialog = ({
     );
 };
 
-const UrlImportDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onSubmit }) => {
+const UrlImportDialog = ({ folders, defaultFolderId, onClose, onSubmit }) => {
+    const flatFolders = flattenFoldersTree(folders).filter(folder => (folder.initStatus || 'READY') === 'READY');
+    const defaultKnowledgeBaseId = defaultFolderId || flatFolders[0]?.id || null;
     const [formData, setFormData] = useState({
         url: 'http://commerce.shandong.gov.cn/col/col352659/index.html',
-        folderId: defaultFolderId,
-        embeddingModel: embeddingModels.find(model => model.isDefault)?.id || '',
+        folderId: defaultKnowledgeBaseId,
         titleOverride: '',
         remark: ''
     });
@@ -1821,25 +2018,12 @@ const UrlImportDialog = ({ embeddingModels, folders, defaultFolderId, onClose, o
                                     ...prev,
                                     folderId: event.target.value ? Number(event.target.value) : null
                                 }))}
+                                required
                             >
-                                <option value="">根目录</option>
-                                {flattenFoldersTree(folders).map(folder => (
+                                <option value="" disabled>请选择知识库</option>
+                                {flatFolders.map(folder => (
                                     <option key={folder.id} value={folder.id}>
                                         {' '.repeat(folder.depth * 2)}{folder.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div className="form-group">
-                            <label>嵌入模型</label>
-                            <select
-                                value={formData.embeddingModel}
-                                onChange={event => setFormData(prev => ({ ...prev, embeddingModel: event.target.value }))}
-                            >
-                                {embeddingModels.map(model => (
-                                    <option key={model.id} value={model.id}>
-                                        {model.name}
                                     </option>
                                 ))}
                             </select>
@@ -1958,7 +2142,7 @@ const UrlImportPreviewDialog = ({ item, folders, defaultFolderId, onClose, onCon
                                 onChange={event => setFormData(prev => ({ ...prev, folderId: event.target.value }))}
                             >
                                 <option value="">沿用导入任务配置</option>
-                                {flattenFoldersTree(folders).map(folder => (
+                                {flattenFoldersTree(folders).filter(folder => (folder.initStatus || 'READY') === 'READY').map(folder => (
                                     <option key={folder.id} value={folder.id}>
                                         {' '.repeat(folder.depth * 2)}{folder.name}
                                     </option>
@@ -2026,7 +2210,8 @@ const UrlImportPreviewDialog = ({ item, folders, defaultFolderId, onClose, onCon
 };
 
 const BatchMoveDialog = ({ folders, selectedCount, defaultFolderId, onClose, onSubmit }) => {
-    const [targetFolderId, setTargetFolderId] = useState(defaultFolderId || '');
+    const flattenedFolders = flattenFoldersTree(folders).filter(folder => (folder.initStatus || 'READY') === 'READY');
+    const [targetFolderId, setTargetFolderId] = useState(defaultFolderId || flattenedFolders[0]?.id || '');
 
     const handleSubmit = (event) => {
         event.preventDefault();
@@ -2049,9 +2234,10 @@ const BatchMoveDialog = ({ folders, selectedCount, defaultFolderId, onClose, onS
                         <select
                             value={targetFolderId}
                             onChange={event => setTargetFolderId(event.target.value)}
+                            required
                         >
-                            <option value="">根目录</option>
-                            {flattenFoldersTree(folders).map(folder => (
+                            <option value="" disabled>请选择知识库</option>
+                            {flattenedFolders.map(folder => (
                                 <option key={folder.id} value={folder.id}>
                                     {' '.repeat(folder.depth * 2)}{folder.name}
                                 </option>
@@ -2079,8 +2265,9 @@ const BatchMoveDialog = ({ folders, selectedCount, defaultFolderId, onClose, onS
 
 const FIELD_CACHE_KEY = 'kb-upload-field-cache-v1';
 
-const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUpload, uploadProgress }) => {
-    const defaultEmbeddingModel = embeddingModels.find(m => m.isDefault)?.id || embeddingModels[0]?.id || '';
+const UploadDialog = ({ folders, defaultFolderId, onClose, onUpload, uploadProgress }) => {
+    const flatFolders = flattenFoldersTree(folders).filter(folder => (folder.initStatus || 'READY') === 'READY');
+    const defaultKnowledgeBaseId = defaultFolderId || flatFolders[0]?.id || null;
     const [drafts, setDrafts] = useState([]);
     const [activeDraftId, setActiveDraftId] = useState('');
     const [activeFieldMenu, setActiveFieldMenu] = useState('');
@@ -2103,9 +2290,8 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
         isExtracting: false,
         extractError: '',
         formData: {
-            folderId: defaultFolderId,
+            folderId: defaultKnowledgeBaseId,
             title: file.name.replace(/\.[^/.]+$/, ''),
-            embeddingModel: defaultEmbeddingModel,
             category: '',
             tags: '',
             publishDate: '',
@@ -2114,7 +2300,7 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
             validTo: '',
             summary: ''
         }
-    }), [defaultEmbeddingModel, defaultFolderId]);
+    }), [defaultKnowledgeBaseId]);
 
     const uniquePush = (arr, value, max = 20) => {
         const normalized = (value || '').trim();
@@ -2248,7 +2434,6 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
             submitFormData.append('file', draft.file);
             if (draft.formData.folderId) submitFormData.append('folderId', draft.formData.folderId);
             if (draft.formData.title) submitFormData.append('title', draft.formData.title);
-            if (draft.formData.embeddingModel) submitFormData.append('embeddingModel', draft.formData.embeddingModel);
             if (draft.formData.category) submitFormData.append('category', draft.formData.category);
             if (draft.formData.tags) {
                 draft.formData.tags.split(',').forEach(tag => {
@@ -2442,32 +2627,12 @@ const UploadDialog = ({ embeddingModels, folders, defaultFolderId, onClose, onUp
                                                         folderId: e.target.value ? Number(e.target.value) : null
                                                     }
                                                 }))}
+                                                required
                                             >
-                                                <option value="">根目录</option>
-                                                {flattenFoldersTree(folders).map(folder => (
+                                                <option value="" disabled>请选择知识库</option>
+                                                {flatFolders.map(folder => (
                                                     <option key={folder.id} value={folder.id}>
                                                         {' '.repeat(folder.depth * 2)}{folder.name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-
-                                        <div className="form-group">
-                                            <label>嵌入模型</label>
-                                            <select
-                                                value={activeDraft.formData.embeddingModel}
-                                                onChange={e => updateDraft(activeDraft.id, draft => ({
-                                                    ...draft,
-                                                    formData: {
-                                                        ...draft.formData,
-                                                        embeddingModel: e.target.value
-                                                    }
-                                                }))}
-                                            >
-                                                {embeddingModels.map(model => (
-                                                    <option key={model.id} value={model.id}>
-                                                        {model.name} ({model.dimensions}维)
-                                                        {model.isDefault && ' (默认)'}
                                                     </option>
                                                 ))}
                                             </select>

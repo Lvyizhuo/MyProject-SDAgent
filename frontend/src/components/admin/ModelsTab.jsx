@@ -10,10 +10,11 @@ const MODEL_TYPES = [
     { id: 'LLM', label: '大语言模型', description: '用于智能体对话' },
     { id: 'VISION', label: '视觉模型', description: '用于图像分析' },
     { id: 'AUDIO', label: '语音模型', description: '用于语音识别' },
-    { id: 'EMBEDDING', label: '嵌入模型', description: '用于向量嵌入' }
+    { id: 'EMBEDDING', label: '嵌入模型', description: '用于向量嵌入' },
+    { id: 'RERANK', label: '重排序模型', description: '用于检索结果重排' }
 ];
 
-const ModelsTab = () => {
+const ModelsTab = ({ intent }) => {
     const { notify, confirm } = useAdminConsole();
     const [activeSubTab, setActiveSubTab] = useState('LLM');
     const [allModels, setAllModels] = useState([]);
@@ -75,6 +76,19 @@ const ModelsTab = () => {
         const hasCachedModels = Object.prototype.hasOwnProperty.call(modelCacheRef.current, activeSubTab);
         loadModels(activeSubTab, { preserveContent: hasCachedModels });
     }, [activeSubTab, loadModels]);
+
+    useEffect(() => {
+        if (!intent?.nonce) {
+            return;
+        }
+        if (intent.modelType) {
+            setActiveSubTab(intent.modelType);
+        }
+        if (intent.openCreateModel) {
+            setEditingModel(null);
+            setShowModal(true);
+        }
+    }, [intent]);
 
     const handleAdd = () => {
         setEditingModel(null);

@@ -10,14 +10,13 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class TextSplitterService {
-    private static final String SPLIT_STRATEGY = "SMART_SEMANTIC_V1";
+    private static final String SPLIT_STRATEGY = "PARAGRAPH_CHAR_V2";
     private static final int MIN_CHUNK_SIZE = 100;
 
     private final RagConfig ragConfig;
@@ -30,14 +29,6 @@ public class TextSplitterService {
 
     public List<Document> splitDocuments(List<Document> documents, String embeddingModelId) {
         ChunkingSettings chunkConfig = resolveChunkingSettings(embeddingModelId);
-
-        TokenTextSplitter splitter = new TokenTextSplitter(
-                chunkConfig.defaultChunkSize(),
-                chunkConfig.minChunkSizeChars(),
-                chunkConfig.minChunkLengthToEmbed(),
-                chunkConfig.chunkOverlap(),
-                chunkConfig.keepSeparator()
-        );
 
         List<Document> splitDocs = new ArrayList<>();
         int passthroughCount = 0;
@@ -55,7 +46,7 @@ public class TextSplitterService {
                 )));
                 passthroughCount++;
             } else {
-                List<Document> semanticChunks = splitBySemantics(document, chunkConfig, splitter);
+                List<Document> semanticChunks = splitBySemantics(document, chunkConfig);
                 splitDocs.addAll(semanticChunks);
                 semanticSplitCount++;
             }
@@ -77,8 +68,7 @@ public class TextSplitterService {
     }
 
     private List<Document> splitBySemantics(Document document,
-                                            ChunkingSettings chunkConfig,
-                                            TokenTextSplitter fallbackSplitter) {
+                                            ChunkingSettings chunkConfig) {
         String normalizedText = normalizeText(document.getText());
         int targetChunkChars = Math.max(chunkConfig.defaultChunkSize(), chunkConfig.minChunkSizeChars());
         int overlapChars = Math.max(0, chunkConfig.chunkOverlap());
@@ -92,7 +82,7 @@ public class TextSplitterService {
         );
 
         if (baseChunks.isEmpty()) {
-            return fallbackSplitter.apply(List.of(document));
+            return buildCharFallbackChunks(document, normalizedText, chunkConfig.noSplitMaxChars());
         }
 
         List<String> overlappedChunks = applyOverlap(baseChunks, overlapChars, chunkConfig.noSplitMaxChars());
@@ -110,7 +100,23 @@ public class TextSplitterService {
             }
         }
 
-        return result.isEmpty() ? fallbackSplitter.apply(List.of(document)) : result;
+        return result.isEmpty()
+                ? buildCharFallbackChunks(document, normalizedText, chunkConfig.noSplitMaxChars())
+                : result;
+    }
+
+    private List<Document> buildCharFallbackChunks(Document document, String normalizedText, int hardMaxChars) {
+        List<Document> fallbackChunks = new ArrayList<>();
+        for (String chunk : enforceHardLimit(normalizedText, hardMaxChars)) {
+            if (chunk == null || chunk.isBlank()) {
+                continue;
+            }
+            fallbackChunks.add(withMetadata(document, Map.of(
+                    "splitStrategy", "CHAR_HARD_LIMIT_FALLBACK",
+                    "chunkChars", chunk.length()
+            ), chunk));
+        }
+        return fallbackChunks;
     }
 
     private String normalizeText(String text) {

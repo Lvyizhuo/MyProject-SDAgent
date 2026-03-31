@@ -47,7 +47,8 @@ const TYPE_LABELS = {
     LLM: '大语言模型',
     VISION: '视觉模型',
     AUDIO: '语音模型',
-    EMBEDDING: '嵌入模型'
+    EMBEDDING: '嵌入模型',
+    RERANK: '重排序模型'
 };
 
 const ModelFormModal = ({ model, type, modelTypes = [], onSave, onClose }) => {
@@ -257,7 +258,7 @@ const ModelFormModal = ({ model, type, modelTypes = [], onSave, onClose }) => {
                                 placeholder="https://api.example.com/v1"
                             />
                             <p className="field-helper">
-                                当前按 OpenAI 兼容协议做连通性测试，会访问 <code>/models</code> 接口。
+                                当前测试仅校验服务连通性与鉴权可用性，不会触发向量表初始化。
                             </p>
                         </div>
 

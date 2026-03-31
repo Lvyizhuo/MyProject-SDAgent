@@ -26,6 +26,7 @@ public class RagRetrievalService {
     private final MultiVectorStoreService multiVectorStoreService;
     private final DashScopeRerankService rerankService;
     private final RagConfig ragConfig;
+    private final KnowledgeService knowledgeService;
 
     public List<Document> retrieveRelevantDocuments(String query) {
         if (query == null || query.isBlank()) {
@@ -69,15 +70,22 @@ public class RagRetrievalService {
         );
 
         List<Document> fusedCandidates = fuseByRrf(vectorCandidates, keywordCandidates, candidateTopK);
-        List<Document> reranked = rerankService.rerank(query, fusedCandidates, finalTopK);
-        List<Document> expanded = expandChildHitsToParent(context.vectorTableName(), reranked, finalTopK);
+        List<Document> reranked = rerankService.rerank(
+            query,
+            fusedCandidates,
+            finalTopK,
+            context.rerankModelId(),
+            context.rerankModelName()
+        );
+        List<Document> thresholdFiltered = applyRerankThreshold(reranked, knowledgeService.resolveRerankScoreThreshold());
+        List<Document> expanded = expandChildHitsToParent(context.vectorTableName(), thresholdFiltered, finalTopK);
 
         log.debug("检索完成 | query={} | vector={} | keyword={} | fused={} | reranked={} | expanded={}",
                 truncateQuery(query),
                 vectorCandidates.size(),
                 keywordCandidates.size(),
                 fusedCandidates.size(),
-                reranked.size(),
+                thresholdFiltered.size(),
                 expanded.size());
 
         return expanded;
@@ -225,6 +233,41 @@ public class RagRetrievalService {
         }
 
         return finalDocs.values().stream().limit(Math.max(1, topK)).toList();
+    }
+
+    private List<Document> applyRerankThreshold(List<Document> reranked, double threshold) {
+        if (reranked == null || reranked.isEmpty()) {
+            return List.of();
+        }
+
+        List<Document> passed = reranked.stream()
+                .filter(document -> extractScore(document) >= threshold)
+                .toList();
+        if (!passed.isEmpty()) {
+            return passed;
+        }
+        return List.of(reranked.getFirst());
+    }
+
+    private double extractScore(Document document) {
+        if (document == null || document.getMetadata() == null) {
+            return 0.0D;
+        }
+        Object score = document.getMetadata().get("rerankScore");
+        if (score == null) {
+            score = document.getMetadata().get("score");
+        }
+        if (score instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (score != null) {
+            try {
+                return Double.parseDouble(String.valueOf(score));
+            } catch (Exception ignored) {
+                return 0.0D;
+            }
+        }
+        return 0.0D;
     }
 
     private String extractParentChunkId(Document document) {

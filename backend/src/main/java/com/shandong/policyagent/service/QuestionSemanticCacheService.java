@@ -83,6 +83,7 @@ public class QuestionSemanticCacheService {
         QaCacheEntry bestEntry = null;
         String bestHash = null;
         double bestScore = 0.0;
+        double highestObservedScore = 0.0;
 
         int inspected = 0;
         for (String candidateHash : candidates) {
@@ -102,6 +103,9 @@ public class QuestionSemanticCacheService {
             }
 
             double score = cosineSimilarity(queryVector, candidateVector);
+            if (score > highestObservedScore) {
+                highestObservedScore = score;
+            }
             if (score >= semanticThreshold && score > bestScore) {
                 bestScore = score;
                 bestEntry = candidateEntry;
@@ -110,6 +114,10 @@ public class QuestionSemanticCacheService {
         }
 
         if (bestEntry == null || bestHash == null) {
+            if (highestObservedScore > 0.0) {
+                log.debug("语义缓存未命中，最高相似度低于阈值 | highestScore={} | threshold={}",
+                        highestObservedScore, semanticThreshold);
+            }
             return Optional.empty();
         }
 

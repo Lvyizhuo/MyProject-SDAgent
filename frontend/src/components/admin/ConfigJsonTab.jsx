@@ -16,8 +16,7 @@ const ConfigJsonTab = ({ config }) => {
         selectedModels: {
             llm: config.resolvedLlmModel,
             vision: config.resolvedVisionModel,
-            audio: config.resolvedAudioModel,
-            embedding: config.resolvedEmbeddingModel
+            audio: config.resolvedAudioModel
         },
         bindings: {
             id: config.id,
@@ -26,7 +25,10 @@ const ConfigJsonTab = ({ config }) => {
             llmModelId: config.llmModelId,
             visionModelId: config.visionModelId,
             audioModelId: config.audioModelId,
-            embeddingModelId: config.embeddingModelId,
+            knowledgeBaseId: config.knowledgeBaseId ?? config.knowledgeBaseFolderId,
+            knowledgeBaseName: config.knowledgeBaseName ?? config.knowledgeBaseFolderName,
+            knowledgeBasePath: config.knowledgeBasePath ?? config.knowledgeBaseFolderPath,
+            knowledgeBaseEmbeddingModel: config.knowledgeBaseEmbeddingModel,
             greetingMessage: config.greetingMessage,
             systemPrompt: config.systemPrompt,
             skills: config.skills,

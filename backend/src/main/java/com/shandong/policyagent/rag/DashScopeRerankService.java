@@ -1,5 +1,9 @@
 package com.shandong.policyagent.rag;
 
+import com.shandong.policyagent.entity.ModelProvider;
+import com.shandong.policyagent.entity.ModelType;
+import com.shandong.policyagent.service.ModelProviderService;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -22,15 +26,28 @@ public class DashScopeRerankService {
     private String apiKey;
 
     private final RagConfig ragConfig;
+    private final ModelProviderService modelProviderService;
 
     public List<Document> rerank(String query, List<Document> documents, int topK) {
-        if (!ragConfig.getRetrieval().isRerankEnabled()
-                || query == null
-                || query.isBlank()
-                || documents == null
-                || documents.isEmpty()
-                || apiKey == null
-                || apiKey.isBlank()) {
+        return rerank(query, documents, topK, null, null);
+    }
+
+    public List<Document> rerank(String query,
+                                 List<Document> documents,
+                                 int topK,
+                                 Long rerankModelId,
+                                 String rerankModelName) {
+        if (!ragConfig.getRetrieval().isRerankEnabled()) {
+            log.debug("Rerank 未启用，回退纯向量结果");
+            return shrink(documents, topK);
+        }
+        if (query == null || query.isBlank() || documents == null || documents.isEmpty()) {
+            return shrink(documents, topK);
+        }
+
+        RerankRuntime runtime = resolveRuntime(rerankModelId, rerankModelName);
+        if (runtime.apiKey() == null || runtime.apiKey().isBlank()) {
+            log.warn("Rerank 被跳过：API Key 为空，回退纯向量检索 | model={}", runtime.modelName());
             return shrink(documents, topK);
         }
 
@@ -40,8 +57,14 @@ public class DashScopeRerankService {
                 return shrink(documents, topK);
             }
 
+            log.debug("发起 Rerank 调用 | model={} | endpoint={} | docs={} | topK={}",
+                    runtime.modelName(),
+                    runtime.endpoint(),
+                    docTexts.size(),
+                    Math.min(topK, documents.size()));
+
             Map<String, Object> body = new HashMap<>();
-            body.put("model", ragConfig.getRetrieval().getRerankModel());
+                body.put("model", runtime.modelName());
             body.put("input", Map.of(
                     "query", query,
                     "documents", docTexts
@@ -54,8 +77,8 @@ public class DashScopeRerankService {
             @SuppressWarnings("unchecked")
             Map<String, Object> response = RestClient.create()
                     .post()
-                    .uri(ragConfig.getRetrieval().getRerankEndpoint())
-                    .header("Authorization", "Bearer " + apiKey)
+                    .uri(runtime.endpoint())
+                    .header("Authorization", "Bearer " + runtime.apiKey())
                     .header("Content-Type", "application/json")
                     .body(body)
                     .retrieve()
@@ -72,7 +95,9 @@ public class DashScopeRerankService {
                     continue;
                 }
                 Document original = documents.get(item.index);
-                Map<String, Object> metadata = new HashMap<>(original.getMetadata());
+                Map<String, Object> metadata = original.getMetadata() == null
+                        ? new HashMap<>()
+                        : new HashMap<>(original.getMetadata());
                 metadata.put("rerankScore", item.score);
                 reranked.add(new Document(original.getId(), original.getText(), metadata));
             }
@@ -81,9 +106,43 @@ public class DashScopeRerankService {
             }
             return shrink(reranked, topK);
         } catch (Exception e) {
-            log.warn("Rerank 调用失败，回退为纯向量检索: {}", e.getMessage());
+            log.warn("Rerank 调用失败，回退为纯向量检索 | model={} | endpoint={} | error={}",
+                    runtime.modelName(),
+                    runtime.endpoint(),
+                    e.getMessage());
             return shrink(documents, topK);
         }
+    }
+
+    private RerankRuntime resolveRuntime(Long rerankModelId, String rerankModelName) {
+        if (rerankModelId != null) {
+            try {
+                ModelProvider model = modelProviderService.getModelEntityForRuntime(rerankModelId, ModelType.RERANK);
+                String endpoint = normalizeRerankEndpoint(model.getApiUrl());
+                return new RerankRuntime(model.getModelName(), endpoint, model.getApiKey());
+            } catch (Exception exception) {
+                log.warn("知识库绑定的重排模型不可用，回退到系统配置 | modelId={} | error={}", rerankModelId, exception.getMessage());
+            }
+        }
+
+        String modelName = (rerankModelName != null && !rerankModelName.isBlank())
+                ? rerankModelName
+                : ragConfig.getRetrieval().getRerankModel();
+        return new RerankRuntime(modelName, normalizeRerankEndpoint(ragConfig.getRetrieval().getRerankEndpoint()), apiKey);
+    }
+
+    private String normalizeRerankEndpoint(String endpointOrBaseUrl) {
+        if (endpointOrBaseUrl == null || endpointOrBaseUrl.isBlank()) {
+            return ragConfig.getRetrieval().getRerankEndpoint();
+        }
+        String normalized = endpointOrBaseUrl.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.contains("/services/rerank/")) {
+            return normalized;
+        }
+        return normalized + "/services/rerank/text-rerank/text-rerank";
     }
 
     private List<String> buildRerankDocs(List<Document> documents) {
@@ -105,7 +164,6 @@ public class DashScopeRerankService {
         return results;
     }
 
-    @SuppressWarnings("unchecked")
     private List<ScoredIndex> parseScores(Map<String, Object> response) {
         if (response == null) {
             return List.of();
@@ -174,5 +232,8 @@ public class DashScopeRerankService {
     }
 
     private record ScoredIndex(int index, double score) {
+    }
+
+    private record RerankRuntime(String modelName, String endpoint, String apiKey) {
     }
 }

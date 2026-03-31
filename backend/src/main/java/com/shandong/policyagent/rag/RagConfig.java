@@ -49,7 +49,7 @@ public class RagConfig {
     @Data
     public static class Chunking {
         /**
-         * 默认切片大小（token 数）
+         * 默认切片大小（字符数）
          */
         private int defaultChunkSize = 800;
 
@@ -64,7 +64,7 @@ public class RagConfig {
         private int minChunkLengthToEmbed = 5;
 
         /**
-         * 切片重叠 token 数
+         * 切片重叠字符数
          */
         private int chunkOverlap = 100;
 
@@ -84,12 +84,12 @@ public class RagConfig {
         /**
          * 检索返回的最大文档数
          */
-        private int topK = 5;
+        private int topK = 3;
 
         /**
          * 相似度阈值（0-1）
          */
-        private double similarityThreshold = 0.7;
+        private double similarityThreshold = 0.5;
 
         /**
          * 向量召回候选数量（重排前）
@@ -104,7 +104,7 @@ public class RagConfig {
         /**
          * 重排序模型名
          */
-        private String rerankModel = "qwen3-rerank";
+        private String rerankModel = "qwen3-vl-rerank";
 
         /**
          * 重排序接口地址

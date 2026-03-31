@@ -25,11 +25,15 @@ public class KnowledgeImportBridgeService {
                 ? request.getSource().trim()
                 : item.getSourceSite();
 
+        Long targetFolderId = request.getFolderId() != null
+                ? request.getFolderId()
+                : (item.getJob().getTargetFolder() != null ? item.getJob().getTargetFolder().getId() : null);
+
         KnowledgeDocument document = knowledgeService.importTextDocument(
                 item.getCleanedText(),
-                request.getFolderId() != null ? request.getFolderId() : (item.getJob().getTargetFolder() != null ? item.getJob().getTargetFolder().getId() : null),
+                targetFolderId,
                 title,
-                item.getJob().getEmbeddingModel(),
+                null,
                 request.getCategory() != null ? request.getCategory() : item.getCategory(),
                 request.getTags() != null && !request.getTags().isEmpty() ? request.getTags() : item.getTags(),
                 request.getPublishDate() != null ? request.getPublishDate() : item.getPublishDate(),

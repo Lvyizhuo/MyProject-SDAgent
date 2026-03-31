@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -34,12 +36,13 @@ public class SessionFactCacheService {
 
     private static final Pattern PRICE_PATTERN = Pattern.compile("(?<!\\d)(\\d{3,6}(?:\\.\\d{1,2})?)\\s*(元|rmb|¥|￥)");
     private static final Pattern REGION_PATTERN = Pattern.compile("([\\p{IsHan}]{2,}(?:省|市|区|县))");
+        private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)(20\\d{2})年?");
     private static final Pattern DEVICE_PATTERN = Pattern.compile(
             "(iphone\\s*\\d{1,2}[a-z0-9\\s+-]{0,12}|华为[\\p{IsHan}a-z0-9\\s+-]{0,12}|小米[\\p{IsHan}a-z0-9\\s+-]{0,12}|荣耀[\\p{IsHan}a-z0-9\\s+-]{0,12}|oppo[\\p{IsHan}a-z0-9\\s+-]{0,12}|vivo[\\p{IsHan}a-z0-9\\s+-]{0,12}|macbook\\s*[a-z0-9\\s+-]{0,18}|thinkpad\\s*[a-z0-9\\s+-]{0,18}|surface\\s*[a-z0-9\\s+-]{0,18})",
             Pattern.CASE_INSENSITIVE
     );
     private static final Pattern CATEGORY_PATTERN = Pattern.compile(
-            "(手机|平板|手表|手环|空调|冰箱|洗衣机|电视|热水器)"
+            "(手机|平板|手表|手环|空调|冰箱|洗衣机|电视|热水器|笔记本|电脑|家电|汽车|新能源车|数码)"
     );
     private static final String FACT_KEY_PREFIX = "chat:facts:";
 
@@ -55,6 +58,7 @@ public class SessionFactCacheService {
 
         String message = request == null ? "" : safe(request.getMessage());
         applyTextFacts(message, merged, FactSource.USER_INPUT);
+        resolvePendingSlot(merged);
 
         if (request != null) {
             if (request.getCityCode() != null && !request.getCityCode().isBlank()) {
@@ -82,9 +86,20 @@ public class SessionFactCacheService {
         SessionFacts existing = loadFacts(conversationId);
         SessionFacts merged = existing == null ? new SessionFacts() : existing;
         applyTextFacts(text, merged, source == null ? FactSource.ASSISTANT_RESPONSE : source);
+        resolvePendingSlot(merged);
         merged.setUpdatedAt(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
         saveFacts(conversationId, merged);
         return merged;
+    }
+
+    public void markPendingSlot(String conversationId, String pendingSlot) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return;
+        }
+        SessionFacts facts = loadFacts(conversationId);
+        facts.setPendingSlot(pendingSlot);
+        facts.setUpdatedAt(LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        saveFacts(conversationId, facts);
     }
 
     SessionFacts extractFactsFromText(String message) {
@@ -115,6 +130,9 @@ public class SessionFactCacheService {
         if (!facts.getCategories().isEmpty()) {
             sb.append("\n- 商品类别：").append(String.join("、", facts.getCategories()));
         }
+        if (facts.getLatestPolicyYear() != null) {
+            sb.append("\n- 政策年份：").append(facts.getLatestPolicyYear());
+        }
         if (facts.getLatestPrice() != null) {
             sb.append("\n- 最近提及金额：").append(facts.getLatestPrice()).append("元");
         }
@@ -128,7 +146,43 @@ public class SessionFactCacheService {
             sb.append("\n- 最近定位：lat=").append(facts.getLatitude())
                     .append(", lng=").append(facts.getLongitude());
         }
+        if (!facts.getIntentHints().isEmpty()) {
+            sb.append("\n- 当前诉求：").append(String.join("、", facts.getIntentHints()));
+        }
+        if (facts.getPendingSlot() != null && !facts.getPendingSlot().isBlank()) {
+            sb.append("\n- 待补充信息：").append(facts.getPendingSlot());
+        }
         return sb.toString();
+    }
+
+    public String toPlanningContext(SessionFacts facts) {
+        if (facts == null) {
+            return "";
+        }
+
+        List<String> fields = new ArrayList<>();
+        if (facts.getLatestPolicyYear() != null) {
+            fields.add("年份=" + facts.getLatestPolicyYear());
+        }
+        if (!facts.getCategories().isEmpty()) {
+            fields.add("品类=" + String.join("/", facts.getCategories()));
+        }
+        if (!facts.getDeviceModels().isEmpty()) {
+            fields.add("型号=" + String.join("/", facts.getDeviceModels()));
+        }
+        if (facts.getLatestPrice() != null) {
+            fields.add("价格=" + facts.getLatestPrice() + "元");
+        }
+        if (!facts.getRegions().isEmpty()) {
+            fields.add("地区=" + String.join("/", facts.getRegions()));
+        }
+        if (!facts.getIntentHints().isEmpty()) {
+            fields.add("诉求=" + String.join("/", facts.getIntentHints()));
+        }
+        if (facts.getPendingSlot() != null && !facts.getPendingSlot().isBlank()) {
+            fields.add("待补充=" + facts.getPendingSlot());
+        }
+        return String.join(" | ", fields);
     }
 
     private void saveFacts(String conversationId, SessionFacts facts) {
@@ -196,10 +250,39 @@ public class SessionFactCacheService {
     private void extractCategories(String message, SessionFacts facts) {
         Matcher matcher = CATEGORY_PATTERN.matcher(message);
         while (matcher.find()) {
-            String category = matcher.group(1).trim();
+            String category = canonicalizeCategory(matcher.group(1).trim());
             if (!category.isBlank()) {
                 facts.getCategories().add(category);
             }
+        }
+    }
+
+    private void extractYears(String message, SessionFacts facts) {
+        Matcher matcher = YEAR_PATTERN.matcher(normalize(message));
+        Integer latestYear = null;
+        while (matcher.find()) {
+            int year = Integer.parseInt(matcher.group(1));
+            if (year < 2020 || year > 2099) {
+                continue;
+            }
+            latestYear = year;
+            facts.getMentionedYears().add(year);
+        }
+        if (latestYear != null) {
+            facts.setLatestPolicyYear(latestYear);
+        }
+    }
+
+    private void extractIntentHints(String message, SessionFacts facts) {
+        String normalized = normalize(message);
+        if (containsAny(normalized, "政策", "国补", "以旧换新", "标准", "条件", "流程", "资格")) {
+            facts.getIntentHints().add("政策咨询");
+        }
+        if (containsAny(normalized, "计算", "算一下", "帮我算", "补贴金额", "到手价", "补贴后")) {
+            facts.getIntentHints().add("补贴测算");
+        }
+        if (containsAny(normalized, "价格", "实时", "最新", "报价", "官网", "电商")) {
+            facts.getIntentHints().add("价格查询");
         }
     }
 
@@ -207,9 +290,11 @@ public class SessionFactCacheService {
         if (source == FactSource.USER_INPUT || source == FactSource.WEB_SEARCH) {
             extractPrice(message, facts);
             extractDeviceModels(message, facts);
+            extractYears(message, facts);
             if (source == FactSource.USER_INPUT) {
                 extractCategories(message, facts);
                 extractRegions(message, facts);
+                extractIntentHints(message, facts);
             }
             inferCategoriesFromDeviceModels(facts);
             return;
@@ -218,6 +303,23 @@ public class SessionFactCacheService {
         if (source == FactSource.ASSISTANT_RESPONSE) {
             extractDeviceModels(message, facts);
             inferCategoriesFromDeviceModels(facts);
+        }
+    }
+
+    private void resolvePendingSlot(SessionFacts facts) {
+        if (facts == null || facts.getPendingSlot() == null || facts.getPendingSlot().isBlank()) {
+            return;
+        }
+        if ("商品类别".equals(facts.getPendingSlot()) && !facts.getCategories().isEmpty()) {
+            facts.setPendingSlot(null);
+            return;
+        }
+        if ("购买价格".equals(facts.getPendingSlot()) && facts.getLatestPrice() != null && facts.getLatestPrice() > 0) {
+            facts.setPendingSlot(null);
+            return;
+        }
+        if ("政策年份".equals(facts.getPendingSlot()) && facts.getLatestPolicyYear() != null) {
+            facts.setPendingSlot(null);
         }
     }
 
@@ -269,14 +371,32 @@ public class SessionFactCacheService {
         return false;
     }
 
+    private String canonicalizeCategory(String category) {
+        if (category == null || category.isBlank()) {
+            return "";
+        }
+        String normalized = category.trim().toLowerCase(Locale.ROOT);
+        if ("电脑".equals(normalized) || "笔记本".equals(normalized)) {
+            return "笔记本";
+        }
+        if ("新能源车".equals(normalized)) {
+            return "汽车";
+        }
+        return category.trim();
+    }
+
     public static class SessionFacts {
         private Set<String> deviceModels = new LinkedHashSet<>();
         private Set<String> categories = new LinkedHashSet<>();
         private Set<String> regions = new LinkedHashSet<>();
+        private Set<Integer> mentionedYears = new LinkedHashSet<>();
+        private Set<String> intentHints = new LinkedHashSet<>();
         private Double latestPrice;
+        private Integer latestPolicyYear;
         private String cityCode;
         private Double latitude;
         private Double longitude;
+        private String pendingSlot;
         private String updatedAt;
 
         public Set<String> getDeviceModels() {
@@ -303,12 +423,36 @@ public class SessionFactCacheService {
             this.categories = categories == null ? new LinkedHashSet<>() : categories;
         }
 
+        public Set<Integer> getMentionedYears() {
+            return mentionedYears;
+        }
+
+        public void setMentionedYears(Set<Integer> mentionedYears) {
+            this.mentionedYears = mentionedYears == null ? new LinkedHashSet<>() : mentionedYears;
+        }
+
+        public Set<String> getIntentHints() {
+            return intentHints;
+        }
+
+        public void setIntentHints(Set<String> intentHints) {
+            this.intentHints = intentHints == null ? new LinkedHashSet<>() : intentHints;
+        }
+
         public Double getLatestPrice() {
             return latestPrice;
         }
 
         public void setLatestPrice(Double latestPrice) {
             this.latestPrice = latestPrice;
+        }
+
+        public Integer getLatestPolicyYear() {
+            return latestPolicyYear;
+        }
+
+        public void setLatestPolicyYear(Integer latestPolicyYear) {
+            this.latestPolicyYear = latestPolicyYear;
         }
 
         public String getCityCode() {
@@ -333,6 +477,14 @@ public class SessionFactCacheService {
 
         public void setLongitude(Double longitude) {
             this.longitude = longitude;
+        }
+
+        public String getPendingSlot() {
+            return pendingSlot;
+        }
+
+        public void setPendingSlot(String pendingSlot) {
+            this.pendingSlot = pendingSlot;
         }
 
         public String getUpdatedAt() {

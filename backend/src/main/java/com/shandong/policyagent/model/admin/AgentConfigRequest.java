@@ -46,6 +46,8 @@ public class AgentConfigRequest {
 
     private Long embeddingModelId;
 
+    private Long knowledgeBaseId;
+
     private Long knowledgeBaseFolderId;
 
     @NotBlank(message = "系统提示词不能为空")

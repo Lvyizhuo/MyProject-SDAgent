@@ -175,6 +175,9 @@ public class ReActPlanningService {
     }
 
     private boolean requiresRealtimeSearch(String normalized) {
+        if (hasSubsidyComputationIntent(normalized)) {
+            return false;
+        }
         return normalized.contains("最新")
                 || normalized.contains("实时")
                 || normalized.contains("今日")
@@ -191,12 +194,20 @@ public class ReActPlanningService {
     }
 
     private boolean requiresSubsidyCalculation(String normalized) {
+        boolean subsidyContext = containsAny(normalized, "补贴", "国补", "以旧换新");
+        boolean computationIntent = hasSubsidyComputationIntent(normalized);
+        boolean subsidyTargetHint = hasCategory(normalized) || hasSubsidyDeviceHint(normalized);
+
+        if (subsidyContext && computationIntent && (hasPrice(normalized) || subsidyTargetHint)) {
+            return true;
+        }
+
         return containsAny(normalized,
                 "算补贴", "补多少", "能补多少", "补贴金额", "补贴额度", "核算补贴", "国补能有多少",
                 "补贴后", "补贴后的价格", "到手价", "计算补贴")
-                || (containsAny(normalized, "补贴", "国补", "以旧换新")
+                || (subsidyContext
                 && hasPrice(normalized)
-                && hasCategory(normalized));
+                && subsidyTargetHint);
     }
 
     private boolean requiresMapSearch(String normalized) {
@@ -230,7 +241,18 @@ public class ReActPlanningService {
     private boolean hasCategory(String normalized) {
         return containsAny(normalized,
                 "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器",
-                "微波炉", "油烟机", "洗碗机", "燃气灶", "净水器");
+                "微波炉", "油烟机", "洗碗机", "燃气灶", "净水器", "笔记本", "电脑", "macbook", "thinkpad", "surface");
+    }
+
+    private boolean hasSubsidyDeviceHint(String normalized) {
+        return containsAny(normalized,
+                "macbook", "thinkpad", "surface", "matebook", "笔记本", "电脑",
+                "iphone", "ipad", "华为", "小米", "荣耀", "oppo", "vivo");
+    }
+
+    private boolean hasSubsidyComputationIntent(String normalized) {
+        return containsAny(normalized,
+                "计算", "算一下", "帮我算", "核算", "到手价", "补贴后", "补贴后的价格", "国补后");
     }
 
     private boolean containsAny(String text, String... keywords) {

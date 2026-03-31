@@ -88,7 +88,8 @@ public class ToolIntentClassifier {
     private IntentDecision classifySubsidy(String normalized) {
         boolean hasPrice = normalized.matches(".*(\\d{3,6}(\\.\\d{1,2})?\\s*(元|rmb|¥|￥)).*");
         boolean hasCategory = containsAny(normalized,
-                "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器");
+                "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器",
+                "笔记本", "电脑", "macbook", "thinkpad", "surface");
         if (hasPrice || hasCategory) {
             return IntentDecision.allow("calculateSubsidy", "补贴计算参数基本充分");
         }
