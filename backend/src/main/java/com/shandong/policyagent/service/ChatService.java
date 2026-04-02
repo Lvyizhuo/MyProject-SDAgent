@@ -24,12 +24,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -55,11 +52,8 @@ public class ChatService {
     private final SessionFactCacheService sessionFactCacheService;
     private final FastPathService fastPathService;
     private final QuestionSemanticCacheService questionSemanticCacheService;
-    private final RagPrefetchService ragPrefetchService;
     private final ToolFailurePolicyCenter toolFailurePolicyCenter;
     private final ModelProviderService modelProviderService;
-    private final WebSearchTool webSearchTool;
-    private final SubsidyCalculatorTool subsidyCalculatorTool;
     private final ProductPriceCacheService productPriceCacheService;
     private final RagFailureDetector ragFailureDetector;
     private final KnowledgeReferenceService knowledgeReferenceService;
@@ -69,15 +63,6 @@ public class ChatService {
 
     @Value("${app.qa-cache.enabled:true}")
     private boolean qaCacheEnabled;
-
-    @Value("${app.agent.pre-rag-enabled:true}")
-    private boolean preRagEnabled;
-
-    @Value("${app.agent.high-confidence-reference-threshold:0.86}")
-    private double highConfidenceReferenceThreshold;
-
-    @Value("${app.qa-cache.high-confidence-threshold:0.95}")
-    private double qaCacheHighConfidenceThreshold;
 
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
@@ -103,7 +88,7 @@ public class ChatService {
                 if (allowQaSemanticCache) {
                     questionSemanticCacheService.saveAsync(rawQuestion, response, "fastPath");
                 }
-                log.info("对话完成（FastPath命中） | conversationId={}", conversationId);
+                log.info("对话完成 | phase=fastPath | conversationId={}", conversationId);
                 return response;
             }
         }
@@ -112,47 +97,16 @@ public class ChatService {
             QuestionSemanticCacheService.CachedAnswer cachedAnswer = questionSemanticCacheService.lookup(rawQuestion).orElse(null);
             if (cachedAnswer != null) {
                 List<ChatResponse.Reference> cacheReferences = cachedAnswer.references();
-                if (cachedAnswer.similarity() >= qaCacheHighConfidenceThreshold) {
-                    RagPrefetchService.RagPrefetchResult cachePrefetchResult = ragPrefetchService.prefetch(rawQuestion);
-                    cacheReferences = mergeReferencesPreferRich(cacheReferences, cachePrefetchResult.references());
-                }
-                log.info("命中问答语义缓存 | conversationId={} | similarity={} | hash={}",
+                log.info("命中问答语义缓存 | phase=qaCache | conversationId={} | similarity={} | hash={}",
                         conversationId, cachedAnswer.similarity(), cachedAnswer.questionHash());
                 return buildResponse(conversationId, cachedAnswer.answer(), cacheReferences);
             }
         }
 
-        String ragPrefetchQuery = buildRagPrefetchQuery(rawQuestion, facts);
-        RagPrefetchService.RagPrefetchResult ragPrefetchResult = preRagEnabled
-            ? ragPrefetchService.prefetch(ragPrefetchQuery)
-                : RagPrefetchService.RagPrefetchResult.empty();
-        if (shouldReturnDirectRagAnswer(rawQuestion, ragPrefetchResult)) {
-            String ragPrompt = buildRagDirectAnswerPrompt(userMessage, ragPrefetchResult.contextSnippet());
-            ChatExecutionResult ragDirectResult;
-            try {
-                ragDirectResult = executeChatWithFallback(ragPrompt, conversationId, false, false);
-            } catch (RuntimeException exception) {
-                ragDirectResult = fallbackForSyncChatFailure(
-                        exception,
-                        request.getMessage(),
-                        conversationId,
-                        null,
-                        null,
-                        ragPrefetchResult
-                );
-            }
-            ragDirectResult = ensureNonBlankResponse(ragDirectResult, null, null, conversationId);
-
-            List<ChatResponse.Reference> references = ragDirectResult.references();
-            references = mergeReferencesPreferRich(references, ragPrefetchResult.references());
-
-            ChatResponse response = buildResponse(conversationId, ragDirectResult.content(), references);
-            if (allowQaSemanticCache) {
-                questionSemanticCacheService.saveAsync(rawQuestion, response, "pre-rag");
-            }
-            log.info("对话完成（RAG预检索高置信直答） | conversationId={} | topScore={}",
-                    conversationId, ragPrefetchResult.topScore());
-            return response;
+        if (isPurePriceQuery(rawQuestion, facts)) {
+            log.info("检测到纯价格查询，触发异步价格预取 | conversationId={}", conversationId);
+            productPriceCacheService.prefetchPriceAsync(rawQuestion, facts);
+            facts = enrichFactsWithProductPriceCacheIfNeeded(conversationId, rawQuestion, facts);
         }
 
         String plannerMessage = buildPlannerMessage(rawQuestion, facts);
@@ -160,53 +114,16 @@ public class ChatService {
         ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(plannerMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
         plan = enforceRealtimeWebSearch(rawQuestion, plan, intentDecision, conversationId);
-        WebSearchTool.SearchResponse webSearchResponse = executeDirectWebSearchIfNeeded(
-            request.getMessage(),
-            facts,
-            plan,
-            intentDecision,
-            conversationId
-        );
-        if (webSearchResponse == null) {
-            webSearchResponse = executeForcedPriceLookupIfNeeded(
-                    request.getMessage(),
-                    facts,
-                    conversationId
-            );
-        }
-        if (webSearchResponse != null) {
-            facts = sessionFactCacheService.mergeFactsFromText(
-                    conversationId,
-                    formatWebSearchResponse(webSearchResponse),
-                    SessionFactCacheService.FactSource.WEB_SEARCH
-            );
-            cacheProductPriceIfPresent(facts, request.getMessage(), "webSearch");
-        }
-        SubsidyCalculatorTool.SubsidyResponse subsidyResponse = executeDirectSubsidyIfNeeded(
-                facts,
-                plan,
-                intentDecision,
-            conversationId,
-            request.getMessage()
-        );
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
-        if (shouldReturnDirectSubsidyAnswer(plan, subsidyResponse)) {
-            String content = buildDirectSubsidyAnswer(subsidyResponse);
-            long duration = System.currentTimeMillis() - startTime;
-            log.info("对话完成（后端直连补贴计算） | conversationId={} | 耗时={}ms", conversationId, duration);
-            ChatResponse response = buildResponse(conversationId, content, List.of());
-            if (allowQaSemanticCache) {
-                questionSemanticCacheService.saveAsync(rawQuestion, response, "calculateSubsidy");
-            }
-            return response;
-        }
 
-        String executionPrompt = buildExecutionPrompt(userMessage, plan, webSearchResponse, subsidyResponse, ragPrefetchResult);
-        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, subsidyResponse);
-        boolean enableRag = shouldEnableRag(plan, webSearchResponse, ragPrefetchResult);
+        String executionPrompt = buildExecutionPrompt(userMessage, plan);
+        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan);
+        boolean enableRag = shouldEnableRag(plan);
+        log.info("进入智能体执行阶段 | phase=agentPhase | conversationId={} | needToolCall={} | enableRag={}",
+                conversationId, plan.needToolCall(), enableRag);
 
         ChatExecutionResult result;
         try {
@@ -216,17 +133,13 @@ public class ChatService {
                     exception,
                     request.getMessage(),
                     conversationId,
-                    webSearchResponse,
-                    subsidyResponse,
-                    ragPrefetchResult
+                    null,
+                    null
             );
         }
-        result = ensureNonBlankResponse(result, webSearchResponse, subsidyResponse, conversationId);
+        result = ensureNonBlankResponse(result, null, null, conversationId);
 
         List<ChatResponse.Reference> responseReferences = result.references();
-        if (ragPrefetchResult.topScore() >= highConfidenceReferenceThreshold) {
-            responseReferences = mergeReferencesPreferRich(result.references(), ragPrefetchResult.references());
-        }
 
         long duration = System.currentTimeMillis() - startTime;
         log.info("对话完成 | conversationId={} | 耗时={}ms", conversationId, duration);
@@ -236,75 +149,6 @@ public class ChatService {
             questionSemanticCacheService.saveAsync(rawQuestion, response, plan.needToolCall() ? "agent-tool" : "chat");
         }
         return response;
-    }
-
-    private List<ChatResponse.Reference> mergeReferencesPreferRich(List<ChatResponse.Reference> primary,
-                                                                   List<ChatResponse.Reference> fallback) {
-        List<ChatResponse.Reference> normalizedPrimary = primary == null ? List.of() : primary;
-        List<ChatResponse.Reference> normalizedFallback = fallback == null ? List.of() : fallback;
-
-        if (normalizedPrimary.isEmpty() && normalizedFallback.isEmpty()) {
-            return List.of();
-        }
-        if (normalizedPrimary.isEmpty()) {
-            return normalizedFallback;
-        }
-        if (normalizedFallback.isEmpty()) {
-            return normalizedPrimary;
-        }
-
-        LinkedHashMap<String, ChatResponse.Reference> merged = new LinkedHashMap<>();
-        addReferences(merged, normalizedFallback);
-        addReferences(merged, normalizedPrimary);
-
-        List<ChatResponse.Reference> ordered = new ArrayList<>(merged.values());
-        if (ordered.size() > 4) {
-            return List.copyOf(ordered.subList(0, 4));
-        }
-        return List.copyOf(ordered);
-    }
-
-    private void addReferences(Map<String, ChatResponse.Reference> container,
-                               List<ChatResponse.Reference> candidates) {
-        for (ChatResponse.Reference candidate : candidates) {
-            if (candidate == null) {
-                continue;
-            }
-            String key = buildReferenceKey(candidate);
-            ChatResponse.Reference existing = container.get(key);
-            if (existing == null || referenceRichnessScore(candidate) >= referenceRichnessScore(existing)) {
-                container.put(key, candidate);
-            }
-        }
-    }
-
-    private String buildReferenceKey(ChatResponse.Reference reference) {
-        if (reference.getDocumentId() != null) {
-            return "doc:" + reference.getDocumentId();
-        }
-        String title = reference.getTitle() == null ? "" : reference.getTitle().trim().toLowerCase(Locale.ROOT);
-        String url = reference.getUrl() == null ? "" : reference.getUrl().trim().toLowerCase(Locale.ROOT);
-        return title + "|" + url;
-    }
-
-    private int referenceRichnessScore(ChatResponse.Reference reference) {
-        int score = 0;
-        if (reference.getTitle() != null && !reference.getTitle().isBlank()) {
-            score += 2;
-        }
-        if (reference.getUrl() != null && !reference.getUrl().isBlank()) {
-            score += 2;
-        }
-        if (reference.getSnippet() != null && !reference.getSnippet().isBlank()) {
-            score += 2;
-        }
-        if (reference.getSourceSite() != null && !reference.getSourceSite().isBlank()) {
-            score += 1;
-        }
-        if (reference.getKeywords() != null && !reference.getKeywords().isEmpty()) {
-            score += 1;
-        }
-        return score;
     }
 
     private ChatResponse buildResponse(String conversationId,
@@ -334,64 +178,30 @@ public class ChatService {
             return Flux.just(ChatStreamEvent.delta(clarificationStep.question()));
         }
 
+        if (isPurePriceQuery(request.getMessage(), facts)) {
+            log.info("流式会话检测到纯价格查询，触发异步价格预取 | conversationId={}", conversationId);
+            productPriceCacheService.prefetchPriceAsync(request.getMessage(), facts);
+            facts = enrichFactsWithProductPriceCacheIfNeeded(conversationId, request.getMessage(), facts);
+        }
+
         String plannerMessage = buildPlannerMessage(request.getMessage(), facts);
         AgentExecutionPlan plan = planningService.createPlan(conversationId, plannerMessage);
         ToolIntentClassifier.IntentDecision intentDecision = toolIntentClassifier.classify(plannerMessage, plan);
         plan = toolIntentClassifier.applyDecision(plan, intentDecision);
         plan = enforceRealtimeWebSearch(request.getMessage(), plan, intentDecision, conversationId);
-        WebSearchTool.SearchResponse webSearchResponse = executeDirectWebSearchIfNeeded(
-            request.getMessage(),
-            facts,
-            plan,
-            intentDecision,
-            conversationId
-        );
-        if (webSearchResponse == null) {
-            webSearchResponse = executeForcedPriceLookupIfNeeded(
-                    request.getMessage(),
-                    facts,
-                    conversationId
-            );
-        }
-        if (webSearchResponse != null) {
-            facts = sessionFactCacheService.mergeFactsFromText(
-                    conversationId,
-                    formatWebSearchResponse(webSearchResponse),
-                    SessionFactCacheService.FactSource.WEB_SEARCH
-            );
-            cacheProductPriceIfPresent(facts, request.getMessage(), "webSearch");
-        }
-        final WebSearchTool.SearchResponse webSearchResponseForFallback = webSearchResponse;
-        SubsidyCalculatorTool.SubsidyResponse subsidyResponse = executeDirectSubsidyIfNeeded(
-                facts,
-                plan,
-                intentDecision,
-            conversationId,
-            request.getMessage()
-        );
-        final SubsidyCalculatorTool.SubsidyResponse subsidyResponseForFallback = subsidyResponse;
         if (!intentDecision.allowToolCall()) {
             log.info("意图分类器拦截工具调用 | conversationId={} | tool={} | reason={}",
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
-        if (shouldReturnDirectSubsidyAnswer(plan, subsidyResponseForFallback)) {
-            return Flux.just(ChatStreamEvent.delta(buildDirectSubsidyAnswer(subsidyResponseForFallback)));
-        }
 
-        String executionPrompt = buildExecutionPrompt(
-            userMessage,
-            plan,
-            webSearchResponseForFallback,
-            subsidyResponseForFallback,
-            RagPrefetchService.RagPrefetchResult.empty()
-        );
-        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan, subsidyResponseForFallback);
-        boolean enableRag = shouldEnableRag(plan, webSearchResponseForFallback, RagPrefetchService.RagPrefetchResult.empty());
+        String executionPrompt = buildExecutionPrompt(userMessage, plan);
+        boolean enableToolCallbacks = shouldEnableToolCallbacks(plan);
+        boolean enableRag = shouldEnableRag(plan);
         ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, enableRag);
 
         if (plan.needToolCall()) {
             log.info("检测到工具调用计划，直接使用非流式执行以规避流式工具调用缺陷 | conversationId={}", conversationId);
-                return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponseForFallback, subsidyResponseForFallback,
+                return fallbackToNonStreaming(executionPrompt, conversationId, null, null,
                     enableToolCallbacks, enableRag);
         }
 
@@ -420,13 +230,13 @@ public class ChatService {
                     if (isToolCallError(e)) {
                         log.warn("流式工具调用失败，降级为非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(executionPrompt, conversationId, null, subsidyResponseForFallback,
+                        return fallbackToNonStreaming(executionPrompt, conversationId, null, null,
                                 enableToolCallbacks, enableRag);
                     }
                     if (ragFailureDetector.isRecoverable(e)) {
                         log.warn("流式 RAG 检索失败，降级为无检索非流式调用 | conversationId={} | error={}",
                                 conversationId, e.getMessage());
-                        return fallbackToNonStreaming(executionPrompt, conversationId, webSearchResponseForFallback, subsidyResponseForFallback,
+                        return fallbackToNonStreaming(executionPrompt, conversationId, null, null,
                                 enableToolCallbacks, false);
                     }
                     return Flux.error(e);
@@ -598,17 +408,58 @@ public class ChatService {
                 && !containsAny(normalized, "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器", "笔记本", "电脑");
     }
 
-            private boolean shouldAutoLookupPrice(SessionFactCacheService.SessionFacts facts, String normalized) {
-            boolean hasDeviceHints = (facts != null
+    private boolean shouldAutoLookupPrice(SessionFactCacheService.SessionFacts facts, String normalized) {
+        boolean hasDeviceHints = (facts != null
                 && facts.getDeviceModels() != null
                 && !facts.getDeviceModels().isEmpty())
                 || containsAny(normalized,
                 "macbook", "thinkpad", "surface", "iphone", "ipad", "华为", "小米", "荣耀", "oppo", "vivo",
                 "笔记本", "电脑", "手机", "平板", "电视", "空调", "冰箱", "洗衣机");
-            boolean hasComputationOrPriceIntent = containsAny(normalized,
+        boolean hasComputationOrPriceIntent = containsAny(normalized,
                 "帮我算", "算一下", "计算", "优惠", "补多少", "多少钱", "价格", "报价", "查", "搜索");
-            return hasDeviceHints && hasComputationOrPriceIntent;
+        return hasDeviceHints && hasComputationOrPriceIntent;
+    }
+
+    private boolean isPurePriceQuery(String rawQuestion,
+                                     SessionFactCacheService.SessionFacts facts) {
+        if (rawQuestion == null || rawQuestion.isBlank()) {
+            return false;
+        }
+        String normalized = rawQuestion.toLowerCase(Locale.ROOT);
+        boolean hasPriceIntent = containsAny(normalized,
+                "价格", "报价", "多少钱", "市场价", "售价", "价位", "优惠");
+        if (!hasPriceIntent) {
+            return false;
+        }
+
+        boolean hasPolicyIntent = containsAny(normalized,
+                "政策", "补贴", "国补", "以旧换新", "申领", "流程", "资格", "条件");
+        if (hasPolicyIntent) {
+            return false;
+        }
+
+        return hasExplicitBrandOrModel(normalized, facts);
+    }
+
+    private boolean hasExplicitBrandOrModel(String normalized,
+                                            SessionFactCacheService.SessionFacts facts) {
+        if (facts != null) {
+            if (facts.getDeviceModels() != null && !facts.getDeviceModels().isEmpty()) {
+                return true;
             }
+            if (facts.getModel() != null && !facts.getModel().isBlank()) {
+                return true;
+            }
+            if (facts.getBrand() != null && !facts.getBrand().isBlank()) {
+                return true;
+            }
+        }
+
+        return containsAny(normalized,
+                "iphone", "ipad", "macbook", "thinkpad", "surface", "matebook",
+                "华为", "小米", "荣耀", "oppo", "vivo", "三星", "联想", "戴尔", "惠普")
+                || normalized.matches(".*(?:\\d{2,4}(gb|g|tb|t)|20[2-6]\\d款).*");
+    }
 
     private boolean containsAny(String text, String... keywords) {
         if (text == null || text.isBlank()) {
@@ -626,10 +477,7 @@ public class ChatService {
     }
 
     private String buildExecutionPrompt(String userMessage,
-                                        AgentExecutionPlan plan,
-                                        WebSearchTool.SearchResponse webSearchResponse,
-                                        SubsidyCalculatorTool.SubsidyResponse subsidyResponse,
-                                        RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
+                                        AgentExecutionPlan plan) {
         StringBuilder stepsBuilder = new StringBuilder();
         for (AgentExecutionPlan.AgentStep step : plan.steps()) {
             stepsBuilder.append(step.id())
@@ -660,44 +508,13 @@ public class ChatService {
                 7. 若问题明确包含最新/实时/今日/当前/新闻/政策动态等强时效诉求，应调用 webSearch 并给出来源链接。
                 """, userMessage, plan.summary(), plan.needToolCall(), stepsBuilder);
 
-            if (ragPrefetchResult != null && ragPrefetchResult.hasDocuments()) {
-                prompt += "\n\n【系统预检索知识库结果】\n"
-                    + ragPrefetchResult.contextSnippet()
-                    + "\n\n【补充要求】\n"
-                    + "1. 优先引用以上知识库内容回答，并保证结论与政策原文一致。\n"
-                    + "2. 若预检索结果与用户问题不完全匹配，再补充通用说明并提示补充信息。";
-            }
-
-        if (subsidyResponse != null) {
-            prompt += "\n\n【系统已完成补贴计算，以下结果优先作为事实依据】\n"
-                    + formatSubsidyResponse(subsidyResponse)
-                    + "\n\n【补充要求】\n"
-                    + "1. 必须基于以上补贴计算结果回答，不要再声称无法计算或无法调用补贴工具。\n"
-                    + "2. 若用户还关心申领条件、材料或流程，可在给出金额后继续补充说明。";
+        if (isPolicyPriceMixedQuestion(userMessage)) {
+            return prompt + "\n\n【混合问法补充策略】\n"
+                    + "1. 先输出山东本地政策口径与适用边界。\n"
+                    + "2. 若暂缺实时价格证据，不要编造最新价格；引导用户补充品牌+型号后再执行 webSearch。\n"
+                    + "3. 价格补充放在政策结论之后。";
         }
-
-        if (webSearchResponse == null) {
-            if (isPolicyPriceMixedQuestion(userMessage)) {
-                return prompt + "\n\n【混合问法补充策略】\n"
-                        + "1. 先输出山东本地政策口径与适用边界。\n"
-                        + "2. 若你没有实时价格结果，不要编造最新价格；给出可继续联网补充价格的提示。\n"
-                        + "3. 价格补充放在政策结论之后。";
-            }
-            return prompt;
-        }
-
-        String webSearchAugmentedPrompt = prompt + "\n\n【系统已执行联网搜索，以下结果优先作为事实依据】\n"
-                + formatWebSearchResponse(webSearchResponse)
-                + "\n\n【补充要求】\n"
-                + "1. 优先基于以上联网搜索结果回答，不要再声称无法联网搜索。\n"
-                + "2. 若结果包含链接，正文中保留主要来源。\n"
-                + "3. 若联网结果为空或明确失败，要如实说明，并给出可执行的替代查询渠道。";
-
-        if (subsidyResponse == null && containsToolHint(plan, "calculateSubsidy")) {
-            webSearchAugmentedPrompt += "\n4. 对补贴测算场景，先整理‘商品/型号/候选价格/来源’，必要时向用户确认成交价，再调用 calculateSubsidy；不要直接使用不可信价格计算。";
-        }
-
-        return webSearchAugmentedPrompt;
+        return prompt;
     }
 
     private AgentExecutionPlan enforceRealtimeWebSearch(String userMessage,
@@ -806,73 +623,6 @@ public class ChatService {
         return condensed.length() > 120 ? condensed.substring(0, 120) : condensed;
     }
 
-    private WebSearchTool.SearchResponse executeDirectWebSearchIfNeeded(String rawUserMessage,
-                                                                        SessionFactCacheService.SessionFacts facts,
-                                                                        AgentExecutionPlan plan,
-                                                                        ToolIntentClassifier.IntentDecision intentDecision,
-                                                                        String conversationId) {
-        if (plan == null || !plan.needToolCall() || !containsToolHint(plan, "webSearch")) {
-            return null;
-        }
-        if (!intentDecision.allowToolCall() && "webSearch".equals(intentDecision.targetTool())) {
-            return null;
-        }
-
-        boolean subsidyFlow = containsToolHint(plan, "calculateSubsidy");
-        String query = subsidyFlow
-                ? buildPriceLookupQuery(rawUserMessage, facts)
-                : extractQueryForWebSearch(rawUserMessage);
-        int maxResults = subsidyFlow ? 3 : 5;
-        log.info("执行后端直连 webSearch | conversationId={} | query={}", conversationId, query);
-
-        try {
-            return webSearchTool.webSearch().apply(new WebSearchTool.SearchRequest(query, maxResults));
-        } catch (Exception exception) {
-            log.warn("后端直连 webSearch 失败 | conversationId={} | query={} | error={}",
-                    conversationId, query, exception.getMessage());
-            return new WebSearchTool.SearchResponse(
-                    query,
-                    List.of(),
-                    0,
-                    toolFailurePolicyCenter.fallbackMessage("webSearch", exception.getMessage())
-            );
-        }
-    }
-
-    private WebSearchTool.SearchResponse executeForcedPriceLookupIfNeeded(String rawUserMessage,
-                                                                          SessionFactCacheService.SessionFacts facts,
-                                                                          String conversationId) {
-        String normalized = rawUserMessage == null ? "" : rawUserMessage.trim().toLowerCase(Locale.ROOT);
-        if (normalized.isBlank()) {
-            return null;
-        }
-        if (hasUsablePrice(facts, normalized)) {
-            return null;
-        }
-        if (!shouldAutoLookupPrice(facts, normalized)) {
-            return null;
-        }
-        if (!isSubsidyOrBenefitIntent(normalized, facts)) {
-            return null;
-        }
-
-        String query = buildPriceLookupQuery(rawUserMessage, facts);
-        log.info("补贴场景价格缺失，执行兜底 webSearch 查价 | conversationId={} | query={}", conversationId, query);
-
-        try {
-            return webSearchTool.webSearch().apply(new WebSearchTool.SearchRequest(query, 3));
-        } catch (Exception exception) {
-            log.warn("补贴场景兜底查价失败 | conversationId={} | query={} | error={}",
-                    conversationId, query, exception.getMessage());
-            return new WebSearchTool.SearchResponse(
-                    query,
-                    List.of(),
-                    0,
-                    toolFailurePolicyCenter.fallbackMessage("webSearch", exception.getMessage())
-            );
-        }
-    }
-
     private SessionFactCacheService.SessionFacts enrichFactsWithProductPriceCacheIfNeeded(String conversationId,
                                                                                            String rawUserMessage,
                                                                                            SessionFactCacheService.SessionFacts facts) {
@@ -880,7 +630,7 @@ public class ChatService {
             return facts;
         }
         String normalized = rawUserMessage == null ? "" : rawUserMessage.trim().toLowerCase(Locale.ROOT);
-        if (!isSubsidyOrBenefitIntent(normalized, facts)) {
+        if (!isSubsidyOrBenefitIntent(normalized, facts) && !isPriceLookupIntent(normalized, facts)) {
             return facts;
         }
 
@@ -895,6 +645,15 @@ public class ChatService {
                     );
                 })
                 .orElse(facts);
+    }
+
+    private boolean isPriceLookupIntent(String normalized,
+                                        SessionFactCacheService.SessionFacts facts) {
+        if (containsAny(normalized,
+                "价格", "报价", "多少钱", "市场价", "售价", "价位", "官网", "电商")) {
+            return true;
+        }
+        return facts != null && facts.getIntentHints() != null && facts.getIntentHints().contains("价格查询");
     }
 
     private void cacheProductPriceIfPresent(SessionFactCacheService.SessionFacts facts,
@@ -915,127 +674,22 @@ public class ChatService {
         return facts != null && facts.getIntentHints() != null && facts.getIntentHints().contains("补贴测算");
     }
 
-    private String buildPriceLookupQuery(String rawUserMessage,
-                                         SessionFactCacheService.SessionFacts facts) {
-        String baseQuery = null;
-        if (facts != null && facts.getDeviceModels() != null && !facts.getDeviceModels().isEmpty()) {
-            baseQuery = facts.getDeviceModels().iterator().next();
-        }
-        if ((baseQuery == null || baseQuery.isBlank())
-                && facts != null
-                && facts.getCategories() != null
-                && !facts.getCategories().isEmpty()) {
-            baseQuery = facts.getCategories().iterator().next();
-        }
-        if (baseQuery == null || baseQuery.isBlank()) {
-            baseQuery = extractQueryForWebSearch(rawUserMessage);
-        }
-
-        StringBuilder queryBuilder = new StringBuilder(baseQuery).append(" 价格 报价");
-        if (facts != null && facts.getLatestPolicyYear() != null) {
-            queryBuilder.append(" ").append(facts.getLatestPolicyYear());
-        }
-        return queryBuilder.toString().trim();
-    }
-
-    private SubsidyCalculatorTool.SubsidyResponse executeDirectSubsidyIfNeeded(SessionFactCacheService.SessionFacts facts,
-                                                                                AgentExecutionPlan plan,
-                                                                                ToolIntentClassifier.IntentDecision intentDecision,
-                                                                                String conversationId,
-                                                                                String rawUserMessage) {
-        if (plan == null || !plan.needToolCall() || !containsToolHint(plan, "calculateSubsidy")) {
-            return null;
-        }
-        if (!intentDecision.allowToolCall() && "calculateSubsidy".equals(intentDecision.targetTool())) {
-            return null;
-        }
-        if (containsToolHint(plan, "webSearch") && !hasExplicitPriceFromUser(rawUserMessage)) {
-            log.info("补贴计算改由 ReAct 确认参数后触发 | conversationId={}", conversationId);
-            return null;
-        }
-
-        String category = extractSubsidyCategory(facts);
-        Double price = facts != null ? facts.getLatestPrice() : null;
-        if (category == null || category.isBlank() || price == null || price <= 0) {
-            return null;
-        }
-
-        log.info("执行后端直连 calculateSubsidy | conversationId={} | type={} | price={}",
-                conversationId, category, price);
-        try {
-            return subsidyCalculatorTool.calculateSubsidy()
-                    .apply(new SubsidyCalculatorTool.SubsidyRequest(category, price));
-        } catch (Exception exception) {
-            log.warn("后端直连 calculateSubsidy 失败 | conversationId={} | error={}",
-                    conversationId, exception.getMessage());
-            return null;
-        }
-    }
-
-    private boolean hasExplicitPriceFromUser(String rawUserMessage) {
-        if (rawUserMessage == null || rawUserMessage.isBlank()) {
-            return false;
-        }
-        String normalized = rawUserMessage.trim().toLowerCase(Locale.ROOT);
-        boolean pureNumeric = normalized.matches("(?:\\d{1,3}(?:[,，]\\d{3})+|\\d{4,6})(?:\\.\\d{1,2})?");
-        if (pureNumeric) {
-            return true;
-        }
-        return normalized.matches(".*(?:\\d{1,3}(?:[,，]\\d{3})+|\\d{3,6})(?:\\.\\d{1,2})?\\s*(元|rmb|人民币|¥|￥).*");
-    }
-
-    private boolean shouldEnableToolCallbacks(AgentExecutionPlan plan,
-                                              SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
+    private boolean shouldEnableToolCallbacks(AgentExecutionPlan plan) {
         if (plan == null || !plan.needToolCall()) {
             return false;
         }
         return plan.steps().stream()
                 .map(AgentExecutionPlan.AgentStep::toolHint)
-                .anyMatch(toolHint -> requiresRuntimeToolCallback(toolHint, subsidyResponse));
+                .anyMatch(this::requiresRuntimeToolCallback);
     }
 
-    private boolean shouldEnableRag(AgentExecutionPlan plan,
-                                    WebSearchTool.SearchResponse webSearchResponse,
-                                    RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
-        if (webSearchResponse != null) {
-            return false;
-        }
-        if (ragPrefetchResult != null && ragPrefetchResult.hasDocuments()) {
-            return false;
-        }
+    private boolean shouldEnableRag(AgentExecutionPlan plan) {
         return containsToolHint(plan, "rag");
     }
 
-    private boolean shouldReturnDirectRagAnswer(String userMessage,
-                                                RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
-        if (ragPrefetchResult == null || !ragPrefetchResult.canAnswerDirectly()) {
-            return false;
-        }
-        if (!ragPrefetchResult.isPolicyLikeQuestion(userMessage)) {
-            return false;
-        }
-        return !requiresRealtimeSearch(userMessage);
-    }
-
-    private String buildRagDirectAnswerPrompt(String userMessage, String ragContext) {
-        return """
-                【用户问题】
-                %s
-
-                【知识库预检索结果】
-                %s
-
-                【回答要求】
-                1. 直接基于知识库内容给出结论，避免空泛回答。
-                2. 若政策存在适用条件，必须明确写出条件。
-                3. 输出对用户可读的最终答案，不要展示内部思考过程。
-                """.formatted(userMessage, ragContext == null ? "（无）" : ragContext);
-    }
-
-    private boolean requiresRuntimeToolCallback(String toolHint,
-                                                SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
-        if ("calculateSubsidy".equals(toolHint) && subsidyResponse != null) {
-            return false;
+    private boolean requiresRuntimeToolCallback(String toolHint) {
+        if ("webSearch".equals(toolHint)) {
+            return true;
         }
         return "calculateSubsidy".equals(toolHint)
                 || "parseFile".equals(toolHint)
@@ -1045,52 +699,6 @@ public class ChatService {
     private boolean containsToolHint(AgentExecutionPlan plan, String toolHint) {
         return plan.steps() != null
                 && plan.steps().stream().anyMatch(step -> toolHint.equals(step.toolHint()));
-    }
-
-    private String formatWebSearchResponse(WebSearchTool.SearchResponse response) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("查询词：").append(response.query()).append("\n")
-                .append("摘要：").append(response.summary()).append("\n");
-
-        if (response.results() == null || response.results().isEmpty()) {
-            builder.append("结果：无可用结果");
-            return builder.toString();
-        }
-
-        builder.append("结果列表：\n");
-        int resultCount = Math.min(response.results().size(), 3);
-        for (int index = 0; index < resultCount; index++) {
-            WebSearchTool.SearchResult result = response.results().get(index);
-            builder.append(index + 1)
-                    .append(". 标题：")
-                    .append(result.title())
-                    .append("\n")
-                    .append("   链接：")
-                    .append(result.url())
-                    .append("\n")
-                    .append("   摘要：")
-                    .append(truncate(result.snippet(), 220))
-                    .append("\n");
-        }
-        return builder.toString().trim();
-    }
-
-    private String formatSubsidyResponse(SubsidyCalculatorTool.SubsidyResponse response) {
-        return String.format("""
-                商品类型：%s
-                购买价格：%.2f元
-                补贴比例：%.0f%%
-                计算补贴：%.2f元
-                补贴上限：%.2f元
-                实际补贴：%.2f元
-                摘要：%s""",
-                response.type(),
-                response.purchasePrice(),
-                response.subsidyRate() * 100,
-                response.calculatedSubsidy(),
-                response.maxSubsidy(),
-                response.actualSubsidy(),
-                response.summary());
     }
 
     private String buildDirectSubsidyAnswer(SubsidyCalculatorTool.SubsidyResponse response) {
@@ -1104,85 +712,6 @@ public class ChatService {
             return response.summary();
         }
         return response.summary() + "\n\n如需，我还可以继续帮您整理申领条件、所需材料和操作流程。";
-    }
-
-    private boolean shouldReturnDirectSubsidyAnswer(AgentExecutionPlan plan,
-                                                    SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
-        if (plan == null || subsidyResponse == null || plan.steps() == null || plan.steps().isEmpty()) {
-            return false;
-        }
-        return plan.steps().stream()
-                .map(AgentExecutionPlan.AgentStep::toolHint)
-                .allMatch(toolHint -> "calculateSubsidy".equals(toolHint) || "none".equals(toolHint));
-    }
-
-    private String extractSubsidyCategory(SessionFactCacheService.SessionFacts facts) {
-        if (facts == null || facts.getCategories() == null || facts.getCategories().isEmpty()) {
-            return inferCategoryFromDeviceModels(facts);
-        }
-        String category = null;
-        for (String item : facts.getCategories()) {
-            category = item;
-        }
-        return category == null || category.isBlank() ? inferCategoryFromDeviceModels(facts) : category;
-    }
-
-    private String inferCategoryFromDeviceModels(SessionFactCacheService.SessionFacts facts) {
-        if (facts == null || facts.getDeviceModels() == null || facts.getDeviceModels().isEmpty()) {
-            return null;
-        }
-
-        for (String model : facts.getDeviceModels()) {
-            if (model == null || model.isBlank()) {
-                continue;
-            }
-            String normalized = model.toLowerCase(Locale.ROOT);
-            if (normalized.contains("iphone")
-                    || normalized.contains("华为")
-                    || normalized.contains("小米")
-                    || normalized.contains("荣耀")
-                    || normalized.contains("oppo")
-                    || normalized.contains("vivo")
-                    || normalized.contains("手机")) {
-                return "手机";
-            }
-            if (normalized.contains("ipad") || normalized.contains("平板")) {
-                return "平板";
-            }
-            if (normalized.contains("watch") || normalized.contains("手表") || normalized.contains("手环")) {
-                return "手表";
-            }
-            if (normalized.contains("macbook")
-                    || normalized.contains("thinkpad")
-                    || normalized.contains("surface")
-                    || normalized.contains("笔记本")) {
-                return "笔记本";
-            }
-        }
-        return null;
-    }
-
-    private String buildRagPrefetchQuery(String rawQuestion,
-                                         SessionFactCacheService.SessionFacts facts) {
-        if (rawQuestion == null || rawQuestion.isBlank()) {
-            return "";
-        }
-
-        StringBuilder builder = new StringBuilder(rawQuestion.trim());
-        if (facts == null) {
-            return builder.toString();
-        }
-
-        if (facts.getLatestPolicyYear() != null) {
-            builder.append(" 年份=").append(facts.getLatestPolicyYear());
-        }
-        if (facts.getCategories() != null && !facts.getCategories().isEmpty()) {
-            builder.append(" 品类=").append(String.join("/", facts.getCategories()));
-        }
-        if (facts.getDeviceModels() != null && !facts.getDeviceModels().isEmpty()) {
-            builder.append(" 型号=").append(String.join("/", facts.getDeviceModels()));
-        }
-        return builder.toString();
     }
 
     private boolean shouldUseQaSemanticCache(String rawQuestion,
@@ -1352,8 +881,7 @@ public class ChatService {
                                                            String rawUserMessage,
                                                            String conversationId,
                                                            WebSearchTool.SearchResponse webSearchResponse,
-                                                           SubsidyCalculatorTool.SubsidyResponse subsidyResponse,
-                                                           RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
+                                                           SubsidyCalculatorTool.SubsidyResponse subsidyResponse) {
         if (!isTimeoutOrNetworkError(exception)) {
             throw exception;
         }
@@ -1367,16 +895,6 @@ public class ChatService {
 
         if (webSearchResponse != null) {
             return new ChatExecutionResult(buildWebSearchFallbackAnswer(webSearchResponse), List.of());
-        }
-
-        String ragFallback = buildRagPrefetchFallbackAnswer(rawUserMessage, ragPrefetchResult);
-        if (ragFallback != null && !ragFallback.isBlank()) {
-            return new ChatExecutionResult(
-                    ragFallback,
-                    ragPrefetchResult == null || ragPrefetchResult.references() == null
-                            ? List.of()
-                            : ragPrefetchResult.references()
-            );
         }
 
         ChatExecutionResult directFallback = tryDirectOpenAiCompatibleFallback(rawUserMessage, conversationId);
@@ -1420,22 +938,6 @@ public class ChatService {
                     conversationId, exception.getMessage());
             return null;
         }
-    }
-
-    private String buildRagPrefetchFallbackAnswer(String rawUserMessage,
-                                                  RagPrefetchService.RagPrefetchResult ragPrefetchResult) {
-        if (ragPrefetchResult == null || !ragPrefetchResult.hasDocuments()) {
-            return "";
-        }
-
-        String context = ragPrefetchResult.contextSnippet();
-        if (context == null || context.isBlank()) {
-            return "";
-        }
-
-        return "当前模型服务响应超时，我先基于已检索到的政策内容给出摘要：\n\n"
-                + truncate(context, 620)
-                + "\n\n如需更完整解读，请稍后重试，或把问题拆成更具体的小问题继续咨询。";
     }
 
     private boolean isClientAbortError(Throwable throwable) {
@@ -1612,13 +1114,6 @@ public class ChatService {
             current = current.getCause();
         }
         return false;
-    }
-
-    private String truncate(String value, int maxChars) {
-        if (value == null || value.length() <= maxChars) {
-            return value;
-        }
-        return value.substring(0, maxChars).trim() + "...";
     }
 
     private String extractContent(ChatClientResponse response) {

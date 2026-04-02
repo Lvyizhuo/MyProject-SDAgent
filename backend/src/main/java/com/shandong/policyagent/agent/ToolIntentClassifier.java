@@ -59,17 +59,21 @@ public class ToolIntentClassifier {
     }
 
     private IntentDecision classifyWebSearch(String normalized) {
-        if (containsAny(normalized, "价格", "优惠", "最新", "实时", "新闻", "政策")) {
-            if (hasSpecificSubject(normalized)) {
-                return IntentDecision.allow("webSearch", "搜索主题明确，允许联网查询");
-            }
-            return IntentDecision.block(
-                    "webSearch",
-                    "你想查询哪个具体商品/型号的价格？例如：iPhone 17 标准版 256G",
-                    "搜索主题过于宽泛，容易产生空参数调用"
-            );
+        boolean productOrPriceIntent = containsAny(normalized,
+                "价格", "报价", "多少钱", "优惠", "参数", "配置", "型号", "款", "对比", "电商", "官网");
+        if (!productOrPriceIntent && containsAny(normalized, "最新", "实时", "新闻", "政策", "动态")) {
+            return IntentDecision.allow("webSearch", "非商品价格类实时查询，允许联网检索");
         }
-        return IntentDecision.allow("webSearch", "无明显冲突，允许执行");
+
+        if (hasExplicitModelInfo(normalized)) {
+            return IntentDecision.allow("webSearch", "已识别明确品牌/型号/规格，允许联网查询");
+        }
+
+        return IntentDecision.block(
+                "webSearch",
+                "为避免查错，请补充“品牌 + 型号”（可带规格），例如：华为 Mate 70 Pro 512GB。",
+                "webSearch 缺少明确型号信息"
+        );
     }
 
     private IntentDecision classifyMapSearch(String normalized) {
@@ -86,17 +90,17 @@ public class ToolIntentClassifier {
     }
 
     private IntentDecision classifySubsidy(String normalized) {
-        boolean hasPrice = normalized.matches(".*(\\d{3,6}(\\.\\d{1,2})?\\s*(元|rmb|¥|￥)).*");
+        boolean hasPrice = normalized.matches(".*(?:\\d{1,3}(?:[,，]\\d{3})+|\\d{3,6})(?:\\.\\d{1,2})?\\s*(元|rmb|人民币|¥|￥)?.*");
         boolean hasCategory = containsAny(normalized,
                 "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器",
-                "笔记本", "电脑", "macbook", "thinkpad", "surface");
-        if (hasPrice || hasCategory) {
+            "笔记本", "电脑", "macbook", "thinkpad", "surface") || hasExplicitModelInfo(normalized);
+        if (hasPrice && hasCategory) {
             return IntentDecision.allow("calculateSubsidy", "补贴计算参数基本充分");
         }
         return IntentDecision.block(
                 "calculateSubsidy",
-                "请先告诉我商品类型和购买价格（例如：手机，5999元）。",
-                "补贴计算缺少价格与品类"
+            "请先补充“明确商品类型 + 数字价格”（例如：手机，5999元），我再计算补贴。",
+            "补贴计算缺少明确类型或价格"
         );
     }
 
@@ -123,11 +127,11 @@ public class ToolIntentClassifier {
         return "none";
     }
 
-    private boolean hasSpecificSubject(String normalized) {
+    private boolean hasExplicitModelInfo(String normalized) {
         return containsAny(normalized,
                 "iphone", "ipad", "macbook", "thinkpad", "surface", "matebook", "xiaomi", "redmi",
                 "华为", "小米", "荣耀", "oppo", "vivo", "mate", "pro", "max", "air", "mini", "ultra",
-                "汽车", "家电", "空调", "冰箱", "洗衣机", "电视", "手机", "平板", "手表", "笔记本", "电脑")
+                "16e", "16", "15", "14")
                 || normalized.matches(".*[a-z]{2,}(?:\\s+[a-z0-9+-]{1,12}){0,4}\\s+\\d{1,3}.*")
                 || normalized.matches(".*\\d{1,3}(?:gb|tb|英寸|寸).*\\d{1,3}(?:gb|tb|英寸|寸).*")
                 || normalized.matches(".*\\d{4}款.*");

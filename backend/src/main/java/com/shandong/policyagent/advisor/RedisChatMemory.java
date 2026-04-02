@@ -31,8 +31,8 @@ public class RedisChatMemory implements ChatMemory {
     private static final int DEFAULT_MAX_MESSAGES = 20;
     private static final int DEFAULT_MAX_MESSAGE_CHARS = 2000;
         private static final boolean DEFAULT_SUMMARY_ENABLED = true;
-        private static final int DEFAULT_SUMMARY_TRIGGER_MESSAGES = 8;
-        private static final int DEFAULT_SUMMARY_KEEP_MESSAGES = 4;
+        private static final int DEFAULT_SUMMARY_TRIGGER_MESSAGES = 6;
+        private static final int DEFAULT_SUMMARY_KEEP_MESSAGES = 2;
         private static final int DEFAULT_SUMMARY_MAX_CHARS = 1200;
         private static final int DEFAULT_SUMMARY_TIMEOUT_SECONDS = 8;
         private static final String SUMMARY_SYSTEM_PROMPT = """

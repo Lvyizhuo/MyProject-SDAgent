@@ -9,9 +9,7 @@ import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.multimodal.service.VisionService;
 import com.shandong.policyagent.rag.RagFailureDetector;
-import com.shandong.policyagent.tool.SubsidyCalculatorTool;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
-import com.shandong.policyagent.tool.WebSearchTool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,20 +65,11 @@ class ChatServiceTest {
         @Mock
         private QuestionSemanticCacheService questionSemanticCacheService;
 
-        @Mock
-        private RagPrefetchService ragPrefetchService;
-
     @Mock
     private ToolFailurePolicyCenter toolFailurePolicyCenter;
 
     @Mock
     private ModelProviderService modelProviderService;
-
-    @Mock
-    private WebSearchTool webSearchTool;
-
-    @Mock
-    private SubsidyCalculatorTool subsidyCalculatorTool;
 
         @Mock
         private ProductPriceCacheService productPriceCacheService;
@@ -104,11 +93,8 @@ class ChatServiceTest {
                 sessionFactCacheService,
                 fastPathService,
                 questionSemanticCacheService,
-                ragPrefetchService,
                 toolFailurePolicyCenter,
                 modelProviderService,
-                webSearchTool,
-                subsidyCalculatorTool,
                                 productPriceCacheService,
                 ragFailureDetector,
                 knowledgeReferenceService
@@ -155,9 +141,9 @@ class ChatServiceTest {
         when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
         when(dynamicChatClientFactory.create(false, true)).thenReturn(primaryClient);
         when(dynamicChatClientFactory.create(false, false)).thenReturn(degradedClient);
-        when(primaryClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
+        when(primaryClient.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any()).call().chatClientResponse())
                 .thenThrow(ragFailure);
-        when(degradedClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
+        when(degradedClient.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any()).call().chatClientResponse())
                 .thenReturn(chatClientResponse("已自动关闭知识库检索并完成回答。"));
         when(ragFailureDetector.isRecoverable(ragFailure)).thenReturn(true);
         when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
@@ -193,14 +179,8 @@ class ChatServiceTest {
         when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
         when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
         when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
-        when(webSearchTool.webSearch()).thenReturn(request -> new WebSearchTool.SearchResponse(
-                request.query(),
-                List.of(new WebSearchTool.SearchResult("示例价格", "https://example.com", "价格 2999 元")),
-                1,
-                "示例价格 2999 元"
-        ));
-        when(dynamicChatClientFactory.create(false, false)).thenReturn(directSearchClient);
-        when(directSearchClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
+        when(dynamicChatClientFactory.create(true, false)).thenReturn(directSearchClient);
+        when(directSearchClient.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any()).call().chatClientResponse())
                 .thenReturn(chatClientResponse("已根据联网搜索结果回答。"));
         when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
 
@@ -210,8 +190,56 @@ class ChatServiceTest {
                 .build());
 
         assertEquals("已根据联网搜索结果回答。", response.getContent());
-        verify(dynamicChatClientFactory).create(false, false);
+        verify(dynamicChatClientFactory).create(true, false);
         verify(dynamicChatClientFactory, never()).create(false, true);
+    }
+
+    @Test
+    void shouldTriggerAsyncPricePrefetchForPurePriceQuery() {
+        ChatClient client = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "先明确价格后回答",
+                true,
+                List.of(new AgentExecutionPlan.AgentStep(1, "调用 webSearch 获取价格", "webSearch"))
+        );
+        ToolIntentClassifier.IntentDecision decision =
+                new ToolIntentClassifier.IntentDecision(true, "webSearch", "", "价格查询");
+
+        SessionFactCacheService.SessionFacts facts = new SessionFactCacheService.SessionFacts();
+        facts.getDeviceModels().add("macbook pro 14");
+        facts.getCategories().add("笔记本");
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class))).thenReturn(facts);
+        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
+        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
+        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
+        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
+        when(dynamicChatClientFactory.create(true, false)).thenReturn(client);
+        when(client.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any()).call().chatClientResponse())
+                .thenReturn(chatClientResponse("已为您整理价格信息。"));
+        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
+
+        chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-prefetch-1")
+                .message("查一下MacBook Pro 14寸的价格")
+                .build());
+
+        verify(productPriceCacheService).prefetchPriceAsync(eq("查一下MacBook Pro 14寸的价格"), eq(facts));
+    }
+
+    @Test
+    void shouldNotTriggerAsyncPricePrefetchForPolicyPriceMixedQuestion() {
+        SessionFactCacheService.SessionFacts facts = new SessionFactCacheService.SessionFacts();
+        facts.getDeviceModels().add("macbook");
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class))).thenReturn(facts);
+
+        chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-prefetch-2")
+                .message("查一下MacBook价格和国补政策")
+                .build());
+
+        verify(productPriceCacheService, never()).prefetchPriceAsync(anyString(), any());
     }
 
     @Test
@@ -236,7 +264,7 @@ class ChatServiceTest {
         when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
         when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
         when(dynamicChatClientFactory.create(false, false)).thenReturn(streamingClient);
-        when(streamingClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class))
+        when(streamingClient.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any())
                 .stream().chatClientResponse())
                 .thenReturn(Flux.just(nullChunk, emptyChunk, contentChunk));
         when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
@@ -257,7 +285,7 @@ class ChatServiceTest {
     }
 
     @Test
-    void shouldReturnDirectSubsidyAnswerWithoutCallingModel() {
+    void shouldEnterAgentPhaseForSubsidyIntentWithoutBackendDirectToolCall() {
         AgentExecutionPlan plan = new AgentExecutionPlan(
                 "问题聚焦补贴金额计算，优先走补贴工具",
                 true,
@@ -271,37 +299,29 @@ class ChatServiceTest {
         SessionFactCacheService.SessionFacts facts = new SessionFactCacheService.SessionFacts();
         facts.getCategories().add("电视");
         facts.setLatestPrice(5999D);
+        ChatClient reactClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
 
         when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class))).thenReturn(facts);
         when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
         when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
         when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
-        when(subsidyCalculatorTool.calculateSubsidy()).thenReturn(request -> new SubsidyCalculatorTool.SubsidyResponse(
-                request.type(),
-                request.price(),
-                0.15,
-                899.85,
-                2000,
-                899.85,
-                "【电视以旧换新补贴】购买价格5999.00元，补贴比例15%，计算补贴899.85元，补贴上限2000.00元，实际可获补贴899.85元"
-        ));
+        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
+        when(dynamicChatClientFactory.create(true, false)).thenReturn(reactClient);
+        when(reactClient.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any()).call().chatClientResponse())
+                .thenReturn(chatClientResponse("我已进入补贴计算流程，请确认成交价后继续。"));
+        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
 
         ChatResponse response = chatService.chat(ChatRequest.builder()
                 .conversationId("conversation-4")
                 .message("电视 5999元补多少")
                 .build());
 
-        assertEquals("【电视以旧换新补贴】购买价格5999.00元，补贴比例15%，计算补贴899.85元，补贴上限2000.00元，实际可获补贴899.85元\n\n如需，我还可以继续帮您整理申领条件、所需材料和操作流程。",
-                response.getContent());
-        verify(dynamicChatClientFactory, never()).create();
-        verify(dynamicChatClientFactory, never()).create(true);
-        verify(dynamicChatClientFactory, never()).create(true, true);
-        verify(dynamicChatClientFactory, never()).create(false, true);
-        verify(dynamicChatClientFactory, never()).create(false, false);
+        assertTrue(response.getContent().contains("补贴计算流程"));
+        verify(dynamicChatClientFactory).create(true, false);
     }
 
     @Test
-    void shouldDeferSubsidyCalculationToReactWhenPriceOnlyFromWebSearch() {
+    void shouldNotPreInvokeWebSearchForCombinedToolPlan() {
         AgentExecutionPlan plan = new AgentExecutionPlan(
                 "缺少成交价，先联网查价再计算补贴",
                 true,
@@ -317,30 +337,16 @@ class ChatServiceTest {
         factsWithoutPrice.getDeviceModels().add("macbook pro m5pro");
         factsWithoutPrice.getIntentHints().add("补贴测算");
 
-        SessionFactCacheService.SessionFacts factsWithPrice = new SessionFactCacheService.SessionFacts();
-        factsWithPrice.getCategories().add("笔记本");
-        factsWithPrice.getDeviceModels().add("macbook pro m5pro");
-        factsWithPrice.setLatestPrice(17999D);
-
         ChatClient reactClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
 
         when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class))).thenReturn(factsWithoutPrice);
-        when(productPriceCacheService.lookupPrice(factsWithoutPrice)).thenReturn(java.util.Optional.empty());
         when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
         when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
         when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
         when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
-        when(webSearchTool.webSearch()).thenReturn(request -> new WebSearchTool.SearchResponse(
-                request.query(),
-                List.of(new WebSearchTool.SearchResult("MacBook Pro m5pro 价格", "https://example.com", "成交价约 17999 元")),
-                1,
-                "成交价约 17999 元"
-        ));
-        when(sessionFactCacheService.mergeFactsFromText(anyString(), anyString(), eq(SessionFactCacheService.FactSource.WEB_SEARCH)))
-                .thenReturn(factsWithPrice);
         when(dynamicChatClientFactory.create(true, false)).thenReturn(reactClient);
-        when(reactClient.prompt().system(anyString()).user(anyString()).advisors(any(Consumer.class)).call().chatClientResponse())
-                .thenReturn(chatClientResponse("我已查到候选价格区间，请确认您的实际成交价后，我再调用补贴工具精确计算。"));
+        when(reactClient.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any()).call().chatClientResponse())
+                .thenReturn(chatClientResponse("我会先向您确认品牌型号和成交价，再决定是否联网检索。"));
         when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
 
         ChatResponse response = chatService.chat(ChatRequest.builder()
@@ -348,9 +354,7 @@ class ChatServiceTest {
                 .message("我想购买 MacBook Pro m5pro，我能享受多少优惠")
                 .build());
 
-        assertTrue(response.getContent().contains("请确认您的实际成交价"));
-        verify(webSearchTool).webSearch();
-        verify(subsidyCalculatorTool, never()).calculateSubsidy();
+        assertTrue(response.getContent().contains("确认品牌型号和成交价"));
         verify(dynamicChatClientFactory).create(true, false);
     }
 
