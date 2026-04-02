@@ -64,6 +64,15 @@ public class ChatService {
     @Value("${app.qa-cache.enabled:true}")
     private boolean qaCacheEnabled;
 
+    @Value("${app.price-cache.prefetch-await-enabled:true}")
+    private boolean prefetchAwaitEnabled;
+
+    @Value("${app.price-cache.prefetch-await-max-seconds:6}")
+    private long prefetchAwaitMaxSeconds;
+
+    @Value("${app.price-cache.prefetch-await-poll-millis:200}")
+    private long prefetchAwaitPollMillis;
+
     public ChatResponse chat(ChatRequest request) {
         long startTime = System.currentTimeMillis();
         String conversationId = getOrCreateConversationId(request.getConversationId());
@@ -103,10 +112,14 @@ public class ChatService {
             }
         }
 
+        boolean prefetchTriggered = false;
         if (isPurePriceQuery(rawQuestion, facts)) {
             log.info("检测到纯价格查询，触发异步价格预取 | conversationId={}", conversationId);
             productPriceCacheService.prefetchPriceAsync(rawQuestion, facts);
-            facts = enrichFactsWithProductPriceCacheIfNeeded(conversationId, rawQuestion, facts);
+            prefetchTriggered = true;
+        }
+        if (prefetchTriggered) {
+            facts = waitForPrefetchedPrice(conversationId, rawQuestion, facts);
         }
 
         String plannerMessage = buildPlannerMessage(rawQuestion, facts);
@@ -178,10 +191,14 @@ public class ChatService {
             return Flux.just(ChatStreamEvent.delta(clarificationStep.question()));
         }
 
+        boolean prefetchTriggered = false;
         if (isPurePriceQuery(request.getMessage(), facts)) {
             log.info("流式会话检测到纯价格查询，触发异步价格预取 | conversationId={}", conversationId);
             productPriceCacheService.prefetchPriceAsync(request.getMessage(), facts);
-            facts = enrichFactsWithProductPriceCacheIfNeeded(conversationId, request.getMessage(), facts);
+            prefetchTriggered = true;
+        }
+        if (prefetchTriggered) {
+            facts = waitForPrefetchedPrice(conversationId, request.getMessage(), facts);
         }
 
         String plannerMessage = buildPlannerMessage(request.getMessage(), facts);
@@ -645,6 +662,57 @@ public class ChatService {
                     );
                 })
                 .orElse(facts);
+    }
+
+    private SessionFactCacheService.SessionFacts waitForPrefetchedPrice(String conversationId,
+                                                                        String rawUserMessage,
+                                                                        SessionFactCacheService.SessionFacts facts) {
+        if (!prefetchAwaitEnabled || facts == null) {
+            return facts;
+        }
+        if (facts.getLatestPrice() != null && facts.getLatestPrice() > 0) {
+            return facts;
+        }
+
+        long maxWaitMillis = Math.max(0L, prefetchAwaitMaxSeconds) * 1000L;
+        if (maxWaitMillis <= 0L) {
+            return facts;
+        }
+        long pollMillis = Math.max(100L, prefetchAwaitPollMillis);
+        long start = System.currentTimeMillis();
+        long deadline = start + maxWaitMillis;
+
+        while (System.currentTimeMillis() < deadline) {
+            var cachedPrice = productPriceCacheService.lookupPrice(facts);
+            if (cachedPrice != null && cachedPrice.isPresent() && cachedPrice.get() > 0) {
+                long waited = System.currentTimeMillis() - start;
+                log.info("价格预取等待命中 | conversationId={} | waitedMs={} | price={}",
+                        conversationId, waited, cachedPrice.get());
+                String seedText = (rawUserMessage == null ? "" : rawUserMessage) + " " + cachedPrice.get() + "元";
+                return sessionFactCacheService.mergeFactsFromText(
+                        conversationId,
+                        seedText,
+                        SessionFactCacheService.FactSource.WEB_SEARCH
+                );
+            }
+
+            long remain = deadline - System.currentTimeMillis();
+            if (remain <= 0L) {
+                break;
+            }
+            long sleepMillis = Math.min(pollMillis, remain);
+            try {
+                Thread.sleep(sleepMillis);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                log.warn("价格预取等待被中断，继续执行主链路 | conversationId={}", conversationId);
+                return facts;
+            }
+        }
+
+        long waited = System.currentTimeMillis() - start;
+        log.info("价格预取等待超时，继续执行主链路 | conversationId={} | waitedMs={}", conversationId, waited);
+        return facts;
     }
 
     private boolean isPriceLookupIntent(String normalized,

@@ -235,6 +235,13 @@ app:
     semantic-threshold: 0.92
     bucket-prefix-bits: 14
 
+  price-cache:
+    ttl-minutes: 1440
+    prefetch-max-results: 3
+    prefetch-await-enabled: true
+    prefetch-await-max-seconds: 6
+    prefetch-await-poll-millis: 200
+
   security:
     cors:
       allowed-origin-patterns:
