@@ -21,6 +21,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.Generation;
 import reactor.core.publisher.Flux;
 
+import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.List;
 import java.util.function.Consumer;
@@ -99,6 +100,9 @@ class ChatServiceTest {
                 ragFailureDetector,
                 knowledgeReferenceService
         );
+        setField(chatService, "prefetchAwaitEnabled", false);
+        setField(chatService, "prefetchAwaitMaxSeconds", 6L);
+        setField(chatService, "prefetchAwaitPollMillis", 200L);
     }
 
     @Test
@@ -243,6 +247,53 @@ class ChatServiceTest {
     }
 
     @Test
+    void shouldWaitForPrefetchAndMergePriceBeforeAgentPhase() {
+        setField(chatService, "prefetchAwaitEnabled", true);
+        setField(chatService, "prefetchAwaitMaxSeconds", 1L);
+        setField(chatService, "prefetchAwaitPollMillis", 10L);
+
+        ChatClient client = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                "先联网搜索再回答",
+                true,
+                List.of(new AgentExecutionPlan.AgentStep(1, "调用 webSearch 获取价格", "webSearch"))
+        );
+        ToolIntentClassifier.IntentDecision decision =
+                new ToolIntentClassifier.IntentDecision(true, "webSearch", "", "价格查询");
+
+        SessionFactCacheService.SessionFacts facts = new SessionFactCacheService.SessionFacts();
+        facts.getDeviceModels().add("macbook pro m5pro");
+
+        SessionFactCacheService.SessionFacts mergedFacts = new SessionFactCacheService.SessionFacts();
+        mergedFacts.getDeviceModels().add("macbook pro m5pro");
+        mergedFacts.setLatestPrice(17999D);
+
+        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class))).thenReturn(facts);
+        when(productPriceCacheService.lookupPrice(eq(facts)))
+                .thenReturn(java.util.Optional.empty())
+                .thenReturn(java.util.Optional.of(17999D));
+        when(sessionFactCacheService.mergeFactsFromText(eq("conversation-prefetch-wait"), anyString(), eq(SessionFactCacheService.FactSource.WEB_SEARCH)))
+                .thenReturn(mergedFacts);
+        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
+        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
+        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
+        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
+        when(dynamicChatClientFactory.create(true, false)).thenReturn(client);
+        when(client.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any()).call().chatClientResponse())
+                .thenReturn(chatClientResponse("已根据联网价格完成回答。"));
+        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
+
+        ChatResponse response = chatService.chat(ChatRequest.builder()
+                .conversationId("conversation-prefetch-wait")
+                .message("查一下MacBook Pro m5pro的价格")
+                .build());
+
+        assertEquals("已根据联网价格完成回答。", response.getContent());
+        verify(productPriceCacheService).prefetchPriceAsync(eq("查一下MacBook Pro m5pro的价格"), eq(facts));
+        verify(sessionFactCacheService).mergeFactsFromText(eq("conversation-prefetch-wait"), anyString(), eq(SessionFactCacheService.FactSource.WEB_SEARCH));
+    }
+
+    @Test
     void shouldIgnoreNullAndEmptyStreamChunks() {
         ChatClient streamingClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
         AgentExecutionPlan plan = new AgentExecutionPlan(
@@ -366,4 +417,14 @@ class ChatServiceTest {
                 Map.of()
         );
     }
+
+        private void setField(Object target, String fieldName, Object value) {
+                try {
+                        Field field = target.getClass().getDeclaredField(fieldName);
+                        field.setAccessible(true);
+                        field.set(target, value);
+                } catch (Exception exception) {
+                        throw new IllegalStateException("设置测试字段失败: " + fieldName, exception);
+                }
+        }
 }
