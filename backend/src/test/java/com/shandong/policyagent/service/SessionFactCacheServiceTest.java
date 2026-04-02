@@ -59,4 +59,26 @@ class SessionFactCacheServiceTest {
         assertNull(facts.getLatestPrice());
         assertEquals(2026, facts.getLatestPolicyYear());
     }
+
+    @Test
+    void shouldNormalizeBrandAndExtractStructuredProductFields() {
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.extractFactsFromText(
+                "我想查 Apple iPhone 17 Pro 512GB 的补贴，价格 6999 元"
+        );
+
+        assertEquals("苹果", facts.getBrand());
+        assertEquals("Pro", facts.getSeries());
+        assertEquals("512gb", facts.getSpecification().toLowerCase());
+        assertEquals("手机", facts.getProductType());
+    }
+
+    @Test
+    void shouldExtractPolicyTypeAndSubsidyRate() {
+        SessionFactCacheService.SessionFacts facts = sessionFactCacheService.extractFactsFromText(
+                "这个市补政策是 15% 吗"
+        );
+
+        assertEquals("市补", facts.getPolicyType());
+        assertEquals(15D, facts.getSubsidyRate());
+    }
 }

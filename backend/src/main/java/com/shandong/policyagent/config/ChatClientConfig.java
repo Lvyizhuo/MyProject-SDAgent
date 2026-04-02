@@ -37,8 +37,8 @@ public class ChatClientConfig {
                                                                  ChatModel chatModel,
                                                                  @Qualifier("chatAsyncTaskExecutor") Executor chatAsyncTaskExecutor,
                                                                  @Value("${app.advisor.memory.summary-enabled:true}") boolean summaryEnabled,
-                                                                 @Value("${app.advisor.memory.summary-trigger-messages:8}") int summaryTriggerMessages,
-                                                                 @Value("${app.advisor.memory.summary-keep-messages:4}") int summaryKeepMessages,
+                                                                 @Value("${app.advisor.memory.summary-trigger-messages:6}") int summaryTriggerMessages,
+                                                                 @Value("${app.advisor.memory.summary-keep-messages:2}") int summaryKeepMessages,
                                                                  @Value("${app.advisor.memory.summary-max-chars:1200}") int summaryMaxChars,
                                                                  @Value("${app.advisor.memory.summary-timeout-seconds:8}") int summaryTimeoutSeconds) {
         return RedisChatMemory.builder()

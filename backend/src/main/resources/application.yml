@@ -186,8 +186,8 @@ app:
     memory:
       ttl-days: 7
       summary-enabled: true
-      summary-trigger-messages: 8
-      summary-keep-messages: 4
+      summary-trigger-messages: 6
+      summary-keep-messages: 2
       summary-max-chars: 1200
       summary-timeout-seconds: 8
     # Security Advisor 配置

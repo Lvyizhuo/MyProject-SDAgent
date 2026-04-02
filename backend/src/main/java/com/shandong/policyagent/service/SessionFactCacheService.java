@@ -46,6 +46,20 @@ public class SessionFactCacheService {
     private static final Pattern CATEGORY_PATTERN = Pattern.compile(
             "(手机|平板|手表|手环|空调|冰箱|洗衣机|电视|热水器|笔记本|电脑|家电|汽车|新能源车|数码)"
     );
+        private static final Pattern BRAND_PATTERN = Pattern.compile(
+            "(apple|苹果|huawei|华为|xiaomi|小米|redmi|荣耀|honor|oppo|vivo|samsung|三星|thinkpad|联想|lenovo|asus|华硕|macbook)",
+            Pattern.CASE_INSENSITIVE
+        );
+        private static final Pattern MODEL_PATTERN = Pattern.compile(
+            "(?:型号|model)[:：\\s]*([a-z0-9][a-z0-9+\\-_/\\s]{1,30})",
+            Pattern.CASE_INSENSITIVE
+        );
+        private static final Pattern SPEC_PATTERN = Pattern.compile(
+            "(\\d{2,4}(?:gb|tb)|\\d{1,2}(?:\\.\\d)?英寸|\\d{1,3}hz|\\d{2,3}w)",
+            Pattern.CASE_INSENSITIVE
+        );
+        private static final Pattern POLICY_TYPE_PATTERN = Pattern.compile("(国补|省补|市补|以旧换新|家电补贴|数码补贴)");
+        private static final Pattern SUBSIDY_RATE_PATTERN = Pattern.compile("(\\d{1,2}(?:\\.\\d+)?)\\s*%", Pattern.CASE_INSENSITIVE);
     private static final String FACT_KEY_PREFIX = "chat:facts:";
 
     private final StringRedisTemplate redisTemplate;
@@ -119,6 +133,8 @@ public class SessionFactCacheService {
                 || !facts.getCategories().isEmpty()
                 || !facts.getRegions().isEmpty()
                 || !facts.getDeviceModels().isEmpty()
+            || (facts.getBrand() != null && !facts.getBrand().isBlank())
+            || (facts.getModel() != null && !facts.getModel().isBlank())
                 || (facts.getCityCode() != null && !facts.getCityCode().isBlank());
         if (!hasContent) {
             return "";
@@ -129,11 +145,35 @@ public class SessionFactCacheService {
         if (!facts.getDeviceModels().isEmpty()) {
             sb.append("\n- 设备型号：").append(String.join("、", facts.getDeviceModels()));
         }
+        if (facts.getBrand() != null && !facts.getBrand().isBlank()) {
+            sb.append("\n- 品牌：").append(facts.getBrand());
+        }
+        if (facts.getSeries() != null && !facts.getSeries().isBlank()) {
+            sb.append("\n- 系列：").append(facts.getSeries());
+        }
+        if (facts.getModel() != null && !facts.getModel().isBlank()) {
+            sb.append("\n- 型号：").append(facts.getModel());
+        }
+        if (facts.getSpecification() != null && !facts.getSpecification().isBlank()) {
+            sb.append("\n- 规格：").append(facts.getSpecification());
+        }
         if (!facts.getCategories().isEmpty()) {
             sb.append("\n- 商品类别：").append(String.join("、", facts.getCategories()));
         }
+        if (facts.getProductType() != null && !facts.getProductType().isBlank()) {
+            sb.append("\n- 商品类型：").append(facts.getProductType());
+        }
         if (facts.getLatestPolicyYear() != null) {
             sb.append("\n- 政策年份：").append(facts.getLatestPolicyYear());
+        }
+        if (facts.getProductYear() != null) {
+            sb.append("\n- 商品年份：").append(facts.getProductYear());
+        }
+        if (facts.getPolicyType() != null && !facts.getPolicyType().isBlank()) {
+            sb.append("\n- 政策类型：").append(facts.getPolicyType());
+        }
+        if (facts.getSubsidyRate() != null) {
+            sb.append("\n- 补贴比例线索：").append(facts.getSubsidyRate()).append("%");
         }
         if (facts.getLatestPrice() != null) {
             sb.append("\n- 最近提及金额：").append(facts.getLatestPrice()).append("元");
@@ -172,8 +212,29 @@ public class SessionFactCacheService {
         if (!facts.getDeviceModels().isEmpty()) {
             fields.add("型号=" + String.join("/", facts.getDeviceModels()));
         }
+        if (facts.getBrand() != null && !facts.getBrand().isBlank()) {
+            fields.add("品牌=" + facts.getBrand());
+        }
+        if (facts.getSeries() != null && !facts.getSeries().isBlank()) {
+            fields.add("系列=" + facts.getSeries());
+        }
+        if (facts.getModel() != null && !facts.getModel().isBlank()) {
+            fields.add("型号明细=" + facts.getModel());
+        }
+        if (facts.getSpecification() != null && !facts.getSpecification().isBlank()) {
+            fields.add("规格=" + facts.getSpecification());
+        }
+        if (facts.getProductType() != null && !facts.getProductType().isBlank()) {
+            fields.add("商品类型=" + facts.getProductType());
+        }
         if (facts.getLatestPrice() != null) {
             fields.add("价格=" + facts.getLatestPrice() + "元");
+        }
+        if (facts.getSubsidyRate() != null) {
+            fields.add("补贴比例=" + facts.getSubsidyRate() + "%");
+        }
+        if (facts.getPolicyType() != null && !facts.getPolicyType().isBlank()) {
+            fields.add("政策类型=" + facts.getPolicyType());
         }
         if (!facts.getRegions().isEmpty()) {
             fields.add("地区=" + String.join("/", facts.getRegions()));
@@ -312,6 +373,138 @@ public class SessionFactCacheService {
         }
     }
 
+    private void extractStructuredProductFacts(String message, SessionFacts facts) {
+        String normalized = normalize(message);
+
+        Matcher brandMatcher = BRAND_PATTERN.matcher(normalized);
+        if (brandMatcher.find()) {
+            facts.setBrand(normalizeBrand(brandMatcher.group(1)));
+        }
+
+        Matcher modelMatcher = MODEL_PATTERN.matcher(normalized);
+        if (modelMatcher.find()) {
+            facts.setModel(cleanToken(modelMatcher.group(1)));
+        } else if (facts.getModel() == null || facts.getModel().isBlank()) {
+            String inferredModel = inferModelFromDeviceModels(facts);
+            if (inferredModel != null && !inferredModel.isBlank()) {
+                facts.setModel(inferredModel);
+            }
+        }
+
+        Matcher specMatcher = SPEC_PATTERN.matcher(normalized);
+        if (specMatcher.find()) {
+            facts.setSpecification(cleanToken(specMatcher.group(1)));
+        }
+
+        Matcher policyTypeMatcher = POLICY_TYPE_PATTERN.matcher(message);
+        if (policyTypeMatcher.find()) {
+            facts.setPolicyType(policyTypeMatcher.group(1).trim());
+        }
+
+        Matcher rateMatcher = SUBSIDY_RATE_PATTERN.matcher(normalized);
+        while (rateMatcher.find()) {
+            try {
+                double rate = Double.parseDouble(rateMatcher.group(1));
+                if (rate > 0 && rate <= 100) {
+                    facts.setSubsidyRate(rate);
+                }
+            } catch (Exception ignored) {
+                // ignore invalid rate token
+            }
+        }
+
+        if (facts.getLatestPolicyYear() != null) {
+            facts.setProductYear(facts.getLatestPolicyYear());
+        }
+        if (facts.getProductType() == null || facts.getProductType().isBlank()) {
+            facts.setProductType(resolveProductType(facts));
+        }
+        if (facts.getSeries() == null || facts.getSeries().isBlank()) {
+            facts.setSeries(resolveSeries(normalized));
+        }
+    }
+
+    private String cleanToken(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.replaceAll("\\s+", " ").trim();
+    }
+
+    private String inferModelFromDeviceModels(SessionFacts facts) {
+        if (facts == null || facts.getDeviceModels() == null || facts.getDeviceModels().isEmpty()) {
+            return null;
+        }
+        return facts.getDeviceModels().iterator().next();
+    }
+
+    private String resolveProductType(SessionFacts facts) {
+        if (facts == null || facts.getCategories() == null || facts.getCategories().isEmpty()) {
+            return null;
+        }
+        return facts.getCategories().iterator().next();
+    }
+
+    private String resolveSeries(String normalized) {
+        if (normalized == null || normalized.isBlank()) {
+            return null;
+        }
+        if (containsAny(normalized, "pro", "max", "ultra", "air", "mini", "plus")) {
+            if (normalized.contains("ultra")) {
+                return "Ultra";
+            }
+            if (normalized.contains("pro")) {
+                return "Pro";
+            }
+            if (normalized.contains("max")) {
+                return "Max";
+            }
+            if (normalized.contains("air")) {
+                return "Air";
+            }
+            if (normalized.contains("mini")) {
+                return "Mini";
+            }
+            return "Plus";
+        }
+        return null;
+    }
+
+    private String normalizeBrand(String rawBrand) {
+        if (rawBrand == null || rawBrand.isBlank()) {
+            return null;
+        }
+        String normalized = rawBrand.trim().toLowerCase(Locale.ROOT);
+        if (containsAny(normalized, "apple", "苹果", "iphone", "macbook")) {
+            return "苹果";
+        }
+        if (containsAny(normalized, "huawei", "华为")) {
+            return "华为";
+        }
+        if (containsAny(normalized, "xiaomi", "小米", "redmi")) {
+            return "小米";
+        }
+        if (containsAny(normalized, "荣耀", "honor")) {
+            return "荣耀";
+        }
+        if (containsAny(normalized, "oppo")) {
+            return "OPPO";
+        }
+        if (containsAny(normalized, "vivo")) {
+            return "vivo";
+        }
+        if (containsAny(normalized, "samsung", "三星")) {
+            return "三星";
+        }
+        if (containsAny(normalized, "thinkpad", "联想", "lenovo")) {
+            return "联想";
+        }
+        if (containsAny(normalized, "asus", "华硕")) {
+            return "华硕";
+        }
+        return rawBrand.trim();
+    }
+
     private void applyTextFacts(String message, SessionFacts facts, FactSource source) {
         if (source == FactSource.USER_INPUT || source == FactSource.WEB_SEARCH) {
             extractPrice(message, facts);
@@ -323,12 +516,14 @@ public class SessionFactCacheService {
                 extractIntentHints(message, facts);
             }
             inferCategoriesFromDeviceModels(facts);
+            extractStructuredProductFacts(message, facts);
             return;
         }
 
         if (source == FactSource.ASSISTANT_RESPONSE) {
             extractDeviceModels(message, facts);
             inferCategoriesFromDeviceModels(facts);
+            extractStructuredProductFacts(message, facts);
         }
     }
 
@@ -440,6 +635,14 @@ public class SessionFactCacheService {
         private Set<String> regions = new LinkedHashSet<>();
         private Set<Integer> mentionedYears = new LinkedHashSet<>();
         private Set<String> intentHints = new LinkedHashSet<>();
+        private String brand;
+        private String series;
+        private String model;
+        private String specification;
+        private String productType;
+        private Integer productYear;
+        private String policyType;
+        private Double subsidyRate;
         private Double latestPrice;
         private Integer latestPolicyYear;
         private String cityCode;
@@ -486,6 +689,70 @@ public class SessionFactCacheService {
 
         public void setIntentHints(Set<String> intentHints) {
             this.intentHints = intentHints == null ? new LinkedHashSet<>() : intentHints;
+        }
+
+        public String getBrand() {
+            return brand;
+        }
+
+        public void setBrand(String brand) {
+            this.brand = brand;
+        }
+
+        public String getSeries() {
+            return series;
+        }
+
+        public void setSeries(String series) {
+            this.series = series;
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(String model) {
+            this.model = model;
+        }
+
+        public String getSpecification() {
+            return specification;
+        }
+
+        public void setSpecification(String specification) {
+            this.specification = specification;
+        }
+
+        public String getProductType() {
+            return productType;
+        }
+
+        public void setProductType(String productType) {
+            this.productType = productType;
+        }
+
+        public Integer getProductYear() {
+            return productYear;
+        }
+
+        public void setProductYear(Integer productYear) {
+            this.productYear = productYear;
+        }
+
+        public String getPolicyType() {
+            return policyType;
+        }
+
+        public void setPolicyType(String policyType) {
+            this.policyType = policyType;
+        }
+
+        public Double getSubsidyRate() {
+            return subsidyRate;
+        }
+
+        public void setSubsidyRate(Double subsidyRate) {
+            this.subsidyRate = subsidyRate;
         }
 
         public Double getLatestPrice() {
