@@ -3,7 +3,7 @@
 </div>
 
 <div align="center">
-  <img src="./image.png" alt="AI政策通 Banner" width="100%">
+  <img src="./image-1.png" alt="AI政策通 Banner" width="100%">
   <h1>AI 政策通·智能体服务平台</h1>
   <!-- <h3> 🏛️《山东省智能政策咨询助手》</h3> -->
   <h3 align="center">政策解读 | 补贴测算 | 多模态识别 | 管理员控制台</h3>

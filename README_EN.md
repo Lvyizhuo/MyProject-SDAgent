@@ -3,7 +3,7 @@
 </div>
 
 <div align="center">
-  <img src="./image.png" alt="AI Policy Agent Banner" width="100%">
+  <img src="./image-1.png" alt="AI Policy Agent Banner" width="100%">
   <h1>AI Policy Agent · SDAgent</h1>
   <h3>🏛️ Shandong Provincial Smart Policy Consulting Assistant</h3>
   <p align="center">
