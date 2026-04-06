@@ -1,4 +1,28 @@
-# 山东省智能政策咨询助手
+<h2 align="center">AI政策通·山东省智能政策咨询助手</h2>
+<p align="center">
+  <img src="./image.png" alt="AI政策通-山东省智能政策咨询助手" width="320" />
+</p>
+<h3 align="center">AI 政策问答 · 补贴测算 · 多模态识别 · 管理员控制台</h3>
+
+<p align="center">
+  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent"><img src="https://img.shields.io/github/stars/Lvyizhuo/MyProject-SDAgent?color=%231890FF&style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/fork"><img src="https://img.shields.io/github/forks/Lvyizhuo/MyProject-SDAgent?color=%231672f6&style=flat-square" alt="Forks"></a>
+  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/issues"><img src="https://img.shields.io/github/issues/Lvyizhuo/MyProject-SDAgent?color=%23fa8c16&style=flat-square" alt="Issues"></a>
+  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/commits/master"><img src="https://img.shields.io/github/last-commit/Lvyizhuo/MyProject-SDAgent?color=%2352c41a&style=flat-square" alt="Last Commit"></a>
+</p>
+<p align="center">
+  <img src="https://img.shields.io/badge/Backend-Spring%20Boot%203.4.1-6DB33F?style=flat-square&logo=spring&logoColor=white" alt="Spring Boot" />
+  <img src="https://img.shields.io/badge/Frontend-React%2019-61DAFB?style=flat-square&logo=react&logoColor=0A0A0A" alt="React 19" />
+  <img src="https://img.shields.io/badge/Java-21-ff4d4f?style=flat-square&logo=openjdk&logoColor=white" alt="Java 21" />
+  <img src="https://img.shields.io/badge/AI-Spring%20AI%201.0.3-722ED1?style=flat-square" alt="Spring AI 1.0.3" />
+  <img src="https://img.shields.io/badge/DB-PostgreSQL%20%2B%20pgvector-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL + pgvector" />
+</p>
+
+
+
+
+
+## 项目简介
 
 基于 AI/LLM 的山东省以旧换新政策咨询系统，支持政策问答、补贴计算、多模态识别，以及管理员控制台中的智能体配置、知识库管理和模型服务管理。
 
@@ -316,3 +340,14 @@ npm run lint
 | Redis | 6379 |
 | MinIO API | 9000 |
 | MinIO Console | 9001 |
+
+## ⭐ Star History
+
+
+<p align="center">
+  <a href="https://star-history.com/#Lvyizhuo/MyProject-SDAgent&Date">
+    <img src="https://api.star-history.com/svg?repos=Lvyizhuo/MyProject-SDAgent&type=Date" alt="Star History Chart" />
+  </a>
+</p>
+
+> 如果这个项目对你有帮助，欢迎点个 Star⭐；也欢迎提交 Issue 或 PR，一起把山东省政策智能体做得更实用。
