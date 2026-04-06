@@ -1,22 +1,32 @@
-<h2 align="center">AI政策通·山东省智能政策咨询助手</h2>
-<p align="center">
-  <img src="./image.png" alt="AI政策通-山东省智能政策咨询助手" width="320" />
-</p>
-<h3 align="center">AI 政策问答 · 补贴测算 · 多模态识别 · 管理员控制台</h3>
+<div align="right">
+  <a href="./README_EN.md">English</a> | 中文
+</div>
 
-<p align="center">
-  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent"><img src="https://img.shields.io/github/stars/Lvyizhuo/MyProject-SDAgent?color=%231890FF&style=flat-square" alt="Stars"></a>
-  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/fork"><img src="https://img.shields.io/github/forks/Lvyizhuo/MyProject-SDAgent?color=%231672f6&style=flat-square" alt="Forks"></a>
-  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/issues"><img src="https://img.shields.io/github/issues/Lvyizhuo/MyProject-SDAgent?color=%23fa8c16&style=flat-square" alt="Issues"></a>
-  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/commits/master"><img src="https://img.shields.io/github/last-commit/Lvyizhuo/MyProject-SDAgent?color=%2352c41a&style=flat-square" alt="Last Commit"></a>
-</p>
-<p align="center">
-  <img src="https://img.shields.io/badge/Backend-Spring%20Boot%203.4.1-6DB33F?style=flat-square&logo=spring&logoColor=white" alt="Spring Boot" />
-  <img src="https://img.shields.io/badge/Frontend-React%2019-61DAFB?style=flat-square&logo=react&logoColor=0A0A0A" alt="React 19" />
-  <img src="https://img.shields.io/badge/Java-21-ff4d4f?style=flat-square&logo=openjdk&logoColor=white" alt="Java 21" />
-  <img src="https://img.shields.io/badge/AI-Spring%20AI%201.0.3-722ED1?style=flat-square" alt="Spring AI 1.0.3" />
-  <img src="https://img.shields.io/badge/DB-PostgreSQL%20%2B%20pgvector-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL + pgvector" />
-</p>
+<div align="center">
+  <img src="./image.png" alt="AI政策通 Banner" width="100%">
+  <h1>AI 政策通·智能体服务平台</h1>
+  <!-- <h3> 🏛️《山东省智能政策咨询助手》</h3> -->
+  <h3 align="center">政策解读 | 补贴测算 | 多模态识别 | 管理员控制台</h3>
+  <p><em>面向山东省政策场景，基于 RAG 技术构建的“全链路”智能知识库问答系统</em></p>
+
+  <img src="https://img.shields.io/github/stars/Lvyizhuo/MyProject-SDAgent?style=flat&logo=github" alt="GitHub stars"/>
+  <img src="https://img.shields.io/github/forks/Lvyizhuo/MyProject-SDAgent?style=flat&logo=github" alt="GitHub forks"/>
+  <img src="https://img.shields.io/badge/language-Chinese-brightgreen?style=flat" alt="Language"/>
+  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/issues">
+    <img src="https://img.shields.io/badge/PRs-welcome-blue?style=flat&logo=github" alt="PRs Welcome">
+  </a>
+  <a href="https://github.com/Lvyizhuo/MyProject-SDAgent/blob/master/LICENSE">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-orange?style=flat" alt="License">
+  </a>
+
+  <div align="center" style="margin-top: 15px;">
+    <img src="https://img.shields.io/badge/Java-21-ED8B00?style=flat&logo=openjdk&logoColor=white" />
+    <img src="https://img.shields.io/badge/Spring_Boot-3.4.1-6DB33F?style=flat&logo=spring&logoColor=white" />
+    <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=black" />
+    <img src="https://img.shields.io/badge/PostgreSQL-pgvector-336791?style=flat&logo=postgresql&logoColor=white" />
+    <img src="https://img.shields.io/badge/Spring_AI-1.0.3-6DB33F?style=flat&logo=spring" />
+  </div>
+</div>
 
 
 
