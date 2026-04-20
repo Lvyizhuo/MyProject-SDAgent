@@ -122,13 +122,127 @@ The Admin Console provides 4 core modules:
 3.  **Tools**: Information architecture for integrated tool governance.
 4.  **Model Management**: Maintain LLM, Visual, Audio, Embedding, and Rerank models with connectivity tests.
 
-## 🌐 Deployment (Docker Compose)
+## 🌐 Server Deployment (BaoTa + Docker Compose)
 
-Refer to the `deploy/` directory for one-click deployment.
+For production deployment on Linux, use the `deploy/` directory for one-click startup (frontend + backend + PostgreSQL + Redis + MinIO + Ollama).
 
-  - Recommended path: `/www/wwwroot/MyProject-SDAgent`
-  - Setup `.env` from `.env.example`.
-  - Run: `docker compose --env-file .env up -d --build`.
+### 1. Prepare deployment config
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+cp deploy/.env.example deploy/.env
+vi deploy/.env
+```
+
+At minimum, configure:
+- `DASHSCOPE_API_KEY`
+- `APP_JWT_SECRET`
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET` (optional but recommended for model provider API key encryption)
+- `POSTGRES_PASSWORD`
+- `MINIO_PASSWORD`
+- `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`
+- `APP_EMBEDDING_OLLAMA_BASE_URL` (default in container: `http://ollama:11434`)
+
+Generate secrets first:
+
+```bash
+openssl rand -base64 48
+```
+
+Notes:
+- Do not keep placeholder values such as `replace-with-base64-secret` or `replace-with-strong-password`.
+- `APP_JWT_SECRET` must be a standard Base64 string, otherwise admin login may fail with `Illegal base64 character`.
+- After updating `.env`, recreate at least the `backend` container so new env vars are applied.
+
+### 2. Start containers
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent/deploy
+./deploy.sh
+```
+
+### 3. Health checks
+
+```bash
+curl -f http://127.0.0.1:8080/actuator/health
+curl -f http://127.0.0.1:8080/api/chat/health
+curl -f http://127.0.0.1:5173/health
+```
+
+### 4. BaoTa reverse proxy setup
+
+Recommended order (example domain: `mmgg.dpdns.org`):
+
+1. Configure DNS
+- Add an A record in your DNS provider (for example, Cloudflare): `mmgg.dpdns.org -> your server public IP`.
+
+2. Open required ports
+- Open `22/80/443` on security group and firewall.
+- Do not expose `8080/5173` publicly because containers are bound to `127.0.0.1`.
+
+3. Create Docker website in BaoTa
+- Path: `BaoTa Panel -> Docker -> Website -> Create`.
+- Choose: `Reverse Proxy Container` (not `Runtime Environment` or `Create from App`).
+- Domain: `mmgg.dpdns.org`.
+- Container: `policy-agent-frontend`.
+- Port: prefer container port `80` (if only mapped ports are shown, select `5173`).
+
+4. Add backend routes in BaoTa custom config (server block)
+- In `Config -> Custom Config File (server block)`, do not wrap with `server {}`.
+- If `location /` already exists, do not add another one.
+
+```nginx
+location /api/ {
+  proxy_pass http://127.0.0.1:8080/api/;
+  proxy_http_version 1.1;
+  proxy_set_header Connection "";
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_buffering off;
+  proxy_cache off;
+  proxy_read_timeout 600s;
+  proxy_send_timeout 600s;
+}
+
+location /actuator/ {
+  proxy_pass http://127.0.0.1:8080/actuator/;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+}
+```
+
+5. Validate and reload Nginx
+
+```bash
+nginx -t && nginx -s reload
+```
+
+6. Verify
+
+```bash
+curl -f http://mmgg.dpdns.org/health
+curl -f http://mmgg.dpdns.org/actuator/health
+curl -f http://mmgg.dpdns.org/api/chat/health
+```
+
+## 🔄 Production Update
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+git pull
+cd deploy
+./deploy.sh
+```
+
+## 🧰 Troubleshooting
+
+- Backend logs: `docker compose logs -f backend`
+- Last backend errors: `docker compose logs --tail=200 backend`
+- Container status: `docker compose ps`
+- Backend health status: `docker inspect -f '{{.State.Health.Status}}' policy-agent-backend`
+- If admin login fails with `Illegal base64 character`, fix `APP_JWT_SECRET` in `.env` (must be standard Base64), then run `docker compose up -d --force-recreate backend`.
 
 ## 📌 API Overview
 
