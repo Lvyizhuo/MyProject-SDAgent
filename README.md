@@ -154,6 +154,17 @@ vi deploy/.env
 - `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS`
 - `APP_EMBEDDING_OLLAMA_BASE_URL`（容器内默认 `http://ollama:11434`）
 
+建议先生成密钥再写入 `.env`：
+
+```bash
+openssl rand -base64 48
+```
+
+注意：
+- 不要保留示例占位符（如 `replace-with-base64-secret`、`replace-with-strong-password`）。
+- `APP_JWT_SECRET` 必须是标准 Base64 字符串，否则管理员登录会出现 `Illegal base64 character`。
+- 修改 `.env` 后，至少要重建 `backend` 容器让新环境变量生效。
+
 ## 管理员控制台
 
 当前管理员控制台包含 4 个主模块：
@@ -169,8 +180,7 @@ vi deploy/.env
 
 ```bash
 cd /www/wwwroot/MyProject-SDAgent/deploy
-docker compose --env-file .env up -d --build
-docker compose ps
+./deploy.sh
 ```
 
 ### 3. 健康检查
@@ -183,19 +193,62 @@ curl -f http://127.0.0.1:5173/health
 
 ### 4. 宝塔 Nginx 反向代理要点
 
-- 在宝塔“自定义配置”中不要包 `server {}`。
-- 同一个站点只保留一个 `location /`，避免 `duplicate location "/"`。
-- 建议路由：
-  - `/` -> `127.0.0.1:5173`
-  - `/api/` -> `127.0.0.1:8080/api/`
+推荐按以下顺序配置（以域名 `mmgg.dpdns.org` 为例）：
 
-配置后执行：
+1) 域名解析
+- 在 DNS 服务商（如 Cloudflare）添加 A 记录：`mmgg.dpdns.org -> 你的服务器公网 IP`。
+
+2) 服务器放行端口
+- 放行 `22/80/443`；无需对公网放行 `8080/5173`（容器已绑定 `127.0.0.1`）。
+
+3) 宝塔创建 Docker 网站
+- 入口：`宝塔面板 -> Docker -> 网站 -> 创建`。
+- 选择：`反代容器`（不要选“运行环境/从应用创建”）。
+- 域名：`mmgg.dpdns.org`。
+- 容器：`policy-agent-frontend`。
+- 端口：优先选容器端口 `80`（若面板仅展示映射端口则选 `5173`）。
+
+4) 在宝塔“配置文件 -> 自定义配置文件（server块）”补充后端路由
+- 不要写 `server {}`。
+- 如果已有 `location /`，不要重复新增。
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:8080/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+}
+
+location /actuator/ {
+    proxy_pass http://127.0.0.1:8080/actuator/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+}
+```
+
+5) 检查并重载 Nginx
 
 ```bash
 nginx -t && nginx -s reload
 ```
 
-## 生产更新与回滚
+6) 验证
+
+```bash
+curl -f http://mmgg.dpdns.org/health
+curl -f http://mmgg.dpdns.org/actuator/health
+curl -f http://mmgg.dpdns.org/api/chat/health
+```
+
+## 生产更新
 
 ### 更新
 
@@ -203,18 +256,9 @@ nginx -t && nginx -s reload
 cd /www/wwwroot/MyProject-SDAgent
 git pull
 cd deploy
-docker compose --env-file .env up -d --build
+./deploy.sh
 ```
 
-### 快速回滚
-
-```bash
-cd /www/wwwroot/MyProject-SDAgent
-git log --oneline -n 10
-git checkout <稳定版本commit>
-cd deploy
-docker compose --env-file .env up -d --build
-```
 
 ## 常见排障
 
@@ -223,6 +267,7 @@ docker compose --env-file .env up -d --build
 - 查看容器状态：`docker compose ps`
 - 查看后端健康状态：`docker inspect -f '{{.State.Health.Status}}' policy-agent-backend`
 - 若知识库模型列表为空或上传失败，先检查 `backend` 日志是否有 `EmbeddingService` 相关报错，再核对 `APP_EMBEDDING_OLLAMA_BASE_URL`。
+- 若管理员登录时报 `Illegal base64 character`：检查 `.env` 中 `APP_JWT_SECRET` 是否仍是占位符或非标准 Base64，修正后执行 `docker compose up -d --force-recreate backend`。
 
 ## 访问地址
 
