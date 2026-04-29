@@ -487,6 +487,9 @@ public class KnowledgeService {
                 if (childText == null || childText.isBlank()) {
                     continue;
                 }
+                if (isDuplicateParentChildChunk(parentChunk.getText(), childText)) {
+                    continue;
+                }
 
                 Map<String, Object> childMetadata = new HashMap<>(parentMetadata);
                 childMetadata.put("chunkLevel", "child");
@@ -523,19 +526,25 @@ public class KnowledgeService {
                 continue;
             }
 
-            List<String> segments = splitBySeparator(normalized, "\\n\\n", "\n\n", PARENT_CHUNK_MAX_CHARS);
+            List<String> paragraphs = splitIntoParagraphs(normalized);
             Map<String, Object> sourceMetadata = loadedDoc.getMetadata() == null
                     ? Map.of()
                     : loadedDoc.getMetadata();
 
-            for (String segment : segments) {
-                if (segment == null || segment.isBlank()) {
+            for (String paragraph : paragraphs) {
+                if (paragraph == null || paragraph.isBlank()) {
                     continue;
                 }
-                Map<String, Object> metadata = new HashMap<>(sourceMetadata);
-                metadata.put("splitStrategy", "PARENT_CHILD_PARAGRAPH");
-                metadata.put("chunkChars", segment.length());
-                parentChunks.add(new Document(UUID.randomUUID().toString(), segment, metadata));
+                List<String> parentSlices = splitParagraphIntoParents(paragraph, PARENT_CHUNK_MAX_CHARS);
+                for (String slice : parentSlices) {
+                    if (slice == null || slice.isBlank()) {
+                        continue;
+                    }
+                    Map<String, Object> metadata = new HashMap<>(sourceMetadata);
+                    metadata.put("splitStrategy", "PARENT_CHILD_PARAGRAPH");
+                    metadata.put("chunkChars", slice.length());
+                    parentChunks.add(new Document(UUID.randomUUID().toString(), slice, metadata));
+                }
             }
         }
 
@@ -551,17 +560,76 @@ public class KnowledgeService {
             return List.of(normalized);
         }
 
-        return splitBySeparator(normalized, "\\n", "\n", CHILD_CHUNK_MAX_CHARS);
+        List<String> segments = splitBySentenceOrNewline(normalized);
+        List<String> chunks = packSegments(segments, "\n", CHILD_CHUNK_MAX_CHARS);
+        if (chunks.isEmpty()) {
+            appendWithHardLimit(chunks, normalized, CHILD_CHUNK_MAX_CHARS);
+        }
+        return chunks;
     }
 
-    private List<String> splitBySeparator(String text, String separatorRegex, String joinSeparator, int maxChars) {
-        List<String> chunks = new ArrayList<>();
-        String[] parts = text.split(separatorRegex);
-        StringBuilder current = new StringBuilder();
-
+    private List<String> splitIntoParagraphs(String text) {
+        List<String> paragraphs = new ArrayList<>();
+        String[] parts = text.split("\\n\\n+");
         for (String part : parts) {
             String trimmed = part == null ? "" : part.trim();
+            if (!trimmed.isBlank()) {
+                paragraphs.add(trimmed);
+            }
+        }
+        if (paragraphs.isEmpty() && text != null && !text.isBlank()) {
+            paragraphs.add(text.trim());
+        }
+        return paragraphs;
+    }
+
+    private List<String> splitParagraphIntoParents(String paragraph, int maxChars) {
+        if (paragraph.length() <= maxChars) {
+            return List.of(paragraph);
+        }
+        List<String> segments = splitBySentenceOrNewline(paragraph);
+        List<String> packed = packSegments(segments, " ", maxChars);
+        if (packed.isEmpty()) {
+            List<String> fallback = new ArrayList<>();
+            appendWithHardLimit(fallback, paragraph, maxChars);
+            return fallback;
+        }
+        return packed;
+    }
+
+    private List<String> splitBySentenceOrNewline(String text) {
+        List<String> segments = new ArrayList<>();
+        String[] parts = text.split("(?<=[。！？；.!?;])\\s+|\\n+");
+        for (String part : parts) {
+            String trimmed = part == null ? "" : part.trim();
+            if (!trimmed.isBlank()) {
+                segments.add(trimmed);
+            }
+        }
+        if (segments.isEmpty() && text != null && !text.isBlank()) {
+            segments.add(text.trim());
+        }
+        return segments;
+    }
+
+    private List<String> packSegments(List<String> segments, String joinSeparator, int maxChars) {
+        List<String> chunks = new ArrayList<>();
+        if (segments == null || segments.isEmpty()) {
+            return chunks;
+        }
+        StringBuilder current = new StringBuilder();
+
+        for (String segment : segments) {
+            String trimmed = segment == null ? "" : segment.trim();
             if (trimmed.isBlank()) {
+                continue;
+            }
+            if (trimmed.length() > maxChars) {
+                if (!current.isEmpty()) {
+                    chunks.add(current.toString().trim());
+                    current.setLength(0);
+                }
+                appendWithHardLimit(chunks, trimmed, maxChars);
                 continue;
             }
 
@@ -574,19 +642,16 @@ public class KnowledgeService {
             if (joinedLength <= maxChars) {
                 current.append(joinSeparator).append(trimmed);
             } else {
-                appendWithHardLimit(chunks, current.toString().trim(), maxChars);
+                chunks.add(current.toString().trim());
                 current.setLength(0);
                 current.append(trimmed);
             }
         }
 
         if (!current.isEmpty()) {
-            appendWithHardLimit(chunks, current.toString().trim(), maxChars);
+            chunks.add(current.toString().trim());
         }
 
-        if (chunks.isEmpty()) {
-            appendWithHardLimit(chunks, text, maxChars);
-        }
         return chunks;
     }
 
@@ -620,6 +685,13 @@ public class KnowledgeService {
                 .replaceAll("[ ]{2,}", " ")
                 .replaceAll("\\n{3,}", "\\n\\n")
                 .trim();
+    }
+
+    private boolean isDuplicateParentChildChunk(String parentText, String childText) {
+        if (parentText == null || childText == null) {
+            return false;
+        }
+        return normalizeTextForChunking(parentText).equals(normalizeTextForChunking(childText));
     }
 
     public Page<KnowledgeDocument> listDocuments(Long folderId, Long importJobId, String category, String tag, DocumentStatus status, String keyword, Pageable pageable) {
@@ -662,12 +734,12 @@ public class KnowledgeService {
         return documentRepository.findById(id);
     }
 
-    public DocumentChunksPageResponse listDocumentChunks(Long id, int page, int size) {
+    public DocumentChunksPageResponse listDocumentChunks(Long id, int page, int size, String chunkLevel) {
         KnowledgeDocument document = documentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
 
         DocumentChunksPageResponse chunksPage = multiVectorStoreService.listDocumentChunks(
-                document.getVectorTableName(), id, page, size
+                document.getVectorTableName(), id, page, size, chunkLevel
         );
         chunksPage.setDocumentId(document.getId());
         chunksPage.setTitle(document.getTitle());

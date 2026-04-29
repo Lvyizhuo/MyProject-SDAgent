@@ -25,6 +25,7 @@ public class RagRetrievalService {
     private static final int DEFAULT_RRF_K = 60;
     private static final double VECTOR_RRF_WEIGHT = 0.65;
     private static final double KEYWORD_RRF_WEIGHT = 0.35;
+    private static final int PARENT_EXPAND_RADIUS = 1;
     private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)(20\\d{2})(?!\\d)");
 
     private final RuntimeRagVectorStore runtimeRagVectorStore;
@@ -238,7 +239,8 @@ public class RagRetrievalService {
                 parentMetadata.put("score", score);
             }
 
-            finalDocs.putIfAbsent(parent.getId(), new Document(parent.getId(), parent.getText(), parentMetadata));
+            String expandedText = expandParentWithNeighbors(vectorTableName, parentMetadata, parent.getText());
+            finalDocs.putIfAbsent(parent.getId(), new Document(parent.getId(), expandedText, parentMetadata));
             if (finalDocs.size() >= Math.max(1, topK)) {
                 break;
             }
@@ -313,6 +315,59 @@ public class RagRetrievalService {
         }
         Object value = metadata.get(key);
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private String expandParentWithNeighbors(String vectorTableName,
+                                             Map<String, Object> parentMetadata,
+                                             String fallbackText) {
+        Long documentId = parseLongValue(parentMetadata == null ? null : parentMetadata.get("knowledgeDocumentId"));
+        Integer parentChunkIndex = parseIntValue(parentMetadata == null ? null : parentMetadata.get("parentChunkIndex"));
+        if (documentId == null || parentChunkIndex == null) {
+            return fallbackText;
+        }
+
+        List<Document> parents = multiVectorStoreService.loadParentChunkWindow(
+                vectorTableName,
+                documentId,
+                parentChunkIndex,
+                PARENT_EXPAND_RADIUS
+        );
+        if (parents.isEmpty()) {
+            return fallbackText;
+        }
+        return parents.stream()
+                .map(Document::getText)
+                .filter(text -> text != null && !text.isBlank())
+                .reduce((left, right) -> left + "\n\n" + right)
+                .orElse(fallbackText);
+    }
+
+    private Integer parseIntValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Long parseLongValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(value).trim());
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String truncateQuery(String query) {

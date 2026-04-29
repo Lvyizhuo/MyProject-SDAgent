@@ -9,7 +9,10 @@ WORKDIR /app
 
 # 复制 pom.xml 并下载依赖（利用缓存）
 COPY pom.xml .
-RUN mvn dependency:go-offline -B
+RUN mvn -B \
+    -Dmaven.wagon.http.retryHandler.count=5 \
+    -Dmaven.wagon.http.retryHandler.requestSentEnabled=true \
+    dependency:go-offline
 
 # 复制源码并构建
 COPY src ./src
@@ -19,6 +22,9 @@ RUN mvn clean package -DskipTests -B
 FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
+
+# MCP stdio servers and PDF OCR fallback require these runtime tools.
+RUN apk add --no-cache nodejs npm poppler-utils
 
 # 创建非 root 用户
 RUN addgroup -g 1000 appgroup && adduser -u 1000 -G appgroup -s /bin/sh -D appuser

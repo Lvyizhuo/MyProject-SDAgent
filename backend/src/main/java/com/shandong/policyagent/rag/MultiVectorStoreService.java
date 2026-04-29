@@ -22,6 +22,7 @@ import javax.sql.DataSource;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -274,51 +275,62 @@ public class MultiVectorStoreService {
         return result;
     }
 
-    public DocumentChunksPageResponse listDocumentChunks(String tableName, Long documentId, int page, int size) {
+    public DocumentChunksPageResponse listDocumentChunks(String tableName,
+                                                         Long documentId,
+                                                         int page,
+                                                         int size,
+                                                         String chunkLevel) {
         String safeTableName = sanitizeTableName(tableName);
         int safePage = Math.max(page, 0);
         int safeSize = Math.max(1, size);
         int offset = safePage * safeSize;
+        String normalizedChunkLevel = normalizeChunkLevel(chunkLevel);
 
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 
-        String countSql = String.format("""
+        String countSql = normalizedChunkLevel == null
+                ? String.format("""
                 SELECT COUNT(*)
                 FROM %s
                 WHERE metadata->>'knowledgeDocumentId' = ?
+                """, safeTableName)
+                : String.format("""
+                SELECT COUNT(*)
+                FROM %s
+                WHERE metadata->>'knowledgeDocumentId' = ?
+                  AND COALESCE(metadata->>'chunkLevel', '') = ?
                 """, safeTableName);
 
-        Long totalElements = jdbcTemplate.queryForObject(countSql, Long.class, String.valueOf(documentId));
+        Long totalElements = normalizedChunkLevel == null
+                ? jdbcTemplate.queryForObject(countSql, Long.class, String.valueOf(documentId))
+                : jdbcTemplate.queryForObject(countSql, Long.class, String.valueOf(documentId), normalizedChunkLevel);
         if (totalElements == null) {
             totalElements = 0L;
         }
 
-        String querySql = String.format("""
+        String querySql = normalizedChunkLevel == null
+                ? String.format("""
                 SELECT id, content, metadata
                 FROM %s
                 WHERE metadata->>'knowledgeDocumentId' = ?
                 ORDER BY COALESCE((metadata->>'chunkIndex')::int, 2147483647), id
                 LIMIT ? OFFSET ?
+                """, safeTableName)
+                : String.format("""
+                SELECT id, content, metadata
+                FROM %s
+                WHERE metadata->>'knowledgeDocumentId' = ?
+                  AND COALESCE(metadata->>'chunkLevel', '') = ?
+                ORDER BY COALESCE((metadata->>'chunkIndex')::int, 2147483647), id
+                LIMIT ? OFFSET ?
                 """, safeTableName);
 
-        List<DocumentChunkResponse> chunks = jdbcTemplate.query(querySql, (rs, rowNum) -> {
-            String metadataJson = rs.getString("metadata");
-            Map<String, Object> metadata = parseMetadata(metadataJson);
-
-            Integer chunkIndex = getIntValue(metadata.get("chunkIndex"));
-            Integer chunkChars = getIntValue(metadata.get("chunkChars"));
-            if (chunkChars == null) {
-                chunkChars = rs.getString("content") == null ? 0 : rs.getString("content").length();
-            }
-
-            return DocumentChunkResponse.builder()
-                    .chunkId(rs.getString("id"))
-                    .chunkIndex(chunkIndex)
-                    .chunkChars(chunkChars)
-                    .splitStrategy(stringValue(metadata.get("splitStrategy")))
-                    .content(rs.getString("content"))
-                    .build();
-        }, String.valueOf(documentId), safeSize, offset);
+        List<DocumentChunkResponse> chunks = normalizedChunkLevel == null
+                ? jdbcTemplate.query(querySql, (rs, rowNum) -> toChunkResponse(rs.getString("id"),
+                rs.getString("content"), rs.getString("metadata")), String.valueOf(documentId), safeSize, offset)
+                : jdbcTemplate.query(querySql, (rs, rowNum) -> toChunkResponse(rs.getString("id"),
+                rs.getString("content"), rs.getString("metadata")),
+                String.valueOf(documentId), normalizedChunkLevel, safeSize, offset);
 
         int totalPages = totalElements == 0 ? 0 : (int) Math.ceil((double) totalElements / safeSize);
 
@@ -328,6 +340,37 @@ public class MultiVectorStoreService {
                 .totalElements(totalElements)
                 .totalPages(totalPages)
                 .content(chunks)
+                .build();
+    }
+
+    private String normalizeChunkLevel(String chunkLevel) {
+        if (chunkLevel == null || chunkLevel.isBlank()) {
+            return "parent";
+        }
+        String normalized = chunkLevel.trim().toLowerCase(Locale.ROOT);
+        if ("parent".equals(normalized) || "child".equals(normalized)) {
+            return normalized;
+        }
+        if ("all".equals(normalized)) {
+            return null;
+        }
+        return "parent";
+    }
+
+    private DocumentChunkResponse toChunkResponse(String id, String content, String metadataJson) {
+        Map<String, Object> metadata = parseMetadata(metadataJson);
+        Integer chunkIndex = getIntValue(metadata.get("chunkIndex"));
+        Integer chunkChars = getIntValue(metadata.get("chunkChars"));
+        if (chunkChars == null) {
+            chunkChars = content == null ? 0 : content.length();
+        }
+
+        return DocumentChunkResponse.builder()
+                .chunkId(id)
+                .chunkIndex(chunkIndex)
+                .chunkChars(chunkChars)
+                .splitStrategy(stringValue(metadata.get("splitStrategy")))
+                .content(content)
                 .build();
     }
 
@@ -368,6 +411,42 @@ public class MultiVectorStoreService {
                 .filter(content -> content != null && !content.isBlank())
                 .reduce((left, right) -> left + "\n\n" + right)
                 .orElse(null);
+    }
+
+    public List<Document> loadParentChunkWindow(String tableName,
+                                                Long documentId,
+                                                Integer parentChunkIndex,
+                                                int radius) {
+        if (tableName == null || documentId == null || parentChunkIndex == null || parentChunkIndex < 1) {
+            return List.of();
+        }
+
+        String safeTableName = sanitizeTableName(tableName);
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+        if (!tableExists(jdbcTemplate, safeTableName)) {
+            return List.of();
+        }
+
+        int safeRadius = Math.max(0, radius);
+        int startIndex = Math.max(1, parentChunkIndex - safeRadius);
+        int endIndex = parentChunkIndex + safeRadius;
+
+        String querySql = String.format("""
+                SELECT id, content, metadata
+                FROM %s
+                WHERE metadata->>'knowledgeDocumentId' = ?
+                  AND COALESCE(metadata->>'chunkLevel', '') = 'parent'
+                  AND COALESCE((metadata->>'parentChunkIndex')::int, 2147483647) BETWEEN ? AND ?
+                ORDER BY COALESCE((metadata->>'parentChunkIndex')::int, 2147483647), id
+                """, safeTableName);
+
+        return jdbcTemplate.query(
+                querySql,
+                (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
+                String.valueOf(documentId),
+                startIndex,
+                endIndex
+        );
     }
 
     private void initializeVectorTable(String tableName, int dimensions) {
