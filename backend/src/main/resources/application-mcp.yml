@@ -8,6 +8,6 @@ spring:
       client:
         enabled: true
         initialized: true
-        request-timeout: 20s
+        request-timeout: 90s
         stdio:
           servers-configuration: classpath:mcp-servers.json

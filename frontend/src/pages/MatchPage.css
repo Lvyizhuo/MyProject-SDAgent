@@ -107,7 +107,7 @@
     min-height: 52px;
     border-radius: 26px; /* Pill shape */
     padding: 0 40px;
-    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-dark)));
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
     color: hsl(var(--color-text-inverse));
     font-size: 1.05rem;
     font-weight: 600;

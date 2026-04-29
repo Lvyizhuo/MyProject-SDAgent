@@ -711,12 +711,12 @@ const KnowledgeBaseTab = () => {
 
         try {
             const pageSize = 500;
-            const firstPage = await adminKnowledgeApi.getDocumentChunks(doc.id, { page: 0, size: pageSize });
+            const firstPage = await adminKnowledgeApi.getDocumentChunks(doc.id, { page: 0, size: pageSize, chunkLevel: 'parent' });
             const allChunks = [...(firstPage.content || [])];
             const totalPages = firstPage.totalPages || 1;
 
             for (let page = 1; page < totalPages; page += 1) {
-                const nextPage = await adminKnowledgeApi.getDocumentChunks(doc.id, { page, size: pageSize });
+                const nextPage = await adminKnowledgeApi.getDocumentChunks(doc.id, { page, size: pageSize, chunkLevel: 'parent' });
                 allChunks.push(...(nextPage.content || []));
             }
 

@@ -180,8 +180,9 @@ public class AdminKnowledgeController {
     public ResponseEntity<DocumentChunksPageResponse> listDocumentChunks(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(knowledgeService.listDocumentChunks(id, page, size));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "parent") String chunkLevel) {
+        return ResponseEntity.ok(knowledgeService.listDocumentChunks(id, page, size, chunkLevel));
     }
 
     @GetMapping("/documents/{id}/download")
