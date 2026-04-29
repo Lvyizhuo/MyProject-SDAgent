@@ -21,6 +21,7 @@ Thumbs.db
 *.tmp
 *.log
 *.swp
+.playwright-mcp/
 
 # Secrets
 .env
