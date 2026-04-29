@@ -1,0 +1,147 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - button "AI政策通" [ref=e6] [cursor=pointer]:
+        - img [ref=e8]
+        - generic [ref=e12]: AI政策通
+      - navigation "主导航" [ref=e13]:
+        - link "首页" [ref=e14] [cursor=pointer]:
+          - /url: /home
+          - img [ref=e15]
+          - generic [ref=e18]: 首页
+        - link "政策查询" [ref=e19] [cursor=pointer]:
+          - /url: /policies
+          - img [ref=e20]
+          - generic [ref=e23]: 政策查询
+        - link "政策匹配" [ref=e24] [cursor=pointer]:
+          - /url: /matching
+          - img [ref=e25]
+          - generic [ref=e29]: 政策匹配
+        - link "智能问答" [ref=e30] [cursor=pointer]:
+          - /url: /chat
+          - img [ref=e31]
+          - generic [ref=e33]: 智能问答
+      - generic [ref=e34]:
+        - button "通知" [ref=e35] [cursor=pointer]:
+          - img [ref=e36]
+        - button "用户中心" [ref=e41] [cursor=pointer]:
+          - img [ref=e42]
+          - generic [ref=e45]: 用户中心
+          - img [ref=e46]
+  - generic [ref=e48]:
+    - main [ref=e49]:
+      - generic [ref=e51]:
+        - heading "智能政策咨询，触手可及" [level=1] [ref=e52]
+        - paragraph [ref=e53]: 基于大模型技术的专业政策服务平台，为您提供政策查询、智能解读、精准匹配及 AI 问答一体化支持。
+        - generic [ref=e54]:
+          - generic [ref=e55]:
+            - img [ref=e56]
+            - textbox "输入政策关键词或您的问题，例如：以旧换新补贴政策..." [ref=e59]
+          - button "智能咨询" [ref=e60] [cursor=pointer]
+        - generic [ref=e61]:
+          - generic [ref=e62]: 热门搜索：
+          - button "专精特新" [ref=e63] [cursor=pointer]
+          - button "高新企业认定" [ref=e64] [cursor=pointer]
+          - button "研发费用加计扣除" [ref=e65] [cursor=pointer]
+          - button "人才补贴" [ref=e66] [cursor=pointer]
+      - generic [ref=e68]:
+        - article [ref=e69] [cursor=pointer]:
+          - img [ref=e71]
+          - heading "政策查询" [level=3] [ref=e74]
+          - paragraph [ref=e75]: 海量政策库，多维筛选。
+          - generic [ref=e76]:
+            - text: 立即体验
+            - img [ref=e77]
+        - article [ref=e79] [cursor=pointer]:
+          - img [ref=e81]
+          - heading "精准匹配" [level=3] [ref=e85]
+          - paragraph [ref=e86]: 企业画像，一键匹配。
+          - generic [ref=e87]:
+            - text: 立即体验
+            - img [ref=e88]
+        - article [ref=e90] [cursor=pointer]:
+          - img [ref=e92]
+          - heading "智能问答" [level=3] [ref=e94]
+          - paragraph [ref=e95]: 7x24小时，即问即答。
+          - generic [ref=e96]:
+            - text: 立即体验
+            - img [ref=e97]
+        - article [ref=e99] [cursor=pointer]:
+          - img [ref=e101]
+          - heading "智能解读" [level=3] [ref=e103]
+          - paragraph [ref=e104]: AI重点提炼，快速理解政策。
+          - generic [ref=e105]:
+            - text: 立即体验
+            - img [ref=e106]
+      - generic [ref=e108]:
+        - generic [ref=e109]:
+          - generic [ref=e110]:
+            - heading "热门政策推荐" [level=2] [ref=e111]:
+              - img [ref=e112]
+              - text: 热门政策推荐
+            - paragraph [ref=e115]: 为您精选近期关注度最高的政策文件
+          - button "查看更多" [ref=e116] [cursor=pointer]:
+            - text: 查看更多
+            - img [ref=e117]
+        - generic [ref=e119]:
+          - article [ref=e120]:
+            - generic [ref=e121]:
+              - generic [ref=e122]: 产业扶持
+              - time [ref=e123]: 2024-01-15
+            - heading "关于加快推动人工智能产业高质量发展的若干措施" [level=3] [ref=e124]
+            - paragraph [ref=e125]: 通过资金补贴、税收优惠等手段，鼓励企业加大 AI 研发投入，推动产业集群化发展。
+          - article [ref=e126]:
+            - generic [ref=e127]:
+              - generic [ref=e128]: 资金补贴
+              - time [ref=e129]: 2024-02-10
+            - heading "2024年中小企业数字化转型专项资金管理办法" [level=3] [ref=e130]
+            - paragraph [ref=e131]: 针对中小企业数字化转型中的软件采购、咨询服务、云资源使用等费用提供专项支持。
+          - article [ref=e132]:
+            - generic [ref=e133]:
+              - generic [ref=e134]: 合作计划
+              - time [ref=e135]: 2023-12-20
+            - heading "北京市通用人工智能产业创新伙伴计划" [level=3] [ref=e136]
+            - paragraph [ref=e137]: 促进模型企业与场景方深度对接，构建算力、数据、模型、应用协同生态。
+          - article [ref=e138]:
+            - generic [ref=e139]:
+              - generic [ref=e140]: 消费促进
+              - time [ref=e141]: 2025-01-08
+            - heading "山东省以旧换新消费促进实施细则（示例）" [level=3] [ref=e142]
+            - paragraph [ref=e143]: 围绕家电、数码、汽车等领域实施以旧换新补贴，鼓励绿色消费。
+      - generic [ref=e144]:
+        - heading "为什么选择 AI 政策通" [level=2] [ref=e145]
+        - generic [ref=e146]:
+          - article [ref=e147]:
+            - img [ref=e148]
+            - heading "权威数据" [level=3] [ref=e151]
+            - paragraph [ref=e152]: 直连官方渠道，确保政策信息真实可靠。
+          - article [ref=e153]:
+            - img [ref=e154]
+            - heading "智能匹配" [level=3] [ref=e158]
+            - paragraph [ref=e159]: 结合企业画像，实现人策精准对接。
+          - article [ref=e160]:
+            - img [ref=e161]
+            - heading "即时响应" [level=3] [ref=e163]
+            - paragraph [ref=e164]: AI 全天候在线，秒级回复政策疑问。
+    - contentinfo [ref=e165]:
+      - generic [ref=e166]:
+        - generic [ref=e167]:
+          - img [ref=e168]
+          - text: AI政策通
+          - paragraph [ref=e172]: 为您提供专业、及时、可追溯的政策咨询服务。
+        - generic [ref=e173]:
+          - heading "快速链接" [level=4] [ref=e174]
+          - button "政策查询" [ref=e175] [cursor=pointer]
+          - button "政策匹配" [ref=e176] [cursor=pointer]
+          - button "智能问答" [ref=e177] [cursor=pointer]
+        - generic [ref=e178]:
+          - heading "帮助与支持" [level=4] [ref=e179]
+          - paragraph [ref=e180]: 隐私政策
+          - paragraph [ref=e181]: 服务条款
+          - paragraph [ref=e182]: 常见问题
+        - generic [ref=e183]:
+          - heading "联系我们" [level=4] [ref=e184]
+          - paragraph [ref=e185]: 邮箱：support@aipolicy.com
+          - paragraph [ref=e186]: 电话：400-123-4567
+          - paragraph [ref=e187]: 地址：山东省济南市高新区
+      - paragraph [ref=e188]: © 2026 AI政策咨询智能体. All rights reserved.

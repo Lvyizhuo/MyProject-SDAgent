@@ -43,7 +43,8 @@ const adminKnowledgeApi = {
             body: JSON.stringify(data)
         });
         if (!response.ok) {
-            throw new Error('更新文件夹失败');
+            const error = await response.json().catch(() => ({ message: '更新文件夹失败' }));
+            throw new Error(error.message || '更新文件夹失败');
         }
         return response.json();
     },
@@ -54,7 +55,8 @@ const adminKnowledgeApi = {
             headers: getAuthHeaders()
         });
         if (!response.ok) {
-            throw new Error('删除文件夹失败');
+            const error = await response.json().catch(() => ({ message: '删除文件夹失败' }));
+            throw new Error(error.message || '删除文件夹失败');
         }
     },
 
