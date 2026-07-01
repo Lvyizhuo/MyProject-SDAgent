@@ -7,6 +7,9 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 
 WORKDIR /app
 
+# 复制 Maven 配置（阿里云镜像源，解决国内网络访问 Maven Central 超时）
+COPY maven-settings.xml /root/.m2/settings.xml
+
 # 复制 pom.xml 并下载依赖（利用缓存）
 COPY pom.xml .
 RUN mvn -B \

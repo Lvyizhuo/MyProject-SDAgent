@@ -14,7 +14,7 @@ REDIS_CONTAINER="policy-agent-redis"
 MINIO_CONTAINER="policy-agent-minio"
 OLLAMA_CONTAINER="policy-agent-ollama"
 OLLAMA_INIT_CONTAINER="policy-agent-ollama-init"
-TEI_RERANKER_CONTAINER="policy-agent-tei-reranker"
+TEI_RERANKER_CONTAINER="policy-agent-reranker"
 BACKEND_CONTAINER="policy-agent-backend"
 FRONTEND_CONTAINER="policy-agent-frontend"
 
@@ -49,8 +49,8 @@ dump_failure_context() {
   log "Ollama 初始化日志（最近 120 行）："
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=120 ollama-init || true
 
-  log "TEI Reranker 日志（最近 120 行）："
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=120 tei-reranker || true
+  log "Reranker 服务日志（最近 120 行）："
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=120 reranker || true
 
   log "后端日志（最近 160 行）："
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=160 backend || true
@@ -189,11 +189,11 @@ verify_ollama_model() {
 }
 
 verify_tei_reranker() {
-  # TEI 健康检查通过即代表模型已就绪
+  # Reranker 健康检查通过即代表模型已就绪
   local health_status
   health_status="$(container_status "$TEI_RERANKER_CONTAINER")"
   if [[ "$health_status" == "healthy" ]]; then
-    log "TEI Reranker 已就绪，bge-reranker-v2-m3 已加载。"
+    log "Reranker 服务已就绪，bge-reranker-v2-m3 已加载。"
     return 0
   fi
   return 1
@@ -218,16 +218,16 @@ main() {
     || die "Ollama 未在 ${INFRA_TIMEOUT_SEC}s 内变为 healthy"
   wait_for_ollama_init_success \
     || die "Ollama 模型初始化失败，请检查 ollama-init 日志"
-  log "等待 TEI Reranker 加载模型（首次启动需下载模型，可能需要数分钟）..."
+  log "等待 Reranker 服务就绪（首次启动需下载模型，可能需要数分钟）..."
   wait_for_container_status "$TEI_RERANKER_CONTAINER" healthy "$TEI_TIMEOUT_SEC" \
-    || die "TEI Reranker 未在 ${TEI_TIMEOUT_SEC}s 内变为 healthy"
+    || die "Reranker 服务未在 ${TEI_TIMEOUT_SEC}s 内变为 healthy"
   wait_for_container_status "$BACKEND_CONTAINER" healthy "$BACKEND_TIMEOUT_SEC" \
     || die "后端未在 ${BACKEND_TIMEOUT_SEC}s 内变为 healthy"
   wait_for_container_status "$FRONTEND_CONTAINER" healthy "$FRONTEND_TIMEOUT_SEC" \
     || die "前端未在 ${FRONTEND_TIMEOUT_SEC}s 内变为 healthy"
 
   verify_ollama_model || die "未检测到 bge-m3 已拉取完成"
-  verify_tei_reranker || die "TEI Reranker 未就绪"
+  verify_tei_reranker || die "Reranker 服务未就绪"
   wait_for_http_200 "http://127.0.0.1:8080/actuator/health" "$BACKEND_TIMEOUT_SEC" \
     || die "后端健康接口未在 ${BACKEND_TIMEOUT_SEC}s 内可访问"
   verify_backend_health || die "后端健康接口未报告 status=UP 或 knowledgeMigration=UP"

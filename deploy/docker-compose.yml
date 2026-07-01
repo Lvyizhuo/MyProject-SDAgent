@@ -180,4 +180,4 @@ volumes:
   redis_data:
   minio_data:
   ollama_data:
-  tei_data:
+  huggingface_cache:
