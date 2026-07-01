@@ -157,7 +157,7 @@
 | `9000` | MinIO API | HTTP | `127.0.0.1` | 知识库原始文档对象存储 |
 | `9001` | MinIO Console | HTTP | `127.0.0.1` | MinIO 管理控制台 |
 | `11434` | Ollama | HTTP | `127.0.0.1` | 本地嵌入模型（bge-m3 / nomic-embed-text） |
-| `9997` | Xinference | HTTP | `127.0.0.1` | 本地重排序模型（bge-reranker-v2-m3） |
+| `8989` | Reranker（TEI 兼容） | HTTP | `127.0.0.1` | 本地重排序模型（bge-reranker-v2-m3） |
 
 > 🔒 除 `80` 端口（Nginx）对外暴露外，其余端口均绑定 `127.0.0.1`，仅本机访问，由 Nginx 统一转发。
 
@@ -207,11 +207,11 @@
 | `minio` | 9000 | 9000 | `127.0.0.1` | S3 API |
 | `minio` | 9001 | 9001 | `127.0.0.1` | 管理控制台 |
 | `ollama` | 11434 | 11434 | `127.0.0.1` | 嵌入模型服务 |
-| `xinference` | 9997 | 9997 | `127.0.0.1` | 重排序模型服务 |
+| `reranker` | 80 | 8989 | `127.0.0.1` | 重排序模型服务（TEI 兼容） |
 | `backend` | 8080 | 8080 | `127.0.0.1` | Spring Boot |
 | `frontend`（仅生产） | 80 | 5173 | `127.0.0.1` | 容器内 Nginx 80 → 宿主机 5173 |
 
-> `ollama-init`、`xinference-init` 为一次性初始化容器，不暴露端口。
+> `ollama-init` 为一次性初始化容器，不暴露端口。`reranker` 容器启动时自动从 HuggingFace 下载模型（首次启动需数分钟）。
 
 ---
 
@@ -225,9 +225,8 @@
 | `backend` | `redis:6379` | 会话记忆 / 缓存 |
 | `backend` | `minio:9000` | 文档上传 / 下载 / 预签名 |
 | `backend` | `ollama:11434` | 嵌入向量生成 |
-| `backend` | `xinference:9997` | 检索结果重排序 |
+| `backend` | `reranker:80` | 检索结果重排序 |
 | `ollama-init` | `ollama:11434` | 拉取 bge-m3 / nomic-embed-text 模型 |
-| `xinference-init` | `xinference:9997` | 启动 bge-reranker-v2-m3 模型 |
 | `frontend`（生产） | 经宿主机 `127.0.0.1:8080` | API 请求（通过 Nginx 反代） |
 
 ---
@@ -260,8 +259,8 @@
    ┌────────────┼────────────────────────────────────────────┐
    │            │                                            │
    ▼            ▼                                            ▼
-PostgreSQL   Redis        MinIO       Ollama      Xinference   外部 HTTPS:443
- :5432       :6379        :9000       :11434       :9997       DashScope/Tavily
+PostgreSQL   Redis        MinIO       Ollama      Reranker     外部 HTTPS:443
+ :5432       :6379        :9000       :11434       :8989       DashScope/Tavily
 主库+向量    会话记忆      文档存储    嵌入向量      重排序      LLM/视觉/语音/搜索
 pgvector     TTL 7d        S3 API     bge-m3       bge-reranker
                                                 v2-m3
@@ -280,7 +279,7 @@ pgvector     TTL 7d        S3 API     bge-m3       bge-reranker
 | Redis | Shell | `redis-cli ping` |
 | MinIO | HTTP | `GET /minio/health/live` |
 | Ollama | Shell | `ollama list` |
-| Xinference | HTTP | `GET /v1/models` |
+| Reranker | HTTP | `GET /health`（TEI 兼容端点，返回 `ok`/`starting`） |
 
 **常用健康检查命令（服务器）：**
 

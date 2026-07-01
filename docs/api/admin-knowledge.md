@@ -118,7 +118,7 @@ Content-Type: application/json
   "parentId": 1,
   "name": "家电以旧换新",
   "description": "家电类政策文档",
-  "embeddingModel": "ollama:nomic-embed-text",
+  "embeddingModel": "ollama:bge-m3",
   "rerankModelId": 5
 }
 ```
@@ -623,7 +623,7 @@ Authorization: Bearer {token}
 | `chunkOverlap` | Integer | `150` | 分块重叠 |
 | `minChunkSizeChars` | Integer | `250` | 最小分块字符数 |
 | `noSplitMaxChars` | Integer | `900` | 不分割最大字符数 |
-| `defaultEmbeddingModel` | String | `ollama:nomic-embed-text` | 默认嵌入模型 |
+| `defaultEmbeddingModel` | String | `ollama:bge-m3` | 默认嵌入模型 |
 | `minioEndpoint` | String | - | MinIO 端点 |
 | `minioAccessKey` | String | - | MinIO 访问密钥 |
 | `minioSecretKey` | String | - | MinIO 秘密密钥 |
@@ -688,10 +688,10 @@ Authorization: Bearer {token}
 {
   "models": [
     {
-      "id": "ollama:nomic-embed-text",
-      "name": "nomic-embed-text",
+      "id": "ollama:bge-m3",
+      "name": "bge-m3",
       "provider": "ollama",
-      "dimensions": 768,
+      "dimensions": 1024,
       "isDefault": true
     }
   ]

@@ -59,6 +59,8 @@
 | 前端 | React 19 + Vite 7 |
 | 后端 | Spring Boot 3.4.1 + Spring AI 1.0.3 |
 | 大模型 | 阿里云 DashScope（聊天默认 `qwen3.5-plus`，支持管理员绑定第三方 OpenAI 兼容模型） |
+| 嵌入模型 | Ollama 本地部署 `bge-m3`（默认，1024 维）/ `nomic-embed-text`（768 维） |
+| 重排序模型 | 自建 `rerank-service`（Python FastAPI + sentence-transformers，`bge-reranker-v2-m3`） |
 | 向量数据库 | PostgreSQL 16 + pgvector |
 | 缓存/会话 | Redis 7 |
 | 对象存储 | MinIO |
@@ -79,7 +81,7 @@
 │   │   ├── service/       # 业务逻辑（含动态模型与密钥加解密）
 │   │   └── tool/          # calculateSubsidy / parseFile / webSearch
 │   ├── src/main/resources/
-│   ├── docker-compose.yml # PostgreSQL + Redis + MinIO
+│   ├── docker-compose.yml # PostgreSQL + Redis + MinIO + Ollama + Reranker
 │   └── pom.xml
 ├── frontend/
 │   ├── src/
@@ -87,6 +89,7 @@
 │   │   ├── components/    # 含 admin/ 子模块
 │   │   └── services/      # api / adminApi / adminKnowledgeApi
 │   └── package.json
+├── rerank-service/        # Python FastAPI 重排序微服务（bge-reranker-v2-m3）
 ├── data/
 └── docs/
 ```
@@ -395,6 +398,8 @@ npm run lint
 | Redis | 6379 |
 | MinIO API | 9000 |
 | MinIO Console | 9001 |
+| Ollama | 11434 |
+| Reranker | 8989 |
 
 ## ⭐ Star History
 

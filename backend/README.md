@@ -7,12 +7,13 @@
 - PostgreSQL 16 + pgvector（向量检索）
 - Redis 7（会话/记忆）
 - MinIO（知识库原始文件存储）
-- Ollama（本地嵌入模型服务，可选但 `docker-compose.yml` 默认包含）
+- Ollama（本地嵌入模型，默认 `bge-m3`，`docker-compose.yml` 默认包含）
+- Reranker（本地重排序模型 `bge-reranker-v2-m3`，自建 `rerank-service` 容器）
 
 ```bash
 cd backend
 # 仅启动依赖（用于本地 ./mvnw spring-boot:run）
-docker compose up -d postgres redis minio ollama ollama-init
+docker compose up -d postgres redis minio ollama ollama-init reranker
 
 # 或：启动全部（包含 backend 容器）
 docker compose up -d
@@ -25,6 +26,7 @@ docker compose up -d
 - `9000` MinIO API
 - `9001` MinIO Console
 - `11434` Ollama
+- `8989` Reranker
 
 ## 服务器部署（通过项目根目录 deploy）
 

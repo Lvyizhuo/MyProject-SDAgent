@@ -55,6 +55,8 @@ Designed for government departments, public service platforms, and industry asso
 | **Frontend** | React 19 + Vite 7 |
 | **Backend** | Spring Boot 3.4.1 + Spring AI 1.0.3 |
 | **LLM** | Alibaba DashScope (Default: `qwen-plus`, supports OpenAI-compatible custom models) |
+| **Embedding** | Ollama local `bge-m3` (default, 1024-dim) / `nomic-embed-text` (768-dim) |
+| **Reranker** | Self-hosted `rerank-service` (Python FastAPI + sentence-transformers, `bge-reranker-v2-m3`) |
 | **Vector DB** | PostgreSQL 16 + pgvector |
 | **Cache/Session** | Redis 7 |
 | **Storage** | MinIO (S3 Compatible) |
@@ -71,11 +73,12 @@ Designed for government departments, public service platforms, and industry asso
 │   │   ├── rag/          # Slicing, Retrieval, Vector Ingestion, Dynamic Routing
 │   │   ├── multimodal/   # ASR and Vision (OCR)
 │   │   └── tool/         # calculateSubsidy / parseFile / webSearch
-│   └── docker-compose.yml # PostgreSQL + Redis + MinIO
+│   └── docker-compose.yml # PostgreSQL + Redis + MinIO + Ollama + Reranker
 ├── frontend/
 │   └── src/
 │       ├── pages/        # Main UI + Admin Console
 │       └── services/     # API Integration (Chat & Admin)
+├── rerank-service/       # Python FastAPI reranker microservice (bge-reranker-v2-m3)
 ```
 
 
