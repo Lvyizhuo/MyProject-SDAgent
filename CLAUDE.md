@@ -2,231 +2,246 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 项目概述
+## 项目概览
 
-山东省智能政策咨询助手是一个基于 AI 的大语言模型驱动问答系统，面向山东省以旧换新补贴政策咨询，采用 RAG（检索增强生成）实现政策知识检索与回答。
-
-## 技术栈
-
-- **前端**: React 19 + Vite 7 (JavaScript/JSX)
-- **后端**: Spring Boot 3.4.1 + Spring AI 1.0.3 (Java 21)
-- **AI 模型**: 阿里云 DashScope（默认 `qwen3.5-plus`，支持可配置嵌入模型）
-- **模型管理**: 管理员可在控制台维护 LLM / VISION / AUDIO / EMBEDDING / RERANK 五类第三方模型，并绑定到智能体配置
-- **向量数据库**: PostgreSQL 16 + pgvector
-- **会话存储**: Redis 7
-- **对象存储**: MinIO
-- **身份验证**: Spring Security + JWT
-
-## 项目结构
-
-```text
-├── backend/
-│   ├── src/main/java/com/shandong/policyagent/
-│   │   ├── advisor/            # Security / ReReading / Logging / RedisChatMemory
-│   │   ├── agent/              # ToolIntentClassifier / AgentPlanParser（工具意图分类与计划解析）
-│   │   ├── config/             # ChatClient, Security, Embedding, Minio 等配置
-│   │   ├── controller/         # Chat/Auth/Conversation/Admin/Knowledge/Model/PublicConfig/MultiModal API
-│   │   ├── entity/             # JPA 实体（含 AgentConfig/ModelProvider/ModelType）
-│   │   ├── exception/          # 全局异常处理器
-│   │   ├── ingestion/          # 多源知识导入（网站爬取/附件提取等）
-│   │   ├── model/              # DTO 和领域模型
-│   │   ├── multimodal/         # ASR 与视觉能力
-│   │   ├── rag/                # 文档加载、切片、检索、运行时嵌入模型路由
-│   │   ├── repository/         # 数据访问层
-│   │   ├── security/           # JWT 相关
-│   │   ├── service/            # 业务服务（含 SessionFactCacheService、DynamicChatClientFactory、ModelProviderService）
-│   │   └── tool/               # calculateSubsidy / parseFile / webSearch / ToolFailurePolicyCenter
-│   ├── src/main/resources/     # application.yml 等配置
-│   ├── docker-compose.yml      # PostgreSQL + Redis + MinIO
-│   └── pom.xml
-├── frontend/
-│   └── src/
-└── data/
-```
+**AI 政策通·智能体服务平台** — 基于 AI/LLM 的山东省以旧换新政策咨询系统。前后端分离架构，核心围绕 RAG（检索增强生成）+ ReAct Agent 构建政策问答、补贴计算、多模态识别能力。
 
 ## 开发命令
 
-### 后端 (Maven/Spring Boot)
+### 后端（Spring Boot 3.4 + Java 21）
 
 ```bash
 cd backend
 
-# 启动基础设施
-# 仅启动依赖：PostgreSQL + Redis + MinIO + Ollama（嵌入）
-# 推荐：docker compose up -d postgres redis minio ollama ollama-init
-# 兼容：docker-compose up -d
+# 构建（跳过测试以加速）
+./mvnw clean package -DskipTests
 
-# 构建项目
-./mvnw clean package
-
-# 运行应用
+# 本地开发运行（需先启动基础设施容器：postgres, redis, minio, ollama）
 ./mvnw spring-boot:run
 
-# mcp profile
+# 带 MCP profile 运行
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
 
-# 运行测试
+# 运行全部测试
 ./mvnw test
+
+# 运行单个测试类/方法
 ./mvnw test -Dtest=ChatServiceTest
 ./mvnw test -Dtest=ChatServiceTest#testChatResponse
 ```
 
-### 前端 (Vite/React)
+### 前端（React 19 + Vite 7）
 
 ```bash
 cd frontend
 
-npm install
-npm run dev
-npm run build
-npm run lint
-npm run preview
+npm install             # 安装依赖
+npm run dev              # 开发服务器（热重载，代理 /api → localhost:8080）
+npm run build            # 生产构建
+npm run lint             # ESLint 检查
+npm run preview          # 预览生产构建
 ```
 
-## 环境变量
-
-- `DASHSCOPE_API_KEY` - 必需，DashScope API 密钥
-- `TAVILY_API_KEY` - 可选，联网搜索工具密钥
-- `APP_JWT_SECRET` - 必需（生产），JWT 签名密钥（Base64）
-- `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` - 生产域名 CORS 放行
-- `APP_EMBEDDING_OLLAMA_BASE_URL` - 可选，Ollama 嵌入地址（容器内默认 `http://ollama:11434`）
-- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET` - 可选但推荐，模型管理 API Key 加密主密钥
-- `APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS` - 可选，历史加密密钥兼容列表
-
-## 服务器部署（Production）
+### 基础设施
 
 ```bash
-cd /www/wwwroot/MyProject-SDAgent
-cp deploy/.env.example deploy/.env
-vi deploy/.env
+# 开发环境启动基础设施（不含后端/前端容器）
+cd backend
+docker compose up -d postgres redis minio ollama ollama-init
 
-cd deploy
-docker compose --env-file .env up -d --build
+# 查看容器状态
 docker compose ps
+
+# 查看日志
+docker compose logs -f postgres
 ```
 
-健康检查：
+### 生产部署
 
 ```bash
-curl -f http://127.0.0.1:8080/actuator/health
-curl -f http://127.0.0.1:8080/api/chat/health
-curl -f http://127.0.0.1:5173/health
-```
-
-常用排障：
-
-```bash
+# 服务器一键部署（脚本含健康检查）
 cd deploy
-docker compose logs -f backend
-docker compose logs --tail=200 backend
-docker inspect -f '{{.State.Health.Status}}' policy-agent-backend
+cp .env.example .env    # 编辑 .env 填写真实配置
+./deploy.sh             # Linux/macOS
+
+# 停止
+docker compose down
+# 清除全部数据
+docker compose down -v
 ```
 
-反向代理说明（宝塔 Nginx）：
-- 自定义配置内不要再包 `server {}`。
-- 同一站点只能有一个 `location /`。
-- 路由建议：`/` 到 `127.0.0.1:5173`，`/api/` 到 `127.0.0.1:8080/api/`。
+### 集成测试
 
-## API 端点
+```bash
+# 需要后端已运行
+bash scripts/chat-module-integration-test.sh
+```
 
-- `POST /api/chat` - 标准对话
-- `POST /api/chat/stream` - 流式对话（SSE）
-- `GET /api/chat/health` - 健康检查
-- `POST /api/documents/load` - 加载默认文档目录
-- `POST /api/documents/load-directory?path=xxx` - 加载指定目录文档
-- `DELETE /api/documents?ids=...` - 删除文档向量
-- `POST /api/auth/register` - 用户注册
-- `POST /api/auth/login` - 用户登录
-- `GET /api/auth/me` - 当前用户信息（需 JWT）
-- `GET /api/conversations` - 会话列表（需 JWT）
-- `GET /api/conversations/{sessionId}` - 获取会话（需 JWT）
-- `DELETE /api/conversations/{sessionId}` - 删除会话（需 JWT）
-- `POST /api/admin/auth/login` - 管理员登录
-- `POST /api/admin/auth/change-password` - 管理员修改密码（需管理员 JWT）
-- `GET /api/admin/models` - 获取模型列表（需管理员 JWT）
-- `GET /api/admin/models/{id}` - 获取模型详情（需管理员 JWT）
-- `POST /api/admin/models` - 新增模型（需管理员 JWT）
-- `PUT /api/admin/models/{id}` - 更新模型（需管理员 JWT）
-- `DELETE /api/admin/models/{id}` - 删除模型（需管理员 JWT）
-- `PUT /api/admin/models/{id}/set-default` - 设为默认模型（需管理员 JWT）
-- `POST /api/admin/models/{id}/test` - 测试模型连接（需管理员 JWT）
-- `GET /api/admin/models/options` - 获取模型下拉选项（需管理员 JWT）
-- `GET /api/admin/agent-config` - 获取智能体配置（需管理员 JWT）
-- `PUT /api/admin/agent-config` - 更新智能体配置（需管理员 JWT）
-- `POST /api/admin/agent-config/reset` - 重置智能体配置（需管理员 JWT）
-- `POST /api/admin/agent-config/test` - 配置测试对话（需管理员 JWT）
-- `GET /api/admin/knowledge/folders` - 获取知识库目录树（需管理员 JWT）
-- `POST /api/admin/knowledge/folders` - 创建知识库文件夹（需管理员 JWT）
-- `PUT /api/admin/knowledge/folders/{id}` - 更新知识库文件夹（需管理员 JWT）
-- `DELETE /api/admin/knowledge/folders/{id}` - 删除知识库文件夹（需管理员 JWT）
-- `POST /api/admin/knowledge/documents` - 上传知识库文档（需管理员 JWT）
-- `POST /api/admin/knowledge/documents/extract-metadata` - 智能提取文档元数据（需管理员 JWT）
-- `GET /api/admin/knowledge/documents/{id}/chunks` - 查询文档切片（需管理员 JWT）
-- `GET /api/admin/knowledge/documents/{id}/download` - 下载原始文档（需管理员 JWT）
-- `GET /api/admin/knowledge/documents/{id}/preview` - 获取预览地址（需管理员 JWT）
-- `DELETE /api/admin/knowledge/documents/{id}` - 删除文档（需管理员 JWT）
-- `POST /api/admin/knowledge/documents/{id}/reingest` - 重新入库文档（需管理员 JWT）
-- `POST /api/admin/knowledge/documents/batch-delete` - 批量删除文档（需管理员 JWT）
-- `POST /api/admin/knowledge/documents/batch-move` - 批量移动文档（需管理员 JWT）
-- `GET /api/admin/knowledge/archive/export` - 导出知识库归档（需管理员 JWT）
-- `POST /api/admin/knowledge/archive/import` - 导入知识库归档（需管理员 JWT）
-- `GET /api/admin/knowledge/embedding-models` - 获取可用嵌入模型（需管理员 JWT）
-- `GET /api/admin/knowledge/config` - 获取知识库配置（需管理员 JWT）
-- `PUT /api/admin/knowledge/config` - 更新知识库配置（需管理员 JWT）
-- `POST /api/admin/knowledge/url-imports` - 创建网站导入任务（需管理员 JWT）
-- `GET /api/admin/knowledge/url-imports` - 查询网站导入任务与待处理条目（需管理员 JWT）
-- `GET /api/admin/knowledge/url-imports/{id}` - 获取待入库内容详情（需管理员 JWT）
-- `POST /api/admin/knowledge/url-imports/{id}/confirm` - 确认入库（需管理员 JWT）
-- `POST /api/admin/knowledge/url-imports/batch-confirm` - 批量确认入库（需管理员 JWT）
-- `POST /api/admin/knowledge/url-imports/{id}/reject` - 驳回待入库内容（需管理员 JWT）
-- `POST /api/admin/knowledge/url-imports/{id}/cancel` - 取消网站导入任务（需管理员 JWT）
-- `DELETE /api/admin/knowledge/url-imports/{id}` - 删除网站导入任务（需管理员 JWT）
-- `DELETE /api/admin/knowledge/url-import-items/{id}` - 删除待入库内容（需管理员 JWT）
-- `POST /api/multimodal/transcribe` - 语音识别
-- `POST /api/multimodal/analyze-image` - 图像分析
-- `POST /api/multimodal/analyze-invoice` - 发票识别
-- `POST /api/multimodal/analyze-device` - 设备识别
-- `GET /api/public/config/agent` - 获取公开智能体配置（无需认证）
+## 技术架构
 
-## Advisor 执行顺序
+```
+用户请求（React 前端）
+  └─ /api/chat  POST → Controller
+       └─ ChatService
+            ├─ ToolIntentClassifier（意图分类 + 参数校验）
+            ├─ AgentPlanParser（多步计划解析执行）
+            ├─ ReActPlanningService（ReAct 工作流编排）
+            ├─ Advisor 链（Spring AI Advisor 管道）
+            │   ├─ SecurityAdvisor       (order=10) 敏感词/注入防护
+            │   ├─ MessageChatMemoryAdvisor       Redis 多轮记忆
+            │   ├─ ReReadingAdvisor      (order=50) 复核答案准确性
+            │   ├─ QuestionAnswerAdvisor          RAG 检索增强
+            │   └─ LoggingAdvisor        (order=90) 用量/延时/引用日志
+            └─ LLM 调用（DynamicChatClientFactory）
+                 └─ DashScope / 第三方 OpenAI 兼容模型
 
-`ChatClientConfig` 默认链路：
+RAG 检索链路：
+  用户问题 → 嵌入模型（Ollama bge-m3 / DashScope text-embedding-v3）
+    → pgvector 向量检索（HNSW, COSINE_DISTANCE）
+    → Reranker（BGE-reranker-v2-m3 Python 微服务）
+    → QuestionAnswerAdvisor 注入上下文
 
-1. `SecurityAdvisor`（order=10）
-2. `MessageChatMemoryAdvisor`
-3. `ReReadingAdvisor`（order=50）
-4. `QuestionAnswerAdvisor`
-5. `LoggingAdvisor`（order=90）
+工具调用：
+  calculateSubsidy → 补贴金额计算
+  parseFile        → 发票/旧机参数文件解析
+  webSearch        → Tavily 联网搜索
+  ToolFailurePolicyCenter → 重试/退避/兜底
+```
 
-## 可用工具
+### 三层项目结构
 
-- `calculateSubsidy` - 补贴金额计算
-- `parseFile` - 发票/旧机参数文件解析
-- `webSearch` - 联网搜索（价格/新闻/政策动态）
+| 目录 | 说明 |
+|------|------|
+| `backend/` | Spring Boot 后端，Maven 构建，Java 21 |
+| `frontend/` | React + Vite 前端，JavaScript/JSX |
+| `rerank-service/` | Python FastAPI 重排序微服务（独立容器） |
+| `deploy/` | 生产环境 Docker Compose + 部署脚本 |
+| `data/` | 政策文档（PDF/DOCX），知识库原料 |
+| `scripts/` | 集成测试脚本 + 政策数据爬虫 |
+| `docs/` | API 文档、PRD、设计文档 |
 
-## Agent 相关组件
+### 后端包结构关键路径
 
-- **ToolIntentClassifier** - 工具调用前意图分类器，用于降低无效工具调用，在执行工具前进行参数校验
-- **AgentPlanParser** - Agent 计划解析器，解析和执行多步计划
-- **SessionFactCacheService** - 会话事实缓存服务，将关键事实（价格、地区、设备型号等）结构化写入 Redis 供多轮对话复用
-- **ToolFailurePolicyCenter** - 工具失败策略中心，统一管理重试、退避与兜底提示模板
-- **DynamicChatClientFactory** - 根据管理员绑定的模型动态创建当前会话使用的 ChatClient
-- **ModelProviderService** - 模型管理 CRUD、默认模型切换、连接测试与 API Key 加解密入口
+`com.shandong.policyagent`
 
-## 配置文件
+- **advisor/** — 自定义 Spring AI Advisor（安全过滤、重读校验、日志审计）
+- **agent/** — 意图分类器、计划解析器、ReAct 工作流编排
+- **controller/** — REST API（含 4 套：chat/auth/conversations、admin、knowledge、multimodal）
+- **service/** — 核心业务逻辑层：
+  - `ChatService` — 对话编排核心，组合意图分类→计划执行→Advisor 链→降级策略
+  - `DynamicChatClientFactory` — 运行时根据管理员绑定的模型动态创建 ChatClient
+  - `SessionFactCacheService` — 将对话中提取的关键事实写入 Redis 供多轮复用
+  - `FastPathService` — 语义匹配置信度高时跳过 RAG，直接回答
+  - `QuestionSemanticCacheService` — 语义级 QA 缓存（余弦阈值 0.92）
+  - `ModelProviderService` — 模型提供者管理（AES-GCM 加密 API Key）
+- **rag/** — 完整 RAG 管道：文档加载→切片→嵌入→向量存储→检索→重排序→运行时模型路由
+- **tool/** — LLM 可调用工具（Spring AI Tool 注解），含统一失败策略中心
+- **multimodal/** — DashScope SDK 封装：ASR（qwen3-asr-flash）、视觉分析（qwen-vl-plus）
+- **ingestion/** — 多源知识导入：网站爬取（jsoup）→ 结构化入库
+- **security/** — 双层 JWT 认证（用户 ROLE_USER / 管理员 ROLE_ADMIN）
 
-- `backend/src/main/resources/application.yml` - 主配置
-- `backend/src/main/resources/db/migration/V3__create_model_provider_and_extend_agent_config.sql` - 模型管理与智能体绑定表结构迁移
-- `backend/pom.xml` - Maven 依赖与构建
-- `backend/docker-compose.yml` - 基础设施编排（PostgreSQL/Redis/MinIO）
-- `frontend/package.json` - 前端依赖与脚本
-- `frontend/vite.config.js` - 前端构建配置
+### 前端组件结构关键路径
 
-## 端口分配
+`frontend/src/`
 
-- 前端开发服务器: `5173`
-- 后端 API: `8080`
-- PostgreSQL: `5432`
-- Redis: `6379`
-- MinIO API: `9000`
-- MinIO Console: `9001`
+- **pages/** — 8 个页面级组件（ChatPage, LoginPage, HomePage, AdminConsolePage 等）
+- **components/admin/** — 管理员控制台整套 UI（含 ConfigPanel, KnowledgeBaseTab, ModelsTab 等 13 个组件）
+- **services/** — 3 个 API 服务层（user API, admin API, knowledge API）
+- **context/AuthContext.jsx** — 全局认证状态（React Context）
+- CSS 设计标记集中定义在 `variables.css`（HSL 色彩体系）
+
+**路由结构：**
+
+| 路径 | 组件 | 鉴权 |
+|------|------|------|
+| `/chat` | ChatPage | 需要用户 JWT |
+| `/admin-console` | AdminConsolePage | 需要管理员 JWT |
+| `/login`, `/register` | LoginPage, RegisterPage | 公开 |
+| `/home`, `/policies`, `/matching` | HomePage, PolicyQueryPage, PolicyMatchingPage | 公开 |
+
+## 配置体系与环境变量
+
+**配置文件层次：**
+1. `deploy/.env` — 生产环境变量（Docker Compose 加载）
+2. `backend/src/main/resources/application.yml` — Spring Boot 配置（含所有默认值）
+3. `backend/src/main/resources/application-mcp.yml` — MCP 客户端 profile
+
+**必须配置的环境变量：**
+- `DASHSCOPE_API_KEY` — 阿里云 DashScope API Key（对话 + 嵌入 + 多模态）
+- `APP_JWT_SECRET` — Base64 编码的 JWT 签名密钥
+
+**建议配置：**
+- `APP_MODEL_PROVIDER_ENCRYPTION_SECRET` — 模型 API Key 加密主密钥（不配置则回退使用 JWT 密钥）
+- `APP_EMBEDDING_OLLAMA_BASE_URL` — Ollama 地址（容器内默认 http://ollama:11434）
+
+**知识库嵌入模型（配置于 application.yml `app.knowledge.embedding.models`）：**
+3 个预设嵌入模型：`ollama:bge-m3`（1024维）、`ollama:nomic-embed-text`（768维）、`dashscope:text-embedding-v3`（1024维），各使用独立 pgvector 表存储向量。运行时通过 `RuntimeRagVectorStore` 动态路由。
+
+**RAG 检索配置（application.yml `app.rag.retrieval`）：**
+topK=3, similarityThreshold=0.5, candidateTopK=20, rerank 默认启用。
+
+## 关键设计决策
+
+### 对话处理流程
+1. `FastPathService` 检查是否可直接回答（语义相似度 ≥ 0.86）
+2. 否则执行 ReAct 计划：意图分类 → 工具调用（补贴计算/文件解析/联网搜索）
+3. Advisor 链处理：安全过滤 → 记忆注入 → 复核校验 → RAG 上下文注入 → 日志记录
+4. 模型调用默认使用管理员绑定的 LLM，支持降级
+5. 纯同步模式（SSE 流式已禁用，返回 410）
+
+### 模型管理机制
+- 五类模型可动态配置：LLM、视觉、语音、嵌入、重排序
+- API Key 存储时 AES-GCM 加密（`ApiKeyCipherService`）
+- 通过 `DynamicChatClientFactory` 运行时切换模型
+- 管理员在"智能体配置"中绑定模型 → 运行时自动生效
+
+### 知识库多源导入
+- 上传 PDF/DOCX → MinIO 存储 → Tika 解析 → 文本切片 → 嵌入 → 存入 pgvector
+- 网站导入 → jsoup 爬取 → 人工确认入库 → 切片嵌入
+- 支持归档导出/导入
+- 后台调度器自动处理待入库切片（轮询间隔 2s，批大小 20）
+
+### 缓存策略
+- 对话记忆：Redis，7 天 TTL，6 轮对话后自动摘要
+- QA 语义缓存：24h TTL，余弦相似度 0.92 阈值
+- 价格缓存：24h TTL，支持预取
+- 联网搜索缓存：2h TTL，过期重验证
+
+### 安全设计
+- 双层 JWT（用户/管理员），Token 24h 过期
+- Secret 密码过滤 + 敏感词检测 + Prompt 注入防护（SecurityAdvisor）
+- API Key 加密存储（AES-GCM）
+- 工具调用前意图校验（ToolIntentClassifier）
+- 工具失败统一兜底策略（ToolFailurePolicyCenter）
+- CORS 严格域名白名单
+
+### 多模态
+- ASR：qwen3-asr-flash（短音频）/ filetrans（长音频）
+- 视觉：qwen-vl-plus（默认）/ qwen-vl-max（高精度）
+- 扫描 PDF OCR 兜底：文本提取失败时自动走视觉模型
+
+## 默认管理员
+
+首次启动时自动初始化为 `admin / admin`（由 `AdminInitializer` 完成），建议立即修改密码。
+
+## 容器端口
+
+| 服务 | 内部端口 | 映射端口 |
+|------|---------|---------|
+| 前端（Nginx） | 80 | 5173 |
+| 后端 | 8080 | 8080 |
+| PostgreSQL | 5432 | 5432 |
+| Redis | 6379 | 6379 |
+| MinIO API | 9000 | 9000 |
+| MinIO Console | 9001 | 9001 |
+| Ollama | 11434 | 11434 |
+| Reranker | 80 | 8989 |
+
+## 常见陷阱
+
+- **`APP_JWT_SECRET` 必须是标准 Base64 字符串**，否则管理员登录报 `Illegal base64 character`。
+- **先启动基础设施容器，再启动后端**，否则数据库连接拒绝。
+- **修改 `.env` 后需重建 `backend` 容器**（`docker compose up -d --force-recreate backend`），环境变量才能生效。
+- **流式接口已禁用**（统一走 `/api/chat` 同步响应），`/api/chat/stream` 返回 410。
+- **知识库嵌入模型互斥**：每个知识库文件夹绑定一个嵌入模型，切换后需重新入库旧文档。
+- **本地开发时前端代理**：Vite 将 `/api` 代理到 `localhost:8080`，后端无需处理 CORS。
