@@ -30,6 +30,7 @@
 │   └── src/
 │       ├── components/    # React 组件 (含 components/admin)
 │       └── *.css          # CSS 模块 (variables.css 用于设计标记)
+├── rerank-service/        # Python FastAPI 重排序微服务 (bge-reranker-v2-m3)
 └── data/                  # 政策文档数据
 ```
 
@@ -85,8 +86,8 @@ npm run preview
 ```bash
 cd backend
 
-# 启动依赖：PostgreSQL (pgvector) + Redis + MinIO + Ollama（嵌入）
-docker compose up -d postgres redis minio ollama ollama-init
+# 启动依赖：PostgreSQL (pgvector) + Redis + MinIO + Ollama（嵌入）+ Reranker（重排序）
+docker compose up -d postgres redis minio ollama ollama-init reranker
 
 # 或：启动全部（包含 backend 容器）
 docker compose up -d
@@ -220,6 +221,8 @@ docker compose --env-file .env up -d --build
 - PostgreSQL 16 配合 pgvector 扩展 (用于 RAG 向量存储)
 - Redis 7 (用于聊天记忆/会话存储)
 - MinIO (用于知识库原始文档对象存储)
+- Ollama (本地嵌入模型，默认 bge-m3，1024 维)
+- Reranker (自建 rerank-service，Python FastAPI + bge-reranker-v2-m3)
 - Spring Security + JWT (认证鉴权)
 - Lombok + Jakarta Validation
 

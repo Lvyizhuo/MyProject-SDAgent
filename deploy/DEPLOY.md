@@ -5,7 +5,7 @@
 - 域名：`mmgg.dpdns.org`
 - 部署方式：Docker Compose + 宝塔 Nginx 反向代理
 - 数据策略：不迁移历史数据（全新部署）
-- Ollama 模型：`nomic-embed-text:latest`
+- Ollama 模型：`bge-m3`（默认嵌入）+ `nomic-embed-text`（备选）
 
 ## 1. 先做 DNS 与安全组
 
@@ -18,7 +18,7 @@
 - `80/tcp`（HTTP）
 - `443/tcp`（HTTPS）
 
-说明：容器端口使用 `127.0.0.1` 绑定，不需要对公网放行 `8080/5173/5432/6379/9000/9001/11434`。
+说明：容器端口使用 `127.0.0.1` 绑定，不需要对公网放行 `8080/5173/5432/6379/9000/9001/11434/8989`。
 
 ## 2. 安装 Docker 与宝塔
 
@@ -65,12 +65,14 @@ cd /opt/MyProject-SDAgent/deploy
 
 关键说明：
 - `deploy.sh` 会自动执行 `docker compose up -d --build --remove-orphans`
-- `deploy.sh` 会等待 `postgres / redis / minio / ollama / backend / frontend` 全部就绪
-- `deploy.sh` 会检查 `nomic-embed-text:latest` 是否已拉取
+- `deploy.sh` 会等待 `postgres / redis / minio / ollama / reranker / backend / frontend` 全部就绪
+- `deploy.sh` 会检查 `bge-m3` 是否已拉取
+- `deploy.sh` 会检查 `reranker` 容器健康状态（模型加载完成才视为就绪）
 - `deploy.sh` 会检查 `/actuator/health` 中 `knowledgeMigration=UP`，确认知识库迁移和重入库已完成
-- 如果任何一步失败，脚本会自动打印 `ollama-init / backend / frontend` 的关键日志并退出非 0
-- `ollama-init` 会自动执行 `ollama pull nomic-embed-text:latest`
-- 后端启动后会自动把旧知识库文档迁移到 `ollama:nomic-embed-text` 并重新入库，健康检查会等迁移结束再通过
+- 如果任何一步失败，脚本会自动打印 `ollama-init / reranker / backend / frontend` 的关键日志并退出非 0
+- `ollama-init` 会自动执行 `ollama pull bge-m3 && ollama pull nomic-embed-text:latest`
+- `reranker` 容器启动时会从 HuggingFace 下载 `BAAI/bge-reranker-v2-m3` 模型（首次启动需数分钟）
+- 后端启动后会自动把旧知识库文档迁移到 `ollama:bge-m3` 并重新入库，健康检查会等迁移结束再通过
 - 前端仅监听 `127.0.0.1:5173`
 - 后端仅监听 `127.0.0.1:8080`
 - 若启用了管理员“模型管理”，生产环境应显式配置模型密钥加密主密钥，避免依赖默认回退逻辑
@@ -85,7 +87,8 @@ docker compose ps
 
 脚本已经自动校验以下项目：
 - `ollama-init` 成功退出
-- `policy-agent-ollama` 中存在 `nomic-embed-text:latest`
+- `policy-agent-ollama` 中存在 `bge-m3`
+- `policy-agent-reranker` 容器健康状态为 `healthy`
 - `http://127.0.0.1:8080/actuator/health` 返回 `status=UP`
 - `knowledgeMigration.status=UP`
 - `http://127.0.0.1:5173/health` 返回成功
@@ -94,6 +97,7 @@ docker compose ps
 
 ```bash
 docker compose logs ollama-init --tail=200
+docker compose logs reranker --tail=200
 docker compose logs backend --tail=200
 docker compose logs frontend --tail=100
 docker exec -it policy-agent-ollama ollama list
@@ -141,6 +145,7 @@ cd /opt/MyProject-SDAgent/deploy
 docker compose logs -f backend
 docker compose logs -f frontend
 docker compose logs -f ollama
+docker compose logs -f reranker
 
 # 更新
 git pull

@@ -102,20 +102,21 @@ cd MyProject-SDAgent
 
 ### 4.1 启动基础设施
 
-项目依赖 4 个基础服务：PostgreSQL（数据库）、Redis（缓存）、MinIO（文件存储）、Ollama（本地嵌入模型）。我们已经用 Docker 配好了，一条命令就能全部启动。
+项目依赖 5 个基础服务：PostgreSQL（数据库）、Redis（缓存）、MinIO（文件存储）、Ollama（本地嵌入模型）、Reranker（本地重排序模型）。我们已经用 Docker 配好了，一条命令就能全部启动。
 
 ```bash
 # 进入后端目录
 cd backend
 
 # 启动所有基础设施（不含后端本身）
-docker compose up -d postgres redis minio ollama ollama-init
+docker compose up -d postgres redis minio ollama ollama-init reranker
 ```
 
 **这一步做了什么？**
-- 下载 4 个 Docker 镜像（首次需要几分钟，取决于网速）
-- 启动 4 个容器 + 1 个初始化任务
-- `ollama-init` 会自动下载嵌入模型 `nomic-embed-text`（约 274MB），下载完自动退出
+- 下载 5 个 Docker 镜像（首次需要几分钟，取决于网速）
+- 启动 5 个容器 + 1 个初始化任务
+- `ollama-init` 会自动下载嵌入模型 `bge-m3`（约 1.2GB）和 `nomic-embed-text`（约 274MB），下载完自动退出
+- `reranker` 首次启动时会从 HuggingFace 下载 `bge-reranker-v2-m3` 模型（约 2.2GB），需数分钟
 
 **检查是否启动成功：**
 
@@ -272,9 +273,9 @@ chmod +x deploy-windows.sh
 填写完毕后，脚本会显示配置汇总让你确认。确认后，脚本会自动：
 
 1. 检测 Docker 是否就绪
-2. 检测端口是否被占用（5432/6379/9000/9001/11434/8080/5173）
+2. 检测端口是否被占用（5432/6379/9000/9001/11434/8989/8080/5173）
 3. 将配置写入 `deploy/.env` 文件
-4. 构建并启动所有 7 个容器（postgres / redis / minio / ollama / ollama-init / backend / frontend）
+4. 构建并启动所有 8 个容器（postgres / redis / minio / ollama / ollama-init / reranker / backend / frontend）
 5. 等待每个容器健康就绪
 6. 验证后端 API 和前端页面可访问
 
@@ -573,7 +574,7 @@ netstat -ano | findstr :8080
 `ollama-init` 容器负责下载嵌入模型，如果网络不好可能失败。手动下载：
 
 ```bash
-docker exec -it policy-agent-ollama ollama pull nomic-embed-text
+docker exec -it policy-agent-ollama ollama pull bge-m3
 ```
 
 ### Q: 前端页面打开了但聊天没反应
@@ -641,7 +642,7 @@ cd deploy && docker compose down -v
 ```bash
 # === 基础设施 ===
 cd backend
-docker compose up -d postgres redis minio ollama ollama-init   # 启动
+docker compose up -d postgres redis minio ollama ollama-init reranker   # 启动
 docker compose ps                                                # 查看状态
 docker compose logs -f <服务名>                                  # 查看日志
 docker compose down                                              # 停止（保留数据）
@@ -702,7 +703,8 @@ docker compose down -v                                          # 停止并清�
 | 6379 | Redis | 缓存 |
 | 9000 | MinIO API | 文件存储接口 |
 | 9001 | MinIO Console | 文件管理网页 |
-| 11434 | Ollama | 本地嵌入模型 |
+| 11434 | Ollama | 本地嵌入模型（bge-m3） |
+| 8989 | Reranker | 本地重排序模型（bge-reranker-v2-m3） |
 
 ---
 
