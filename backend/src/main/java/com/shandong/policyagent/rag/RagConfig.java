@@ -102,14 +102,19 @@ public class RagConfig {
         private boolean rerankEnabled = true;
 
         /**
+         * 重排序服务商标识：dashscope | xinference | tei
+         */
+        private String rerankProvider = "tei";
+
+        /**
          * 重排序模型名
          */
-        private String rerankModel = "qwen3-vl-rerank";
+        private String rerankModel = "bge-reranker-v2-m3";
 
         /**
          * 重排序接口地址
          */
-        private String rerankEndpoint = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
+        private String rerankEndpoint = "http://localhost:8989/rerank";
 
         /**
          * 发送给 rerank 的单条文档最大字符数
