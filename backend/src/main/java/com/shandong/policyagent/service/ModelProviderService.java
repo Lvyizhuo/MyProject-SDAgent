@@ -36,12 +36,13 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class ModelProviderService {
 
-    private static final String BUILT_IN_NOMIC_EMBEDDING_ID = EmbeddingService.BUILT_IN_DEFAULT_MODEL_ID;
+    private static final String BUILT_IN_EMBEDDING_ID = EmbeddingService.BUILT_IN_DEFAULT_MODEL_ID;
 
     private final ModelProviderRepository modelProviderRepository;
     private final ApiKeyCipherService apiKeyCipherService;
     private final RestClient.Builder restClientBuilder;
     private final EmbeddingService embeddingService;
+    private final com.shandong.policyagent.rag.RagConfig ragConfig;
 
     @Value("${app.model-provider.direct.connect-timeout-seconds:10}")
     private int directConnectTimeoutSeconds;
@@ -61,7 +62,10 @@ public class ModelProviderService {
                 .toList();
 
         if (type == null || type == ModelType.EMBEDDING) {
-            return prependBuiltInNomicEmbedding(responses);
+            return prependBuiltInEmbedding(responses);
+        }
+        if (type == ModelType.RERANK) {
+            return prependBuiltInRerank(responses);
         }
         return responses;
     }
@@ -222,26 +226,28 @@ public class ModelProviderService {
                     .toList();
             if (type == ModelType.EMBEDDING) {
                 options = mergeBuiltInEmbeddingOption(options);
+            } else if (type == ModelType.RERANK) {
+                options = mergeBuiltInRerankOption(options);
             }
             result.put(type.name(), options);
         }
         return result;
     }
 
-    private List<ModelProviderResponse> prependBuiltInNomicEmbedding(List<ModelProviderResponse> managedModels) {
-        if (!embeddingService.hasModel(BUILT_IN_NOMIC_EMBEDDING_ID)) {
+    private List<ModelProviderResponse> prependBuiltInEmbedding(List<ModelProviderResponse> managedModels) {
+        if (!embeddingService.hasModel(BUILT_IN_EMBEDDING_ID)) {
             return managedModels;
         }
 
-        EmbeddingModelConfig.EmbeddingModel builtInModel = embeddingService.getModelConfig(BUILT_IN_NOMIC_EMBEDDING_ID);
+        EmbeddingModelConfig.EmbeddingModel builtInModel = embeddingService.getModelConfig(BUILT_IN_EMBEDDING_ID);
         ModelProviderResponse builtInResponse = ModelProviderResponse.builder()
                 .id(null)
-                .name("nomic-embed-text（系统内置）")
+                .name(builtInModel.getModelName() + "（系统内置）")
                 .type(ModelType.EMBEDDING)
                 .provider(builtInModel.getProvider())
                 .apiUrl(builtInModel.getBaseUrl())
                 .modelName(builtInModel.getModelName())
-                .builtinCode(BUILT_IN_NOMIC_EMBEDDING_ID)
+                .builtinCode(BUILT_IN_EMBEDDING_ID)
                 .dimensions(builtInModel.getDimensions())
                 .temperature(null)
                 .maxTokens(null)
@@ -261,19 +267,81 @@ public class ModelProviderService {
         return merged;
     }
 
+    private List<ModelProviderResponse> prependBuiltInRerank(List<ModelProviderResponse> managedModels) {
+        String rerankModel = ragConfig.getRetrieval().getRerankModel();
+        String rerankProvider = ragConfig.getRetrieval().getRerankProvider();
+        if (rerankModel == null || rerankModel.isBlank()) {
+            return managedModels;
+        }
+
+        String displayName = rerankProvider != null && !rerankProvider.isBlank()
+                ? rerankModel + "（系统内置 · " + rerankProvider + "）"
+                : rerankModel + "（系统内置）";
+
+        ModelProviderResponse builtInResponse = ModelProviderResponse.builder()
+                .id(null)
+                .name(displayName)
+                .type(ModelType.RERANK)
+                .provider(rerankProvider != null ? rerankProvider : "tei")
+                .apiUrl(ragConfig.getRetrieval().getRerankEndpoint())
+                .modelName(rerankModel)
+                .builtinCode("system:" + rerankModel)
+                .temperature(null)
+                .maxTokens(null)
+                .topP(null)
+                .isDefault(true)
+                .isEnabled(true)
+                .builtIn(true)
+                .createdAt(null)
+                .updatedAt(null)
+                .build();
+
+        List<ModelProviderResponse> merged = new ArrayList<>();
+        merged.add(builtInResponse);
+        merged.addAll(managedModels.stream()
+                .filter(model -> !Boolean.TRUE.equals(model.getBuiltIn()))
+                .toList());
+        return merged;
+    }
+
     private List<ModelOption> mergeBuiltInEmbeddingOption(List<ModelOption> managedOptions) {
-        if (!embeddingService.hasModel(BUILT_IN_NOMIC_EMBEDDING_ID)) {
+        if (!embeddingService.hasModel(BUILT_IN_EMBEDDING_ID)) {
             return managedOptions;
         }
 
-        EmbeddingModelConfig.EmbeddingModel builtInDefaultModel = embeddingService.getModelConfig(BUILT_IN_NOMIC_EMBEDDING_ID);
+        EmbeddingModelConfig.EmbeddingModel builtInDefaultModel = embeddingService.getModelConfig(BUILT_IN_EMBEDDING_ID);
 
         ModelOption builtInOption = ModelOption.builder()
                 .id(null)
                 .name("系统内置默认 · " + builtInDefaultModel.getProvider() + " - " + builtInDefaultModel.getModelName())
                 .isDefault(true)
                 .builtIn(true)
-                .builtinCode(BUILT_IN_NOMIC_EMBEDDING_ID)
+                .builtinCode(BUILT_IN_EMBEDDING_ID)
+                .build();
+
+        List<ModelOption> result = new java.util.ArrayList<>();
+        result.add(builtInOption);
+        result.addAll(managedOptions);
+        return result;
+    }
+
+    private List<ModelOption> mergeBuiltInRerankOption(List<ModelOption> managedOptions) {
+        String rerankModel = ragConfig.getRetrieval().getRerankModel();
+        String rerankProvider = ragConfig.getRetrieval().getRerankProvider();
+        if (rerankModel == null || rerankModel.isBlank()) {
+            return managedOptions;
+        }
+
+        String displayName = rerankProvider != null && !rerankProvider.isBlank()
+                ? "系统内置默认 · " + rerankProvider + " - " + rerankModel
+                : "系统内置默认 · " + rerankModel;
+
+        ModelOption builtInOption = ModelOption.builder()
+                .id(null)
+                .name(displayName)
+                .isDefault(true)
+                .builtIn(true)
+                .builtinCode("system:" + rerankModel)
                 .build();
 
         List<ModelOption> result = new java.util.ArrayList<>();
