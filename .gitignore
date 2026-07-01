@@ -28,3 +28,5 @@ Thumbs.db
 **/.env
 !.env.example
 !**/.env.example
+
+.workbuddy/

@@ -132,8 +132,9 @@ app:
       similarity-threshold: 0.5
       candidate-top-k: 20
       rerank-enabled: true
-      rerank-model: qwen3-vl-rerank
-      rerank-endpoint: https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank
+      rerank-provider: ${APP_RAG_RERANK_PROVIDER:tei}
+      rerank-model: ${APP_RAG_RERANK_MODEL:bge-reranker-v2-m3}
+      rerank-endpoint: ${APP_RAG_RERANK_ENDPOINT:http://localhost:8989/rerank}
       rerank-max-doc-chars: 3000
 
   # Knowledge Base 配置 (新方式)
@@ -151,8 +152,15 @@ app:
       bucket-name: policy-documents
 
     embedding:
-      default-model: ollama:nomic-embed-text
+      default-model: ${APP_KNOWLEDGE_EMBEDDING_DEFAULT_MODEL:ollama:bge-m3}
       models:
+        - id: ollama:bge-m3
+          provider: ollama
+          base-url: ${APP_EMBEDDING_OLLAMA_BASE_URL:http://localhost:11434}
+          model-name: bge-m3
+          dimensions: 1024
+          vector-table: vector_store_ollama_bge_m3_1024
+          max-input-chars: 8000
         - id: ollama:nomic-embed-text
           provider: ollama
           base-url: ${APP_EMBEDDING_OLLAMA_BASE_URL:http://localhost:11434}
@@ -170,7 +178,7 @@ app:
           max-input-chars: 6000
     migration:
       enabled: ${APP_KNOWLEDGE_MIGRATION_ENABLED:false}
-      target-model: ${APP_KNOWLEDGE_MIGRATION_TARGET_MODEL:ollama:nomic-embed-text}
+      target-model: ${APP_KNOWLEDGE_MIGRATION_TARGET_MODEL:ollama:bge-m3}
     chunking:
       default-chunk-size: 900
       min-chunk-size-chars: 250

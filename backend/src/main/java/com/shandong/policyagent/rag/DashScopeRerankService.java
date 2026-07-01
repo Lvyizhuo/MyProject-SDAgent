@@ -47,7 +47,9 @@ public class DashScopeRerankService {
         }
 
         RerankRuntime runtime = resolveRuntime(rerankModelId, rerankModelName);
-        if (runtime.apiKey() == null || runtime.apiKey().isBlank()) {
+        // 本地推理服务（xinference / tei）不需要 API Key，仅 dashscope 需要
+        if ("dashscope".equalsIgnoreCase(runtime.provider())
+                && (runtime.apiKey() == null || runtime.apiKey().isBlank())) {
             log.warn("Rerank 被跳过：API Key 为空，回退纯向量检索 | model={}", runtime.modelName());
             return shrink(documents, topK);
         }
@@ -64,7 +66,7 @@ public class DashScopeRerankService {
                     docTexts.size(),
                     Math.min(topK, documents.size()));
 
-            Map<String, Object> response = callRerankEndpoint(runtime.endpoint(), runtime, query, docTexts, topK);
+            Object response = callRerankEndpoint(runtime.endpoint(), runtime, query, docTexts, topK);
 
             List<ScoredIndex> scores = parseScores(response);
             if (scores.isEmpty()) {
@@ -91,11 +93,13 @@ public class DashScopeRerankService {
             String fallbackEndpoint = buildDashScopeApiFallbackEndpoint(runtime.endpoint());
             if (isNotFoundError(e)
                     && fallbackEndpoint != null
-                    && !fallbackEndpoint.equals(runtime.endpoint())) {
+                    && !fallbackEndpoint.equals(runtime.endpoint())
+                    && !"xinference".equalsIgnoreCase(runtime.provider())
+                    && !"tei".equalsIgnoreCase(runtime.provider())) {
                 try {
                     log.warn("Rerank 调用返回 404，切换备用 endpoint 重试 | model={} | from={} | to={}",
                             runtime.modelName(), runtime.endpoint(), fallbackEndpoint);
-                    Map<String, Object> retriedResponse = callRerankEndpoint(
+                    Object retriedResponse = callRerankEndpoint(
                             fallbackEndpoint,
                             runtime,
                             query,
@@ -134,31 +138,57 @@ public class DashScopeRerankService {
         }
     }
 
-    private Map<String, Object> callRerankEndpoint(String endpoint,
-                                                   RerankRuntime runtime,
-                                                   String query,
-                                                   List<String> docTexts,
-                                                   int topK) {
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", runtime.modelName());
-        body.put("input", Map.of(
-                "query", query,
-                "documents", docTexts
-        ));
-        body.put("parameters", Map.of(
-                "top_n", Math.min(topK, docTexts.size()),
-                "return_documents", false
-        ));
+    private Object callRerankEndpoint(String endpoint,
+                                      RerankRuntime runtime,
+                                      String query,
+                                      List<String> docTexts,
+                                      int topK) {
+        String provider = runtime.provider() == null ? "dashscope" : runtime.provider().toLowerCase();
+        boolean isXinference = "xinference".equals(provider);
+        boolean isTei = "tei".equals(provider);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> response = RestClient.create()
+        Map<String, Object> body = new HashMap<>();
+
+        if (isTei) {
+            // TEI /rerank 格式：query + texts 顶层，无 model 字段，无 top_n
+            body.put("query", query);
+            body.put("texts", docTexts);
+            body.put("return_text", false);
+        } else if (isXinference) {
+            // Xinference /v1/rerank 格式
+            body.put("model", runtime.modelName());
+            body.put("query", query);
+            body.put("documents", docTexts);
+            body.put("top_n", Math.min(topK, docTexts.size()));
+            body.put("return_documents", false);
+        } else {
+            // DashScope 原生 rerank 格式
+            body.put("model", runtime.modelName());
+            body.put("input", Map.of(
+                    "query", query,
+                    "documents", docTexts
+            ));
+            body.put("parameters", Map.of(
+                    "top_n", Math.min(topK, docTexts.size()),
+                    "return_documents", false
+            ));
+        }
+
+        var requestSpec = RestClient.create()
                 .post()
                 .uri(endpoint)
-                .header("Authorization", "Bearer " + runtime.apiKey())
-                .header("Content-Type", "application/json")
+                .header("Content-Type", "application/json");
+
+        // 本地推理服务（xinference / tei）无需鉴权
+        if (!isXinference && !isTei && runtime.apiKey() != null && !runtime.apiKey().isBlank()) {
+            requestSpec = requestSpec.header("Authorization", "Bearer " + runtime.apiKey());
+        }
+
+        // TEI 返回顶层数组，DashScope/Xinference 返回 Map，用 Object 统一接收
+        Object response = requestSpec
                 .body(body)
                 .retrieve()
-                .body(Map.class);
+                .body(Object.class);
         return response == null ? Map.of() : response;
     }
 
@@ -166,8 +196,9 @@ public class DashScopeRerankService {
         if (rerankModelId != null) {
             try {
                 ModelProvider model = modelProviderService.getModelEntityForRuntime(rerankModelId, ModelType.RERANK);
-                String endpoint = normalizeRerankEndpoint(model.getApiUrl());
-                return new RerankRuntime(model.getModelName(), endpoint, model.getApiKey());
+                String provider = model.getProvider() != null ? model.getProvider() : "dashscope";
+                String endpoint = normalizeRerankEndpoint(model.getApiUrl(), provider);
+                return new RerankRuntime(model.getModelName(), endpoint, model.getApiKey(), provider);
             } catch (Exception exception) {
                 log.warn("知识库绑定的重排模型不可用，回退到系统配置 | modelId={} | error={}", rerankModelId, exception.getMessage());
             }
@@ -176,10 +207,18 @@ public class DashScopeRerankService {
         String modelName = (rerankModelName != null && !rerankModelName.isBlank())
                 ? rerankModelName
                 : ragConfig.getRetrieval().getRerankModel();
-        return new RerankRuntime(modelName, normalizeRerankEndpoint(ragConfig.getRetrieval().getRerankEndpoint()), apiKey);
+        String provider = ragConfig.getRetrieval().getRerankProvider() != null
+                ? ragConfig.getRetrieval().getRerankProvider()
+                : "dashscope";
+        return new RerankRuntime(
+                modelName,
+                normalizeRerankEndpoint(ragConfig.getRetrieval().getRerankEndpoint(), provider),
+                apiKey,
+                provider
+        );
     }
 
-    private String normalizeRerankEndpoint(String endpointOrBaseUrl) {
+    private String normalizeRerankEndpoint(String endpointOrBaseUrl, String provider) {
         if (endpointOrBaseUrl == null || endpointOrBaseUrl.isBlank()) {
             return ragConfig.getRetrieval().getRerankEndpoint();
         }
@@ -188,6 +227,13 @@ public class DashScopeRerankService {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
 
+        // 本地推理服务（xinference / tei）：端点直接透传，不做路径补全
+        if ("xinference".equalsIgnoreCase(provider)
+                || "tei".equalsIgnoreCase(provider)) {
+            return normalized;
+        }
+
+        // DashScope: 智能补全 rerank 路径
         if (normalized.contains("dashscope.aliyuncs.com/compatible-mode/v1/services/rerank/")) {
             return normalized.replace("/compatible-mode/v1/services/rerank/", "/api/v1/services/rerank/");
         }
@@ -244,26 +290,48 @@ public class DashScopeRerankService {
         return results;
     }
 
-    private List<ScoredIndex> parseScores(Map<String, Object> response) {
+    private List<ScoredIndex> parseScores(Object response) {
         if (response == null) {
             return List.of();
         }
-        Object outputObj = response.get("output");
-        if (!(outputObj instanceof Map<?, ?> output)) {
-            return List.of();
+
+        // TEI 返回顶层数组：[{index, score}, ...]
+        if (response instanceof List<?> directList) {
+            return extractScores(directList);
         }
-        Object resultsObj = output.get("results");
-        if (!(resultsObj instanceof List<?> resultList)) {
+
+        if (!(response instanceof Map<?, ?> responseMap)) {
             return List.of();
         }
 
+        // DashScope 格式：output.results
+        Object resultsObj = null;
+        Object outputObj = responseMap.get("output");
+        if (outputObj instanceof Map<?, ?> output) {
+            resultsObj = output.get("results");
+        }
+
+        // Xinference 格式：顶层 results
+        if (resultsObj == null) {
+            resultsObj = responseMap.get("results");
+        }
+
+        if (resultsObj instanceof List<?> resultList) {
+            return extractScores(resultList);
+        }
+
+        return List.of();
+    }
+
+    private List<ScoredIndex> extractScores(List<?> resultList) {
         List<ScoredIndex> scores = new ArrayList<>();
         for (Object rowObj : resultList) {
             if (!(rowObj instanceof Map<?, ?> row)) {
                 continue;
             }
             int index = toInt(row.get("index"), -1);
-            double score = toDouble(row.get("relevance_score"), 0.0);
+            // TEI 用 score，DashScope/Xinference 用 relevance_score
+            double score = toDouble(row.get("relevance_score"), toDouble(row.get("score"), 0.0));
             if (index >= 0) {
                 scores.add(new ScoredIndex(index, score));
             }
@@ -314,6 +382,6 @@ public class DashScopeRerankService {
     private record ScoredIndex(int index, double score) {
     }
 
-    private record RerankRuntime(String modelName, String endpoint, String apiKey) {
+    private record RerankRuntime(String modelName, String endpoint, String apiKey, String provider) {
     }
 }
