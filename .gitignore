@@ -30,3 +30,5 @@ Thumbs.db
 !**/.env.example
 
 .workbuddy/
+
+tmp/

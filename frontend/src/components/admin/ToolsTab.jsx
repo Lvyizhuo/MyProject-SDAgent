@@ -1,133 +1,241 @@
-import React, { useMemo, useState } from 'react';
-import { Bot, Link2, ShieldCheck, Wrench, ChevronRight, Sparkles, Workflow, PlugZap } from 'lucide-react';
-import './ToolsTab.css';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+    Globe,
+    Calculator,
+    FileText,
+    Code2,
+    Plus,
+    Search
+} from 'lucide-react';
+import { adminToolApi } from '../../services/adminToolApi';
+import './admin-card.css';
 
-const TOOL_SECTIONS = [
-    {
-        id: 'orchestration',
-        label: '统一编排',
-        eyebrow: 'Phase 01',
-        icon: Workflow,
-        title: '统一工具编排',
-        description: '按场景集中管理补贴计算、文件解析、联网搜索等工具，统一启停、路由和失败回退策略。',
-        highlights: ['按业务场景启用工具组合', '为不同工具设定调用优先级', '让工具失败提示和降级路径保持一致']
-    },
-    {
-        id: 'integration',
-        label: '服务接入',
-        eyebrow: 'Phase 02',
-        icon: PlugZap,
-        title: '外部服务接入',
-        description: '集中维护第三方接口地址、鉴权方式与连通性检测，减少配置分散导致的排障成本。',
-        highlights: ['统一保存 API 地址和密钥', '提供服务可用性测试入口', '把不同来源的接入方式汇总到同一处']
-    },
-    {
-        id: 'governance',
-        label: '反馈治理',
-        eyebrow: 'Phase 03',
-        icon: ShieldCheck,
-        title: '运行反馈闭环',
-        description: '把调用日志、失败策略、权限控制和风险提示沉淀到同一套治理面板，保证管理员的操作结果更可追踪。',
-        highlights: ['沉淀工具调用日志和错误上下文', '为高风险工具增加权限控制', '统一展示执行结果与异常提醒']
-    }
+const SECTION_TABS = [
+    { id: 'all', label: '全部' },
+    { id: 'web', label: '联网' },
+    { id: 'calc', label: '计算' },
+    { id: 'parse', label: '解析' },
+    { id: 'external', label: '外部 API' }
 ];
 
+const STATUS_FILTERS = [
+    { id: 'all', label: '全部状态' },
+    { id: 'enabled', label: '● 已启用' },
+    { id: 'disabled', label: '● 已停用' }
+];
+
+const ICON_MAP = {
+    Globe,
+    Calculator,
+    FileText,
+    Code2
+};
+
+const ICON_TONE_MAP = {
+    Globe: 'tone-secondary',
+    Calculator: 'tone-success',
+    FileText: 'tone-accent',
+    Code2: 'tone-warning'
+};
+
+const CATEGORY_MAP = {
+    web: 'web',
+    calc: 'calc',
+    parse: 'parse',
+    external: 'external'
+};
+
 const ToolsTab = () => {
-    const [activeSectionId, setActiveSectionId] = useState(TOOL_SECTIONS[0].id);
+    const [tools, setTools] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [sectionTab, setSectionTab] = useState('all');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [search, setSearch] = useState('');
+    const [pending, setPending] = useState(null);
 
-    const activeSection = useMemo(
-        () => TOOL_SECTIONS.find((section) => section.id === activeSectionId) || TOOL_SECTIONS[0],
-        [activeSectionId]
-    );
+    useEffect(() => {
+        loadTools();
+    }, []);
 
-    const ActiveIcon = activeSection.icon;
+    const loadTools = async () => {
+        setLoading(true);
+        try {
+            const data = await adminToolApi.listTools();
+            setTools(Array.isArray(data) ? data : []);
+            setError('');
+        } catch (err) {
+            setError(err.message || '加载工具失败');
+            setTools([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleToggle = async (tool, e) => {
+        e.stopPropagation();
+        const next = !tool.enabled;
+        setPending(tool.id);
+        try {
+            await adminToolApi.setEnabled(tool.id, next);
+            setTools((prev) => prev.map((t) => (t.id === tool.id ? { ...t, enabled: next } : t)));
+        } catch (err) {
+            setError(err.message || '更新失败');
+        } finally {
+            setPending(null);
+        }
+    };
+
+    const handleTest = async (tool, e) => {
+        e.stopPropagation();
+        try {
+            const result = await adminToolApi.testTool(tool.id);
+            alert(result.message || `测试完成：${result.ok ? '✓ 成功' : '✗ 失败'}`);
+        } catch (err) {
+            alert(`测试失败：${err.message}`);
+        }
+    };
+
+    const counts = useMemo(() => {
+        const enabled = tools.filter((t) => t.enabled).length;
+        const disabled = tools.length - enabled;
+        return { enabled, disabled };
+    }, [tools]);
+
+    const filtered = useMemo(() => {
+        return tools.filter((t) => {
+            if (sectionTab !== 'all' && t.category !== CATEGORY_MAP[sectionTab]) return false;
+            if (statusFilter === 'enabled' && !t.enabled) return false;
+            if (statusFilter === 'disabled' && t.enabled) return false;
+            if (search) {
+                const kw = search.toLowerCase();
+                return (
+                    (t.name || '').toLowerCase().includes(kw) ||
+                    (t.code || '').toLowerCase().includes(kw) ||
+                    (t.description || '').toLowerCase().includes(kw)
+                );
+            }
+            return true;
+        });
+    }, [tools, sectionTab, statusFilter, search]);
 
     return (
-        <div className="tools-tab">
-            <div className="tools-header">
-                <div className="tools-header-main">
-                    <span className="tools-eyebrow">工具中心</span>
-                    <h2>工具管理</h2>
-                    <p>当前先统一管理信息架构和规划态展示，后续工具接入会延续知识库与模型页相同的浏览方式、提示反馈和操作节奏。</p>
-                </div>
-                <div className="tools-header-badge">
-                    <Sparkles size={16} />
-                    <span>规划中</span>
+        <section className="admin-card-section">
+            <div className="admin-card-section-head">
+                <h2 className="admin-card-section-title">工具</h2>
+                <span className="admin-card-section-sub">Tools · 智能体可调用的能力</span>
+                <nav className="admin-card-section-tabs">
+                    {SECTION_TABS.map((tab) => (
+                        <button
+                            key={tab.id}
+                            className={`admin-card-section-tab ${sectionTab === tab.id ? 'active' : ''}`}
+                            onClick={() => setSectionTab(tab.id)}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
+                <div className="admin-card-section-search">
+                    <Search size={14} />
+                    <input
+                        placeholder="搜索工具..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
                 </div>
             </div>
 
-            <div className="tools-content">
-                <aside className="tools-sidebar">
-                    <div className="tools-sidebar-header">
-                        <h3>规划模块</h3>
-                    </div>
-                    <div className="tools-nav-list">
-                        {TOOL_SECTIONS.map((section) => {
-                            const SectionIcon = section.icon;
-                            const isActive = section.id === activeSectionId;
-                            return (
-                                <button
-                                    key={section.id}
-                                    type="button"
-                                    className={`tools-nav-item ${isActive ? 'active' : ''}`}
-                                    onClick={() => setActiveSectionId(section.id)}
-                                >
-                                    <div className="tools-nav-copy">
-                                        <span>{section.label}</span>
-                                        <small>{section.eyebrow}</small>
+            <div className="admin-card-filter-bar">
+                {STATUS_FILTERS.map((f) => (
+                    <button
+                        key={f.id}
+                        className={`admin-card-filter-pill ${statusFilter === f.id ? 'active' : ''}`}
+                        onClick={() => setStatusFilter(f.id)}
+                    >
+                        {f.label}
+                        {f.id === 'enabled' && counts.enabled > 0 && <span> {counts.enabled}</span>}
+                        {f.id === 'disabled' && counts.disabled > 0 && <span> {counts.disabled}</span>}
+                    </button>
+                ))}
+            </div>
+
+            {error && <div className="admin-card-error">{error}</div>}
+            {loading && <div className="admin-card-loading">加载中…</div>}
+
+            <div className="admin-card-grid">
+                {filtered.map((tool) => {
+                    const Icon = ICON_MAP[tool.icon] || FileText;
+                    const tone = ICON_TONE_MAP[tool.icon] || '';
+                    const isPending = pending === tool.id;
+                    return (
+                        <div className="admin-card" key={tool.id} onClick={() => alert(`配置「${tool.name}」`)}>
+                            <div className="admin-card-head-row">
+                                <div className="admin-card-icon-row">
+                                    <div className={`admin-card-icon ${tone}`}>
+                                        <Icon size={16} strokeWidth={2.2} />
                                     </div>
-                                    <SectionIcon size={16} />
+                                    <div className="admin-card-title-wrap">
+                                        <h3 className="admin-card-title">{tool.name}</h3>
+                                        <span className="admin-card-subtitle">{tool.code}</span>
+                                    </div>
+                                </div>
+                                <div
+                                    className={`admin-card-tool-toggle ${tool.enabled ? 'on' : ''}`}
+                                    onClick={(e) => handleToggle(tool, e)}
+                                    role="switch"
+                                    aria-checked={tool.enabled}
+                                    title={tool.enabled ? '点击停用' : '点击启用'}
+                                >
+                                    <div className="track" />
+                                    <div className="knob" />
+                                    {isPending && <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontSize: 9, color: 'white' }}>…</span>}
+                                </div>
+                            </div>
+                            <p className="admin-card-desc">{tool.description}</p>
+                            <div className="admin-card-meta">
+                                {tool.enabled ? (
+                                    <span className="live">已启用</span>
+                                ) : (
+                                    <span className="off">已停用</span>
+                                )}
+                                {tool.dailyCalls > 0 && (
+                                    <>
+                                        <span className="dot" />
+                                        <span><strong>{(tool.dailyCalls / 1000).toFixed(1)}k</strong> 调用/日</span>
+                                    </>
+                                )}
+                                {tool.usedByAgentCount > 0 && (
+                                    <>
+                                        <span className="dot" />
+                                        <span><strong>{tool.usedByAgentCount}</strong> 个 agent 使用</span>
+                                    </>
+                                )}
+                            </div>
+                            <div className="admin-card-actions">
+                                <button
+                                    className="admin-card-action primary"
+                                    onClick={(e) => { e.stopPropagation(); alert(`配置「${tool.name}」`); }}
+                                >
+                                    配置
                                 </button>
-                            );
-                        })}
-                    </div>
-                </aside>
-
-                <section className="tools-main">
-                    <div className="tools-main-header">
-                        <div>
-                            <div className="tools-main-title-row">
-                                <ActiveIcon size={18} />
-                                <h3>{activeSection.title}</h3>
+                                <button
+                                    className="admin-card-action"
+                                    onClick={(e) => handleTest(tool, e)}
+                                >
+                                    测试
+                                </button>
                             </div>
-                            <p>{activeSection.description}</p>
                         </div>
-                        <div className="tools-main-meta">
-                            <span><Wrench size={14} /> 待接入配置面板</span>
-                            <span><ChevronRight size={14} /> 统一右下提示已可复用</span>
-                        </div>
+                    );
+                })}
+                <div className="admin-card create" onClick={() => alert('新建工具（待实现）')}>
+                    <div className="plus">
+                        <Plus size={20} />
                     </div>
-
-                    <div className="tools-panels">
-                        <article className="tools-focus-card hero">
-                            <div className="tools-focus-icon">
-                                <ActiveIcon size={24} />
-                            </div>
-                            <div>
-                                <span className="tools-card-eyebrow">{activeSection.eyebrow}</span>
-                                <h4>{activeSection.title}</h4>
-                                <p>{activeSection.description}</p>
-                            </div>
-                        </article>
-
-                        <div className="tools-grid">
-                            {activeSection.highlights.map((item) => (
-                                <article key={item} className="tools-focus-card">
-                                    <Bot size={18} />
-                                    <h4>{item}</h4>
-                                    <p>该能力会沿用管理员控制台统一的弹层、通知和信息密度，避免每个模块各自形成一套交互习惯。</p>
-                                </article>
-                            ))}
-                            <article className="tools-focus-card muted">
-                                <Link2 size={18} />
-                                <h4>下一步接入真实配置</h4>
-                                <p>后续这里会补充工具开关、参数表单、连接测试和执行记录，不再新增另一种页面骨架。</p>
-                            </article>
-                        </div>
-                    </div>
-                </section>
+                    <div>新建工具</div>
+                </div>
             </div>
-        </div>
+        </section>
     );
 };
 
