@@ -1,0 +1,227 @@
+.admin-toptabs {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: 56px;
+    background: rgba(255, 255, 255, 0.85);
+    border-bottom: 1px solid var(--color-border-glass);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+
+.admin-toptabs-inner {
+    height: 100%;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 20px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 24px;
+}
+
+/* 品牌区靠左 */
+.admin-toptabs-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 4px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    cursor: pointer;
+    justify-self: start;
+}
+
+.admin-toptabs-brand:hover {
+    background: hsl(var(--color-bg-soft));
+}
+
+.brand-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: hsl(var(--color-text-inverse));
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-secondary)));
+    box-shadow: 0 4px 10px -2px hsl(var(--color-primary) / 0.45);
+    flex-shrink: 0;
+}
+
+.brand-text {
+    font-size: 15px;
+    font-weight: 700;
+    color: hsl(var(--color-title));
+}
+
+.brand-workspace {
+    font-size: 12px;
+    color: hsl(var(--color-text-muted));
+    padding-left: 8px;
+    border-left: 1px solid var(--color-border);
+    margin-left: 4px;
+    font-weight: 500;
+}
+
+/* 4 个 tab 严格居中 */
+.admin-toptabs-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    justify-self: center;
+}
+
+.admin-toptabs-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    color: hsl(var(--color-text-secondary));
+    transition: all var(--transition-fast);
+}
+
+.admin-toptabs-tab:hover {
+    background: hsl(var(--color-primary-light) / 0.5);
+    color: hsl(var(--color-primary));
+}
+
+.admin-toptabs-tab.active {
+    background: hsl(var(--color-primary-light));
+    color: hsl(var(--color-primary));
+    font-weight: 600;
+}
+
+/* 右侧操作 */
+.admin-toptabs-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    justify-self: end;
+}
+
+.admin-toptabs-icon-btn {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    border: 1px solid hsl(var(--color-border));
+    background: hsl(var(--color-bg-elevated));
+    color: hsl(var(--color-text-secondary));
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.admin-toptabs-icon-btn:hover {
+    color: hsl(var(--color-primary));
+    border-color: hsl(var(--color-primary) / 0.35);
+}
+
+.admin-toptabs-icon-btn .dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: hsl(var(--color-accent));
+    border: 2px solid hsl(var(--color-bg-elevated));
+}
+
+.admin-toptabs-user-wrap {
+    position: relative;
+}
+
+.admin-toptabs-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid hsl(var(--color-border));
+    border-radius: var(--radius-pill);
+    padding: 3px 10px 3px 3px;
+    background: hsl(var(--color-bg-elevated));
+    color: hsl(var(--color-text-main));
+    font-size: 13px;
+    font-weight: 500;
+    min-height: 32px;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-family: inherit;
+}
+
+.admin-toptabs-user:hover {
+    border-color: hsl(var(--color-primary) / 0.35);
+    color: hsl(var(--color-primary));
+}
+
+.user-avatar-mini {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-secondary)));
+    color: hsl(var(--color-text-inverse));
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.admin-toptabs-user .rotated {
+    transform: rotate(180deg);
+    transition: transform var(--transition-fast);
+}
+
+.admin-toptabs-dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    width: 160px;
+    border-radius: 12px;
+    background: hsl(var(--color-bg-elevated));
+    border: 1px solid hsl(var(--color-border));
+    box-shadow: var(--shadow-lg);
+    padding: 6px;
+    display: grid;
+    gap: 2px;
+    z-index: 51;
+}
+
+.admin-toptabs-dropdown button {
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    text-align: left;
+    color: hsl(var(--color-text-secondary));
+    padding: 8px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.admin-toptabs-dropdown button:hover {
+    background: hsl(var(--color-primary-light));
+    color: hsl(var(--color-primary));
+}
+
+@media (max-width: 720px) {
+    .brand-workspace {
+        display: none;
+    }
+
+    .admin-toptabs-user span:not(.user-avatar-mini):not(.rotated) {
+        display: none;
+    }
+}

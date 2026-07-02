@@ -1,251 +1,253 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
-import { adminApi } from '../../services/adminApi';
-import ModelListPanel from './ModelListPanel';
-import ModelFormModal from './ModelFormModal';
-import { useAdminConsole } from './useAdminConsole';
-import './ModelsTab.css';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+    Cpu,
+    Eye,
+    Mic,
+    BarChart3,
+    Server,
+    Plus,
+    Search
+} from 'lucide-react';
+import { adminModelApi } from '../../services/adminModelApi';
+import './admin-card.css';
 
-const MODEL_TYPES = [
-    { id: 'LLM', label: '大语言模型', description: '用于智能体对话' },
-    { id: 'VISION', label: '视觉模型', description: '用于图像分析' },
-    { id: 'AUDIO', label: '语音模型', description: '用于语音识别' },
-    { id: 'EMBEDDING', label: '嵌入模型', description: '用于向量嵌入' },
-    { id: 'RERANK', label: '重排序模型', description: '用于检索结果重排' }
+const SECTION_TABS = [
+    { id: 'all', label: '全部' },
+    { id: 'LLM', label: 'LLM' },
+    { id: 'VISION', label: '视觉' },
+    { id: 'AUDIO', label: '语音' },
+    { id: 'RERANK', label: '重排序' },
+    { id: 'EMBEDDING', label: '嵌入' }
 ];
 
-const ModelsTab = ({ intent }) => {
-    const { notify, confirm } = useAdminConsole();
-    const [activeSubTab, setActiveSubTab] = useState('LLM');
-    const [allModels, setAllModels] = useState([]);
-    const [modelsByType, setModelsByType] = useState({});
-    const [loading, setLoading] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
+const STATUS_FILTERS = [
+    { id: 'all', label: '全部' },
+    { id: 'default', label: '● 默认' },
+    { id: 'enabled', label: '● 已启用' },
+    { id: 'disabled', label: '● 已停用' }
+];
+
+const ICON_MAP = {
+    Cpu,
+    Eye,
+    Mic,
+    BarChart3,
+    Server
+};
+
+const ICON_TONE_MAP = {
+    Cpu: '',
+    Eye: 'tone-accent',
+    Mic: 'tone-warning',
+    BarChart3: 'tone-success',
+    Server: 'tone-secondary'
+};
+
+const STATUS_TONE = {
+    ok: { tone: 'ok', label: '连通正常' },
+    warn: { tone: 'warn', label: '响应较慢' },
+    err: { tone: 'err', label: '本地离线' }
+};
+
+const ModelsTab = () => {
+    const [models, setModels] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [showModal, setShowModal] = useState(false);
-    const [editingModel, setEditingModel] = useState(null);
-    const [testingId, setTestingId] = useState(null);
-    const requestSequenceRef = useRef(0);
-    const modelCacheRef = useRef({});
+    const [sectionTab, setSectionTab] = useState('all');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [search, setSearch] = useState('');
 
-    const loadModels = useCallback(async (targetType = activeSubTab, options = {}) => {
-        const { preserveContent = false } = options;
-        const requestId = ++requestSequenceRef.current;
+    useEffect(() => {
+        loadModels();
+    }, []);
 
-        if (preserveContent) {
-            setRefreshing(true);
-        } else {
-            setLoading(true);
+    const loadModels = async () => {
+        setLoading(true);
+        try {
+            const data = await adminModelApi.listModels();
+            setModels(Array.isArray(data) ? data : []);
             setError('');
-        }
-
-        try {
-            const [activeData, allData] = await Promise.all([
-                adminApi.getModels(targetType),
-                adminApi.getModels()
-            ]);
-
-            if (requestId !== requestSequenceRef.current) {
-                return;
-            }
-
-            modelCacheRef.current[targetType] = activeData;
-            setModelsByType((current) => ({
-                ...current,
-                [targetType]: activeData
-            }));
-            setAllModels(allData);
         } catch (err) {
-            if (requestId !== requestSequenceRef.current) {
-                return;
-            }
-
-            if (!preserveContent) {
-                setError(err.message || '加载模型列表失败');
-            }
-            notify({ text: err.message || '加载模型列表失败', type: 'error', source: '管理员-模型管理' });
+            setError(err.message || '加载模型失败');
+            setModels([]);
         } finally {
-            if (requestId === requestSequenceRef.current) {
-                setLoading(false);
-                setRefreshing(false);
+            setLoading(false);
+        }
+    };
+
+    const handleTest = async (model, e) => {
+        e.stopPropagation();
+        try {
+            const result = await adminModelApi.testConnection(model.id);
+            setModels((prev) =>
+                prev.map((m) => (m.id === model.id ? { ...m, status: result.status, latencyMs: result.latencyMs } : m))
+            );
+            alert(result.message || '测试完成');
+        } catch (err) {
+            alert(`测试失败：${err.message}`);
+        }
+    };
+
+    const handleSetDefault = async (model, e) => {
+        e.stopPropagation();
+        try {
+            await adminModelApi.setDefault(model.id);
+            await loadModels();
+        } catch (err) {
+            setError(err.message || '设置默认失败');
+        }
+    };
+
+    const counts = useMemo(() => {
+        const isDefault = models.filter((m) => m.isDefault).length;
+        const enabled = models.filter((m) => m.enabled).length;
+        const disabled = models.filter((m) => !m.enabled).length;
+        return { isDefault, enabled, disabled };
+    }, [models]);
+
+    const filtered = useMemo(() => {
+        return models.filter((m) => {
+            if (sectionTab !== 'all' && m.modelType !== sectionTab) return false;
+            if (statusFilter === 'default' && !m.isDefault) return false;
+            if (statusFilter === 'enabled' && !m.enabled) return false;
+            if (statusFilter === 'disabled' && m.enabled) return false;
+            if (search) {
+                const kw = search.toLowerCase();
+                return (
+                    (m.name || '').toLowerCase().includes(kw) ||
+                    (m.modelKey || '').toLowerCase().includes(kw) ||
+                    (m.provider || '').toLowerCase().includes(kw)
+                );
             }
-        }
-    }, [activeSubTab, notify]);
-
-    useEffect(() => {
-        const hasCachedModels = Object.prototype.hasOwnProperty.call(modelCacheRef.current, activeSubTab);
-        loadModels(activeSubTab, { preserveContent: hasCachedModels });
-    }, [activeSubTab, loadModels]);
-
-    useEffect(() => {
-        if (!intent?.nonce) {
-            return;
-        }
-        if (intent.modelType) {
-            setActiveSubTab(intent.modelType);
-        }
-        if (intent.openCreateModel) {
-            setEditingModel(null);
-            setShowModal(true);
-        }
-    }, [intent]);
-
-    const handleAdd = () => {
-        setEditingModel(null);
-        setShowModal(true);
-    };
-
-    const handleEdit = (model) => {
-        setEditingModel(model);
-        setShowModal(true);
-    };
-
-    const handleDelete = async (id) => {
-        const confirmed = await confirm({
-            title: '删除模型',
-            message: '确定要删除该模型吗？如果它正在被配置引用，后续需要重新指定。',
-            confirmText: '确认删除',
-            tone: 'danger'
+            return true;
         });
-        if (!confirmed) return;
-        try {
-            await adminApi.deleteModel(id);
-            notify({ text: '模型已删除', type: 'success', source: '管理员-模型管理' });
-            await loadModels(activeSubTab, { preserveContent: true });
-        } catch (err) {
-            notify({ text: err.message || '删除失败', type: 'error', source: '管理员-模型管理' });
-        }
-    };
-
-    const handleSetDefault = async (id) => {
-        try {
-            await adminApi.setDefaultModel(id);
-            notify({ text: '默认模型已更新', type: 'success', source: '管理员-模型管理' });
-            await loadModels(activeSubTab, { preserveContent: true });
-        } catch (err) {
-            notify({ text: err.message || '设置默认失败', type: 'error', source: '管理员-模型管理' });
-        }
-    };
-
-    const handleTest = async (id) => {
-        setTestingId(id);
-        try {
-            const result = await adminApi.testModelConnection(id);
-            if (result.success) {
-                notify({
-                    text: `连接测试成功，耗时 ${result.latencyMs ?? '-'} ms`,
-                    type: 'success',
-                    source: '管理员-模型管理'
-                });
-            } else {
-                notify({ text: `连接测试失败：${result.message || '未知错误'}`, type: 'error', source: '管理员-模型管理' });
-            }
-        } catch (err) {
-            notify({ text: `连接测试失败：${err.message || '未知错误'}`, type: 'error', source: '管理员-模型管理' });
-        } finally {
-            setTestingId(null);
-        }
-    };
-
-    const handleSave = async (modelData) => {
-        const targetType = modelData.type || activeSubTab;
-        if (editingModel) {
-            await adminApi.updateModel(editingModel.id, modelData);
-        } else {
-            await adminApi.createModel(modelData);
-        }
-        setShowModal(false);
-        if (targetType !== activeSubTab) {
-            notify({
-                text: `模型已保存到“${MODEL_TYPES.find(item => item.id === targetType)?.label || targetType}”分类，已为你切换过去`,
-                type: 'info',
-                source: '管理员-模型管理'
-            });
-            setActiveSubTab(targetType);
-        } else {
-            notify({ text: editingModel ? '模型已更新' : '模型已创建', type: 'success', source: '管理员-模型管理' });
-        }
-        await loadModels(targetType, { preserveContent: Object.prototype.hasOwnProperty.call(modelCacheRef.current, targetType) });
-    };
-
-    const activeType = MODEL_TYPES.find((type) => type.id === activeSubTab);
-    const models = modelsByType[activeSubTab] || [];
-    const typeCounts = useMemo(() => {
-        return allModels.reduce((accumulator, model) => {
-            accumulator[model.type] = (accumulator[model.type] || 0) + 1;
-            return accumulator;
-        }, {});
-    }, [allModels]);
+    }, [models, sectionTab, statusFilter, search]);
 
     return (
-        <div className="models-tab">
-            <div className="models-tab-header">
-                <div className="models-tab-header-main">
-                    <span className="models-tab-eyebrow">模型编排</span>
-                    <h2>模型服务管理</h2>
-                    <p className="models-tab-desc">统一管理对话、视觉、语音与嵌入模型。分类切换、列表查看和模型维护保持与知识库页一致的浏览方式。</p>
-                </div>
-                <div className="models-tab-header-actions">
-                    <button
-                        className="models-header-button secondary"
-                        onClick={() => loadModels(activeSubTab, { preserveContent: models.length > 0 })}
-                        disabled={loading || refreshing}
-                    >
-                        <RefreshCw size={16} />
-                        {refreshing ? '刷新中...' : '刷新'}
-                    </button>
-                    <button className="models-header-button primary" onClick={handleAdd}>
-                        <Plus size={16} />
-                        新增模型
-                    </button>
-                </div>
-            </div>
-
-            <div className="models-content">
-                <aside className="models-sidebar">
-                    <div className="models-sidebar-header">
-                        <h3>模型类型</h3>
-                    </div>
-                    <div className="models-type-list">
-                        {MODEL_TYPES.map((type) => (
-                            <button
-                                key={type.id}
-                                className={`models-type-item ${activeSubTab === type.id ? 'active' : ''}`}
-                                onClick={() => setActiveSubTab(type.id)}
-                            >
-                                <span>{type.label}</span>
-                                <strong>{typeCounts[type.id] || 0}</strong>
-                            </button>
-                        ))}
-                    </div>
-                </aside>
-
-                <section className="models-main">
-                    <ModelListPanel
-                        typeLabel={activeType?.label}
-                        models={models}
-                        loading={loading}
-                        refreshing={refreshing}
-                        error={error}
-                        onEdit={handleEdit}
-                        onDelete={handleDelete}
-                        onSetDefault={handleSetDefault}
-                        onTest={handleTest}
-                        testingId={testingId}
+        <section className="admin-card-section">
+            <div className="admin-card-section-head">
+                <h2 className="admin-card-section-title">模型</h2>
+                <span className="admin-card-section-sub">Models · LLM / 视觉 / 语音 / 重排序 / 嵌入</span>
+                <nav className="admin-card-section-tabs">
+                    {SECTION_TABS.map((tab) => (
+                        <button
+                            key={tab.id}
+                            className={`admin-card-section-tab ${sectionTab === tab.id ? 'active' : ''}`}
+                            onClick={() => setSectionTab(tab.id)}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
+                <div className="admin-card-section-search">
+                    <Search size={14} />
+                    <input
+                        placeholder="搜索模型..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
                     />
-                </section>
+                </div>
             </div>
 
-            {showModal && (
-                <ModelFormModal
-                    model={editingModel}
-                    type={activeSubTab}
-                    modelTypes={MODEL_TYPES}
-                    onSave={handleSave}
-                    onClose={() => setShowModal(false)}
-                />
-            )}
-        </div>
+            <div className="admin-card-filter-bar">
+                {STATUS_FILTERS.map((f) => (
+                    <button
+                        key={f.id}
+                        className={`admin-card-filter-pill ${statusFilter === f.id ? 'active' : ''}`}
+                        onClick={() => setStatusFilter(f.id)}
+                    >
+                        {f.label}
+                        {f.id === 'default' && counts.isDefault > 0 && <span> {counts.isDefault}</span>}
+                        {f.id === 'enabled' && counts.enabled > 0 && <span> {counts.enabled}</span>}
+                        {f.id === 'disabled' && counts.disabled > 0 && <span> {counts.disabled}</span>}
+                    </button>
+                ))}
+            </div>
+
+            {error && <div className="admin-card-error">{error}</div>}
+            {loading && <div className="admin-card-loading">加载中…</div>}
+
+            <div className="admin-card-grid">
+                {filtered.map((model) => {
+                    const Icon = ICON_MAP[model.icon] || Cpu;
+                    const tone = ICON_TONE_MAP[model.icon] || '';
+                    const status = STATUS_TONE[model.status] || STATUS_TONE.ok;
+                    const typeBadge = {
+                        LLM: 'primary',
+                        VISION: 'accent',
+                        AUDIO: 'warning',
+                        RERANK: 'secondary',
+                        EMBEDDING: 'success'
+                    }[model.modelType] || 'muted';
+                    return (
+                        <div className="admin-card" key={model.id} onClick={() => alert(`编辑模型「${model.name}」`)}>
+                            <div className="admin-card-head-row">
+                                <div className="admin-card-icon-row">
+                                    <div className={`admin-card-icon ${tone}`}>
+                                        <Icon size={16} strokeWidth={2.2} />
+                                    </div>
+                                    <div className="admin-card-title-wrap">
+                                        <h3 className="admin-card-title">{model.name}</h3>
+                                        <span className="admin-card-subtitle">
+                                            {model.provider} · {model.modelKey}
+                                        </span>
+                                    </div>
+                                </div>
+                                {model.isDefault ? (
+                                    <span className="admin-card-badge primary">默认</span>
+                                ) : (
+                                    <span className={`admin-card-badge ${typeBadge}`}>{model.modelTypeLabel || model.modelType}</span>
+                                )}
+                            </div>
+                            <p className="admin-card-desc">{model.description || '点击编辑模型参数与端点配置'}</p>
+                            <div className="admin-card-meta">
+                                <span className={`admin-card-test-dot ${status.tone}`}>{status.label}</span>
+                                {model.latencyMs != null && (
+                                    <>
+                                        <span className="dot" />
+                                        <span>avg <strong>{model.latencyMs}ms</strong></span>
+                                    </>
+                                )}
+                                {model.usedByAgentCount > 0 && (
+                                    <>
+                                        <span className="dot" />
+                                        <span><strong>{model.usedByAgentCount}</strong> 个 agent</span>
+                                    </>
+                                )}
+                            </div>
+                            <div className="admin-card-actions">
+                                <button
+                                    className="admin-card-action primary"
+                                    onClick={(e) => { e.stopPropagation(); alert(`编辑「${model.name}」`); }}
+                                >
+                                    编辑
+                                </button>
+                                <button
+                                    className="admin-card-action"
+                                    onClick={(e) => handleTest(model, e)}
+                                >
+                                    测试
+                                </button>
+                                {!model.isDefault && model.enabled && (
+                                    <button
+                                        className="admin-card-action"
+                                        onClick={(e) => handleSetDefault(model, e)}
+                                    >
+                                        设为默认
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    );
+                })}
+                <div className="admin-card create" onClick={() => alert('接入新模型（待实现）')}>
+                    <div className="plus">
+                        <Plus size={20} />
+                    </div>
+                    <div>接入新模型</div>
+                </div>
+            </div>
+        </section>
     );
 };
 
