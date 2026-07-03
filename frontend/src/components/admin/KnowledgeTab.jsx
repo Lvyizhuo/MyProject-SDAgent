@@ -391,10 +391,10 @@ const KnowledgeTab = () => {
                                     查看
                                 </button>
                                 <button className="admin-card-action" onClick={(e) => handleEditFolder(folder, e)}>
-                                    <Edit2 size={12} /> 编辑
+                                    编辑 <Edit2 size={12} />
                                 </button>
                                 <button className="admin-card-action danger" onClick={(e) => handleDeleteFolder(folder, e)}>
-                                    <Trash2 size={12} /> 删除
+                                    删除 <Trash2 size={12} />
                                 </button>
                             </div>
                         </div>

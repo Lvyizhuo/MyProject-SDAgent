@@ -392,7 +392,11 @@
     opacity: 1;
 }
 
+/* 按钮：文字在左，图标在右 */
 .admin-card-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     padding: 4px 10px;
     font-size: 11.5px;
     font-weight: 600;

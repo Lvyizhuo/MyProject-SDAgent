@@ -315,7 +315,7 @@ const ModelsTab = () => {
                                         className="admin-card-action primary"
                                         onClick={() => handleEdit(model)}
                                     >
-                                        <Edit2 size={12} /> 编辑
+                                        编辑 <Edit2 size={12} />
                                     </button>
                                 )}
                                 {!model.builtIn && (
@@ -331,7 +331,7 @@ const ModelsTab = () => {
                                         className="admin-card-action"
                                         onClick={(e) => handleSetDefault(model, e)}
                                     >
-                                        <Star size={12} /> 设为默认
+                                        设为默认 <Star size={12} />
                                     </button>
                                 )}
                                 {!model.builtIn && (
@@ -339,7 +339,7 @@ const ModelsTab = () => {
                                         className="admin-card-action"
                                         onClick={(e) => handleToggleEnabled(model, e)}
                                     >
-                                        <Power size={12} /> {model.isEnabled ? '停用' : '启用'}
+                                        {model.isEnabled ? '停用' : '启用'} <Power size={12} />
                                     </button>
                                 )}
                                 {!model.builtIn && (
@@ -347,7 +347,7 @@ const ModelsTab = () => {
                                         className="admin-card-action danger"
                                         onClick={() => setConfirmDelete(model)}
                                     >
-                                        <Trash2 size={12} /> 删除
+                                        删除 <Trash2 size={12} />
                                     </button>
                                 )}
                             </div>

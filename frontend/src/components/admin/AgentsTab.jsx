@@ -311,28 +311,28 @@ const AgentsTab = () => {
                                     className="admin-card-action primary"
                                     onClick={() => handleEdit(agent)}
                                 >
-                                    <Edit2 size={12} /> 编辑
+                                    编辑 <Edit2 size={12} />
                                 </button>
                                 {!agent.isDefault && (
                                     <button
                                         className="admin-card-action"
                                         onClick={() => handleSetDefault(agent)}
                                     >
-                                        <Star size={12} /> 设为默认
+                                        设为默认 <Star size={12} />
                                     </button>
                                 )}
                                 <button
                                     className="admin-card-action"
                                     onClick={() => handleDuplicate(agent)}
                                 >
-                                    <Copy size={12} /> 复制
+                                    复制 <Copy size={12} />
                                 </button>
                                 {!agent.isDefault && (
                                     <button
                                         className="admin-card-action danger"
                                         onClick={() => setConfirmDelete(agent)}
                                     >
-                                        <Trash2 size={12} /> 删除
+                                        删除 <Trash2 size={12} />
                                     </button>
                                 )}
                             </div>
