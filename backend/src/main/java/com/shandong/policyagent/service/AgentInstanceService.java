@@ -1,5 +1,6 @@
 package com.shandong.policyagent.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.entity.AgentInstance;
 import com.shandong.policyagent.entity.AgentModelBinding;
@@ -102,6 +103,23 @@ public class AgentInstanceService {
                 agent.setEnabledTools("[]");
             }
         }
+        // 提示词相关字段
+        if (request.getSystemPrompt() != null) agent.setSystemPrompt(request.getSystemPrompt());
+        if (request.getGreetingMessage() != null) agent.setGreetingMessage(request.getGreetingMessage());
+        if (request.getSkills() != null) {
+            try {
+                agent.setSkillsJson(objectMapper.writeValueAsString(request.getSkills()));
+            } catch (Exception e) {
+                agent.setSkillsJson("{}");
+            }
+        }
+        if (request.getMcpServersConfig() != null) {
+            try {
+                agent.setMcpServersConfig(objectMapper.writeValueAsString(request.getMcpServersConfig()));
+            } catch (Exception e) {
+                agent.setMcpServersConfig("[]");
+            }
+        }
         return toCardDto(agentRepository.save(agent));
     }
 
@@ -141,6 +159,10 @@ public class AgentInstanceService {
                 .version("0.1").dailyCalls(0L)
                 .enabledTools(source.getEnabledTools())
                 .knowledgeFolderId(source.getKnowledgeFolderId())
+                .systemPrompt(source.getSystemPrompt())
+                .greetingMessage(source.getGreetingMessage())
+                .skillsJson(source.getSkillsJson())
+                .mcpServersConfig(source.getMcpServersConfig())
                 .build();
         for (AgentModelBinding b : source.getBindings()) {
             copy.getBindings().add(AgentModelBinding.builder()
@@ -165,6 +187,8 @@ public class AgentInstanceService {
                 .isDefault(false).dailyCalls(0L)
                 .knowledgeFolderId(request.getKnowledgeFolderId())
                 .createdBy(user != null ? user.getId() : null)
+                .systemPrompt(request.getSystemPrompt() != null ? request.getSystemPrompt() : "")
+                .greetingMessage(request.getGreetingMessage() != null ? request.getGreetingMessage() : "")
                 .build();
         if (request.getBindings() != null) {
             for (AgentUpsertRequest.BindingDto b : request.getBindings()) {
@@ -176,6 +200,20 @@ public class AgentInstanceService {
                 agent.setEnabledTools(objectMapper.writeValueAsString(request.getEnabledTools()));
             } catch (Exception e) {
                 agent.setEnabledTools("[]");
+            }
+        }
+        if (request.getSkills() != null) {
+            try {
+                agent.setSkillsJson(objectMapper.writeValueAsString(request.getSkills()));
+            } catch (Exception e) {
+                agent.setSkillsJson("{}");
+            }
+        }
+        if (request.getMcpServersConfig() != null) {
+            try {
+                agent.setMcpServersConfig(objectMapper.writeValueAsString(request.getMcpServersConfig()));
+            } catch (Exception e) {
+                agent.setMcpServersConfig("[]");
             }
         }
         return agent;
@@ -200,13 +238,30 @@ public class AgentInstanceService {
                 .build();
     }
 
+    private static final Map<String, String> ROLE_LABELS = Map.of(
+            "LLM", "大语言模型",
+            "VISION", "视觉",
+            "AUDIO", "语音",
+            "EMBEDDING", "嵌入",
+            "RERANK", "重排序",
+            "FUNCTION", "函数工具"
+    );
+
     private AgentCardDto toCardDto(AgentInstance agent) {
         List<AgentCardDto.BindingDto> bindings = agent.getBindings().stream()
                 .map(b -> AgentCardDto.BindingDto.builder()
                         .role(b.getRole())
+                        .roleLabel(Optional.ofNullable(ROLE_LABELS.get(b.getRole())).orElse(b.getRole()))
+                        .modelId(b.getModelId())
+                        .toolCode(b.getToolCode())
                         .modelName(b.getDisplayName() != null ? b.getDisplayName() : fallbackName(b))
                         .build())
                 .collect(Collectors.toList());
+
+        // 反序列化 enabledTools / skills / mcpServersConfig
+        List<String> enabledTools = parseStringList(agent.getEnabledTools());
+        Map<String, Object> skills = parseMap(agent.getSkillsJson());
+        List<Map<String, Object>> mcpServersConfig = parseMapList(agent.getMcpServersConfig());
 
         return AgentCardDto.builder()
                 .id(agent.getId())
@@ -222,8 +277,41 @@ public class AgentInstanceService {
                 .version(agent.getVersion())
                 .dailyCalls(agent.getDailyCalls() != null ? agent.getDailyCalls() : 0L)
                 .updatedAtLabel(formatRelative(agent.getUpdatedAt()))
+                .knowledgeFolderId(agent.getKnowledgeFolderId())
                 .bindings(bindings)
+                .enabledTools(enabledTools)
+                .systemPrompt(agent.getSystemPrompt())
+                .greetingMessage(agent.getGreetingMessage())
+                .skills(skills)
+                .mcpServersConfig(mcpServersConfig)
                 .build();
+    }
+
+    private List<String> parseStringList(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private Map<String, Object> parseMap(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private List<Map<String, Object>> parseMapList(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     private String fallbackName(AgentModelBinding b) {

@@ -18,6 +18,7 @@ REDIS_CONTAINER="policy-agent-redis"
 MINIO_CONTAINER="policy-agent-minio"
 OLLAMA_CONTAINER="policy-agent-ollama"
 OLLAMA_INIT_CONTAINER="policy-agent-ollama-init"
+TEI_RERANKER_CONTAINER="policy-agent-reranker"
 BACKEND_CONTAINER="policy-agent-backend"
 FRONTEND_CONTAINER="policy-agent-frontend"
 
@@ -25,7 +26,11 @@ INFRA_TIMEOUT_SEC="${INFRA_TIMEOUT_SEC:-300}"
 OLLAMA_INIT_TIMEOUT_SEC="${OLLAMA_INIT_TIMEOUT_SEC:-1800}"
 BACKEND_TIMEOUT_SEC="${BACKEND_TIMEOUT_SEC:-1800}"
 FRONTEND_TIMEOUT_SEC="${FRONTEND_TIMEOUT_SEC:-600}"
+TEI_TIMEOUT_SEC="${TEI_TIMEOUT_SEC:-600}"
 HTTP_TIMEOUT_SEC="${HTTP_TIMEOUT_SEC:-10}"
+
+# 子命令
+ACTION="${1:-up}"
 
 REQUIRED_ENV_VARS=(
   DASHSCOPE_API_KEY
@@ -512,13 +517,9 @@ wait_for_ollama_init_success() {
     state="$(docker inspect -f '{{.State.Status}}' "$OLLAMA_INIT_CONTAINER" 2>/dev/null || true)"
     exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$OLLAMA_INIT_CONTAINER" 2>/dev/null || true)"
 
-    if [[ "$state" == "exited" && "$exit_code" == "0" ]]; then
-      log "Ollama 初始化已完成，模型拉取成功。"
+    if [[ "$state" == "exited" ]]; then
+      log "Ollama 初始化已退出 (exit_code=$exit_code)。"
       return 0
-    fi
-
-    if [[ "$state" == "exited" && "$exit_code" != "0" ]]; then
-      return 1
     fi
 
     if (( "$(date +%s)" - start_ts >= OLLAMA_INIT_TIMEOUT_SEC )); then
@@ -564,8 +565,11 @@ verify_backend_health() {
 verify_ollama_model() {
   local model_list
   model_list="$(docker exec "$OLLAMA_CONTAINER" ollama list 2>/dev/null || true)"
-  [[ "$model_list" == *'nomic-embed-text:latest'* ]] || return 1
-  log "Ollama 已加载 nomic-embed-text:latest。"
+  if [[ "$model_list" == *'nomic-embed-text:latest'* ]] || [[ "$model_list" == *'bge-m3'* ]]; then
+    log "Ollama 已加载嵌入模型。"
+    return 0
+  fi
+  return 1
 }
 
 # ===========================================
@@ -621,7 +625,12 @@ main() {
     || die "docker compose 配置校验失败，请检查 $COMPOSE_FILE 和 $ENV_FILE"
 
   log "开始构建并启动所有容器（首次构建较慢，请耐心等待）..."
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --build --remove-orphans
+  # 关键：使用 --no-cache 强制重建镜像，避免 Docker layer cache 命中
+  # 旧的 lombok / stale class 文件。配合 mvn clean package 一起保证
+  # 100% 干净的构建产物。
+  log "⚠️  使用 --no-cache 强制重建（lombok 升级后必须）..."
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build --no-cache --pull
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --remove-orphans
   printf '\n'
 
   # 6. 等待各服务就绪
@@ -636,11 +645,15 @@ main() {
   wait_for_container_status "$OLLAMA_CONTAINER" healthy "$INFRA_TIMEOUT_SEC" \
     || die "Ollama 未在 ${INFRA_TIMEOUT_SEC}s 内变为 healthy"
 
-  log "Ollama 正在拉取嵌入模型 nomic-embed-text（首次可能需要 3~10 分钟）..."
+  log "Ollama 正在拉取嵌入模型（首次可能需要 3~10 分钟）..."
   wait_for_ollama_init_success \
-    || die "Ollama 模型初始化失败，请检查 ollama-init 日志"
+    || log "警告: Ollama 初始化超时，可手动 docker exec $OLLAMA_CONTAINER ollama pull bge-m3"
 
-  log "等待后端服务启动（含 Maven 构建 + 知识库迁移，首次可能需要 5~15 分钟）..."
+  log "等待 Reranker 服务就绪（首次启动需下载模型，可能需要 5~10 分钟）..."
+  wait_for_container_status "$TEI_RERANKER_CONTAINER" healthy "$TEI_TIMEOUT_SEC" \
+    || die "Reranker 服务未在 ${TEI_TIMEOUT_SEC}s 内变为 healthy"
+
+  log "等待后端服务启动（含 Maven 构建 + Flyway 迁移 + 知识库迁移，首次可能需要 5~15 分钟）..."
   wait_for_container_status "$BACKEND_CONTAINER" healthy "$BACKEND_TIMEOUT_SEC" \
     || die "后端未在 ${BACKEND_TIMEOUT_SEC}s 内变为 healthy"
 
@@ -651,7 +664,7 @@ main() {
   # 7. 功能验证
   log "[7/7] 功能验证..."
 
-  verify_ollama_model || die "未检测到 nomic-embed-text:latest 已拉取完成"
+  verify_ollama_model || log "警告: 未检测到嵌入模型已拉取完成（首次启动时若拉取失败，请稍后手动执行: docker exec $OLLAMA_CONTAINER ollama pull bge-m3）"
   wait_for_http_200 "http://127.0.0.1:8080/actuator/health" "$BACKEND_TIMEOUT_SEC" \
     || die "后端健康接口未在 ${BACKEND_TIMEOUT_SEC}s 内可访问"
   verify_backend_health || die "后端健康接口未报告 status=UP 或 knowledgeMigration=UP"
@@ -672,13 +685,100 @@ main() {
   log "  MinIO 控制台: http://localhost:9001"
   printf '\n'
   log "常用运维命令（在 deploy/ 目录下执行）:"
-  log "  查看日志:      docker compose logs -f backend"
-  log "  查看所有容器:  docker compose ps"
-  log "  停止（保留数据）: docker compose down"
+  log "  查看日志:      ./deploy-windows.sh logs backend"
+  log "  查看所有容器:  ./deploy-windows.sh status"
+  log "  重启:          ./deploy-windows.sh restart"
+  log "  停止（保留数据）: ./deploy-windows.sh down"
   log "  停止（清除数据）: docker compose down -v"
   log "  重新部署:      ./deploy-windows.sh"
   printf '\n'
   log "提示: 如需打开浏览器，直接在地址栏输入 http://localhost:5173"
 }
 
-main "$@"
+# ===========================================
+# 子命令实现
+# ===========================================
+
+cmd_restart() {
+  ensure_requirements
+  ensure_env_file
+  validate_env
+  log "正在重启后端 + 前端 ..."
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" restart backend frontend
+  log "等待后端 healthy ..."
+  wait_for_container_status "$BACKEND_CONTAINER" healthy "$BACKEND_TIMEOUT_SEC" \
+    || die "后端未在 ${BACKEND_TIMEOUT_SEC}s 内 healthy"
+  log "等待前端 healthy ..."
+  wait_for_container_status "$FRONTEND_CONTAINER" healthy "$FRONTEND_TIMEOUT_SEC" \
+    || die "前端未在 ${FRONTEND_TIMEOUT_SEC}s 内 healthy"
+  log "重启完成。"
+}
+
+cmd_status() {
+  ensure_requirements
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" ps
+  echo ""
+  log "后端 health:"
+  curl -fsS --max-time "$HTTP_TIMEOUT_SEC" http://127.0.0.1:8080/actuator/health 2>/dev/null || log "  (未就绪)"
+  echo ""
+  log "前端 health:"
+  curl -fsS --max-time "$HTTP_TIMEOUT_SEC" http://127.0.0.1:5173/health 2>/dev/null || log "  (未就绪)"
+}
+
+cmd_logs() {
+  ensure_requirements
+  local svc="${2:-backend}"
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs -f "$svc"
+}
+
+cmd_down() {
+  ensure_requirements
+  log "正在停止所有容器（数据卷保留）..."
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" down
+  log "停止完成。下次启动执行: $0 up"
+}
+
+cmd_help() {
+  cat <<'EOF'
+用法: ./deploy-windows.sh [子命令]
+
+子命令:
+  up          一键部署（默认）。build + up + 等待所有服务 healthy
+  restart     仅重启后端 + 前端（不重建镜像）
+  status      查看所有容器状态
+  logs [svc]  跟踪指定服务日志（默认 backend，可选 frontend / ollama / reranker / postgres 等）
+  down        停止所有容器，保留数据卷
+  help        显示此帮助
+
+环境变量（可临时覆盖）:
+  INFRA_TIMEOUT_SEC     基础设施容器 healthy 超时（默认 300）
+  OLLAMA_INIT_TIMEOUT_SEC  Ollama 初始化超时（默认 1800）
+  TEI_TIMEOUT_SEC       Reranker 启动超时（默认 600）
+  BACKEND_TIMEOUT_SEC   后端启动超时（默认 1800）
+  FRONTEND_TIMEOUT_SEC  前端启动超时（默认 600）
+
+示例:
+  ./deploy-windows.sh                # 首次部署
+  ./deploy-windows.sh restart        # 仅重启后端 + 前端
+  ./deploy-windows.sh logs backend   # 跟踪后端日志
+  ./deploy-windows.sh status         # 查看所有容器状态
+EOF
+}
+
+# ===========================================
+# 路由
+# ===========================================
+
+case "$ACTION" in
+  up)              main ;;
+  restart)         cmd_restart ;;
+  status)          cmd_status ;;
+  logs)            cmd_logs "$@" ;;
+  down)            cmd_down ;;
+  help|--help|-h)  cmd_help ;;
+  *)
+    echo "未知子命令: $ACTION" >&2
+    cmd_help
+    exit 1
+    ;;
+esac

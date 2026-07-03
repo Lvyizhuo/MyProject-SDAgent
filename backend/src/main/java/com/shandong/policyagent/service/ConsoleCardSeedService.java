@@ -31,6 +31,32 @@ public class ConsoleCardSeedService {
     public void seed() {
         seedTools();
         seedAgents();
+        seedDefaultSystemPrompts();
+    }
+
+    /**
+     * 兜底：对老版本未填 systemPrompt 的 agent，灌入默认提示词，
+     * 避免管理员打开「智能体编辑」面板时 textarea 是空的。
+     */
+    private void seedDefaultSystemPrompts() {
+        String defaultPrompt = "你是山东省智能政策咨询助手，专注于解答以旧换新、补贴申领、"
+                + "购车资格、地市政策差异等问题。请用准确、简洁、有条理的中文回答。"
+                + "当用户问题超出政策范围时，礼貌告知并建议联系当地主管部门。";
+        String defaultGreeting = "您好！我是山东省智能政策咨询助手，请问有什么可以帮您？";
+        for (AgentInstance a : agentRepository.findAll()) {
+            boolean changed = false;
+            if (a.getSystemPrompt() == null || a.getSystemPrompt().isBlank()) {
+                a.setSystemPrompt(defaultPrompt);
+                changed = true;
+            }
+            if (a.getGreetingMessage() == null || a.getGreetingMessage().isBlank()) {
+                a.setGreetingMessage(defaultGreeting);
+                changed = true;
+            }
+            if (changed) {
+                agentRepository.save(a);
+            }
+        }
     }
 
     private void seedTools() {

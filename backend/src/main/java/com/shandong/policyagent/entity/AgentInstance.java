@@ -77,6 +77,22 @@ public class AgentInstance {
     @Column(name = "knowledge_folder_id")
     private Long knowledgeFolderId;
 
+    /** 系统提示词（agent 自身一份，独立于全局 AgentConfig） */
+    @Column(name = "system_prompt", columnDefinition = "TEXT")
+    private String systemPrompt;
+
+    /** 开场白 */
+    @Column(name = "greeting_message", columnDefinition = "TEXT")
+    private String greetingMessage;
+
+    /** 技能配置 JSON 字符串 */
+    @Column(name = "skills_json", columnDefinition = "TEXT")
+    private String skillsJson;
+
+    /** MCP 服务器配置 JSON 字符串 */
+    @Column(name = "mcp_servers_config", columnDefinition = "TEXT")
+    private String mcpServersConfig;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

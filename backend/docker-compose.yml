@@ -1,6 +1,6 @@
 # ===========================================
-# 山东省智能政策咨询助手 - Docker Compose
-# 后端依赖 + 后端服务
+# 山东省智能政策咨询助手 - Docker Compose（后端 + 依赖）
+# 本地开发 / 单机部署用。生产环境请用 deploy/docker-compose.yml
 # ===========================================
 
 services:
@@ -12,6 +12,7 @@ services:
       POSTGRES_DB: policy_agent
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -27,6 +28,8 @@ services:
     image: redis:7-alpine
     container_name: policy-agent-redis
     restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -48,6 +51,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - minio_data:/data
     healthcheck:
@@ -70,6 +74,7 @@ services:
       OLLAMA_MAX_LOADED_MODELS: 2
       OLLAMA_NUM_PARALLEL: 1
       OLLAMA_MAX_QUEUE: 64
+      TZ: ${TZ:-Asia/Shanghai}
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 20s
@@ -78,18 +83,20 @@ services:
       start_period: 30s
 
   ollama-init:
+    # 启动时拉取默认嵌入模型：bge-m3 (1024 维) + nomic-embed-text 备用 (768 维)
+    # 拉取失败不阻塞启动（应用启动时再去 try 拉取）
     image: ollama/ollama:latest
     container_name: policy-agent-ollama-init
     restart: "no"
     environment:
       OLLAMA_HOST: http://ollama:11434
+      TZ: ${TZ:-Asia/Shanghai}
     depends_on:
       ollama:
         condition: service_healthy
     volumes:
       - ollama_data:/root/.ollama
-    entrypoint: ["sh", "-c"]
-    command: ["ollama pull bge-m3 && ollama pull nomic-embed-text:latest"]
+    entrypoint: ["sh", "-c", "ollama pull bge-m3 || true; ollama pull nomic-embed-text:latest || true; echo ollama-init-done"]
 
   reranker:
     build:
@@ -104,12 +111,15 @@ services:
     environment:
       RERANK_MODEL_ID: ${RERANK_MODEL_ID:-BAAI/bge-reranker-v2-m3}
       PORT: "80"
+      TZ: ${TZ:-Asia/Shanghai}
+      HF_ENDPOINT: https://hf-mirror.com
+      HF_HUB_DOWNLOAD_TIMEOUT: "300"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:80/health')\" || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request, json; r=urllib.request.urlopen('http://localhost:80/health'); d=json.loads(r.read()); exit(0 if d.get('status')=='ok' else 1)\" || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 15
-      start_period: 60s
+      start_period: 600s
+      retries: 30
 
   backend:
     build:
@@ -141,6 +151,7 @@ services:
       SPRING_PROFILES_ACTIVE: mcp
       APP_KNOWLEDGE_MIGRATION_ENABLED: "true"
       APP_KNOWLEDGE_MIGRATION_TARGET_MODEL: ollama:bge-m3
+      TZ: ${TZ:-Asia/Shanghai}
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,7 +168,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 180s
+      start_period: 240s
 
 volumes:
   postgres_data:

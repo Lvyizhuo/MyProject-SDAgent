@@ -20,6 +20,11 @@
     <properties>
         <java.version>21</java.version>
         <spring-ai.version>1.0.3</spring-ai.version>
+        <!-- 强制升级 Lombok 到 1.18.46 + maven-compiler-plugin 3.14.0
+             原因：Lombok 1.18.42 + JDK 21 + maven-compiler-plugin 3.13.0 三者组合
+             会导致 Lombok 注解处理器完全不启动，产生 100+ "cannot find symbol" 错误
+             （包括 @Slf4j log、@Data getter、@Builder builder 全部找不到） -->
+        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
     </properties>
 
     <dependencies>
@@ -143,7 +148,7 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>1.18.42</version>
+            <version>1.18.46</version>
             <optional>true</optional>
         </dependency>
 
@@ -184,14 +189,17 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven-compiler-plugin.version}</version>
                 <configuration>
                     <source>21</source>
                     <target>21</target>
+                    <!-- Lombok 1.18.46 作为 annotation processor
+                         显式声明避免子 pom 覆盖父 pom 时漏掉 annotation processor 路径 -->
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
-                            <version>1.18.42</version>
+                            <version>1.18.46</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>

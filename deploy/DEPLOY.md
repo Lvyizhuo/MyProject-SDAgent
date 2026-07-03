@@ -141,24 +141,50 @@ curl http://mmgg.dpdns.org/actuator/health
 ```bash
 cd /opt/MyProject-SDAgent/deploy
 
-# 查看日志
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f ollama
-docker compose logs -f reranker
+# 首次部署 / 改代码后重建镜像
+./deploy.sh up
 
-# 更新
-git pull
-./deploy.sh
+# 仅重启后端 + 前端（不重建镜像，秒级生效）
+./deploy.sh restart
 
-# 重启
-docker compose restart backend frontend
+# 查看所有容器状态 + 健康检查
+./deploy.sh status
+
+# 跟踪指定服务日志
+./deploy.sh logs backend
+./deploy.sh logs frontend
+./deploy.sh logs ollama
+./deploy.sh logs reranker
+
+# 直接看容器 ps
+docker compose ps
 
 # 停止（保留数据卷）
-docker compose down
+./deploy.sh down
+# 或：docker compose down
+
+# 强制重建某服务
+docker compose up -d --build backend
 ```
 
 注意：
 - `docker compose down -v` 会删除数据库、对象存储、Ollama 模型等卷数据。
 - 默认管理员账号初始化后请立即改密。
 - 若要确认知识库迁移已完成，可执行 `docker compose logs backend | grep "Knowledge embedding migration"` 查看迁移汇总日志。
+
+## 10. 启动后自动灌入数据
+
+后端首次启动时会自动调用 `ConsoleCardSeedService`（监听 `ApplicationReadyEvent`）：
+
+- 检查 `tool_definition` 表，为空则插入 4 条默认工具：联网搜索 / 补贴计算器 / 文件解析 / 代码沙箱
+- 检查 `agent_instance` 表，为空则插入 5 条默认智能体：政策咨询助手（默认）/ 补贴计算专家 / 合同审查助手 / 数据分析助手 / 语音接待助手
+
+智能体的 `model_id` 绑定会在 `model_provider` 表里有对应记录时自动填真实 ID，否则显示为占位名称（如 "Qwen-72B"）。后续在管理员控制台「模型管理」里接入真实模型后，可重新编辑 agent 卡片的模型绑定。
+
+**重置数据**（⚠️ 危险操作）：如需清空 agent/tool 测试数据，连接 PostgreSQL 后执行：
+```sql
+TRUNCATE TABLE agent_instance CASCADE;
+TRUNCATE TABLE tool_definition CASCADE;
+-- 重启后端会自动重新 seed
+docker compose restart backend
+```
