@@ -1,6 +1,9 @@
 package com.shandong.policyagent.service;
 
+import com.shandong.policyagent.config.EmbeddingModelConfig;
+import com.shandong.policyagent.config.EmbeddingModelConfig.EmbeddingModel;
 import com.shandong.policyagent.entity.*;
+import com.shandong.policyagent.rag.RagConfig;
 import com.shandong.policyagent.repository.AgentInstanceRepository;
 import com.shandong.policyagent.repository.ModelProviderRepository;
 import com.shandong.policyagent.repository.ToolDefinitionRepository;
@@ -25,13 +28,67 @@ public class ConsoleCardSeedService {
     private final AgentInstanceRepository agentRepository;
     private final ToolDefinitionRepository toolRepository;
     private final ModelProviderRepository modelRepository;
+    private final EmbeddingModelConfig embeddingModelConfig;
+    private final RagConfig ragConfig;
 
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
     public void seed() {
+        seedModels();
         seedTools();
         seedAgents();
         seedDefaultSystemPrompts();
+    }
+
+    /**
+     * 初始化默认模型提供商（嵌入 + 重排序）。
+     * 首次启动时从 application.yml 配置中读取嵌入模型列表，创建对应的 ModelProvider 记录。
+     * 这样管理员在「模型」tab 中能看到有真实 ID 的模型，可以进行测试/编辑等操作。
+     */
+    private void seedModels() {
+        if (modelRepository.count() > 0) {
+            return;
+        }
+        log.info("初始化默认模型提供商");
+
+        // 嵌入模型：从 application.yml app.knowledge.embedding.models 创建
+        List<EmbeddingModel> configuredModels = embeddingModelConfig.getModels();
+        for (EmbeddingModel m : configuredModels) {
+            String resolvedApiKey = (m.getApiKey() != null && !m.getApiKey().isBlank())
+                    ? m.getApiKey() : "";
+            String resolvedBaseUrl = m.getBaseUrl() != null ? m.getBaseUrl() : "";
+            boolean isDefault = m.getId() != null && m.getId().equals(embeddingModelConfig.getDefaultModel());
+
+            modelRepository.save(ModelProvider.builder()
+                    .name(m.getModelName() + "（系统内置）")
+                    .type(ModelType.EMBEDDING)
+                    .provider(m.getProvider() != null ? m.getProvider() : "ollama")
+                    .apiUrl(resolvedBaseUrl)
+                    .apiKey(resolvedApiKey)
+                    .modelName(m.getModelName())
+                    .isDefault(isDefault)
+                    .isEnabled(true)
+                    .build());
+            log.info("初始化嵌入模型: {} -> {}", m.getId(), m.getModelName());
+        }
+
+        // 重排序模型：从 app.rag.retrieval 配置创建
+        String rerankModel = ragConfig.getRetrieval().getRerankModel();
+        String rerankProvider = ragConfig.getRetrieval().getRerankProvider();
+        String rerankEndpoint = ragConfig.getRetrieval().getRerankEndpoint();
+        if (rerankModel != null && !rerankModel.isBlank()) {
+            modelRepository.save(ModelProvider.builder()
+                    .name(rerankModel + "（系统内置）")
+                    .type(ModelType.RERANK)
+                    .provider(rerankProvider != null ? rerankProvider : "tei")
+                    .apiUrl(rerankEndpoint != null ? rerankEndpoint : "")
+                    .apiKey("")
+                    .modelName(rerankModel)
+                    .isDefault(true)
+                    .isEnabled(true)
+                    .build());
+            log.info("初始化重排序模型: {} (provider={})", rerankModel, rerankProvider);
+        }
     }
 
     /**

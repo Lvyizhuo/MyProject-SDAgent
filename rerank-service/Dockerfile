@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 历史教训：国内 hf-mirror.com 镜像源返回 308 重定向，huggingface_hub
 # 在 HEAD 请求时不跟随重定向就放弃，导致模型永远下载失败。
 # 容器内 huggingface.co 直连可接受，下载时间 5-15 分钟。
+# 注意：HF_HUB_OFFLINE=1 不能用 —— transformers 4.x 在 offline 模式下加载
+# model.safetensors 会触发 NoneType endswith bug（modeling_utils.py:4924）。
+# server.py 已改为用本地 snapshot 绝对路径加载，无需 offline 模式。
 ENV HF_HOME=/root/.cache/huggingface
 ENV TRANSFORMERS_CACHE=/root/.cache/huggingface
 ENV HF_HUB_DOWNLOAD_TIMEOUT=300

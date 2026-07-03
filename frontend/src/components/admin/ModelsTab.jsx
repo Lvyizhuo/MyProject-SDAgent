@@ -268,7 +268,7 @@ const ModelsTab = () => {
                     }[model.type] || 'muted';
                     const statusOk = model.isEnabled !== false;
                     return (
-                        <div className="admin-card" key={model.id}>
+                        <div className="admin-card" key={model.id || model.builtinCode}>
                             <div className="admin-card-head-row">
                                 <div className="admin-card-icon-row">
                                     <div className={`admin-card-icon ${tone}`}>
@@ -310,18 +310,22 @@ const ModelsTab = () => {
                                 )}
                             </div>
                             <div className="admin-card-actions">
-                                <button
-                                    className="admin-card-action primary"
-                                    onClick={() => handleEdit(model)}
-                                >
-                                    <Edit2 size={12} /> 编辑
-                                </button>
-                                <button
-                                    className="admin-card-action"
-                                    onClick={(e) => handleTest(model, e)}
-                                >
-                                    测试
-                                </button>
+                                {!model.builtIn && (
+                                    <button
+                                        className="admin-card-action primary"
+                                        onClick={() => handleEdit(model)}
+                                    >
+                                        <Edit2 size={12} /> 编辑
+                                    </button>
+                                )}
+                                {!model.builtIn && (
+                                    <button
+                                        className="admin-card-action"
+                                        onClick={(e) => handleTest(model, e)}
+                                    >
+                                        测试
+                                    </button>
+                                )}
                                 {!model.isDefault && model.isEnabled && (
                                     <button
                                         className="admin-card-action"
@@ -330,18 +334,22 @@ const ModelsTab = () => {
                                         <Star size={12} /> 设为默认
                                     </button>
                                 )}
-                                <button
-                                    className="admin-card-action"
-                                    onClick={(e) => handleToggleEnabled(model, e)}
-                                >
-                                    <Power size={12} /> {model.isEnabled ? '停用' : '启用'}
-                                </button>
-                                <button
-                                    className="admin-card-action danger"
-                                    onClick={() => setConfirmDelete(model)}
-                                >
-                                    <Trash2 size={12} /> 删除
-                                </button>
+                                {!model.builtIn && (
+                                    <button
+                                        className="admin-card-action"
+                                        onClick={(e) => handleToggleEnabled(model, e)}
+                                    >
+                                        <Power size={12} /> {model.isEnabled ? '停用' : '启用'}
+                                    </button>
+                                )}
+                                {!model.builtIn && (
+                                    <button
+                                        className="admin-card-action danger"
+                                        onClick={() => setConfirmDelete(model)}
+                                    >
+                                        <Trash2 size={12} /> 删除
+                                    </button>
+                                )}
                             </div>
                         </div>
                     );

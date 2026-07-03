@@ -14,13 +14,17 @@ BGE Reranker v2-m3 推理服务
   - /rerank 请求会等待模型加载完成（阻塞）后处理  - 模型文件通过 volume `huggingface_cache` 持久化，重启后秒级加载
 """
 
-# ⚠️ 必须在所有 import 之前删除 HF_ENDPOINT！
+# ⚠️ 必须在所有 import 之前删除 HF_ENDPOINT + 设置 offline 模式！
 # Dockerfile 写死了 HF_ENDPOINT=https://hf-mirror.com，但该镜像源在
 # huggingface_hub 的 HEAD 请求时返回 308 重定向不跟随，导致模型永远下载失败。
 # huggingface_hub.constants.ENDPOINT 在 import 时固定，import sentence_transformers
 # 会间接 import huggingface_hub，所以必须在 import 之前清掉环境变量。
+# 强制 offline 模式：模型文件已下载到 HF_HOME cache，不需要任何远端 HEAD 探测。
 import os
 os.environ.pop("HF_ENDPOINT", None)
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 
 import logging
 import threading
@@ -40,6 +44,31 @@ os.environ.setdefault("HF_HOME", "/root/.cache/huggingface")
 os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
 # 关闭并发下载（huggingface_hub 默认 8 并发在 7.7GB 内存限制下会 OOM）
 os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
+
+# 关键：使用本地缓存目录的绝对路径作为模型 ID
+# transformers 4.x 在 HF_HUB_OFFLINE=1 模式下加载 model.safetensors
+# 时会触发 NoneType endswith bug（modeling_utils.py:4924）。
+# 解决方案：不用 offline 模式，而是直接传本地绝对路径，CrossEncoder
+# 会从该路径加载，并且不会去远端探测。
+def _resolve_local_snapshot() -> str:
+    """根据 HF_HOME + MODEL_ID 找到本地 snapshot 绝对路径。"""
+    hf_home = os.environ.get("HF_HOME", "/root/.cache/huggingface")
+    safe_id = MODEL_ID.replace("/", "--")
+    snapshots_root = os.path.join(
+        hf_home, "hub", f"models--{safe_id}", "snapshots"
+    )
+    if not os.path.isdir(snapshots_root):
+        return MODEL_ID  # 触发正常下载流程
+    candidates = [
+        d for d in os.listdir(snapshots_root)
+        if os.path.isfile(os.path.join(snapshots_root, d, "config.json"))
+    ]
+    if not candidates:
+        return MODEL_ID
+    return os.path.join(snapshots_root, candidates[0])
+
+# 启动时计算本地路径（如果不存在则用 MODEL_ID 走远端下载）
+SNAPSHOT_DIR = _resolve_local_snapshot()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("rerank-service")
@@ -61,9 +90,10 @@ def _load_model() -> None:
     global _reranker
     logger.info("正在加载 rerank 模型: %s (HF_ENDPOINT=%s) ...", MODEL_ID, os.environ.get("HF_ENDPOINT"))
     start = time.time()
-    # CrossEncoder 不支持 from_tf 参数（sentence-transformers 3.3.1）
-    # 它会从 HF_HOME 缓存目录自动加载 model.safetensors
-    _reranker = CrossEncoder(MODEL_ID, max_length=512)
+    # 用本地 snapshot 路径加载（而不是 MODEL_ID 字符串）
+    # 这样 CrossEncoder 直接读本地 model.safetensors，不会触发远端 HEAD 探测
+    # 也不会触发 HF_HUB_OFFLINE 模式下的 NoneType endswith bug
+    _reranker = CrossEncoder(SNAPSHOT_DIR, max_length=512)
     elapsed = time.time() - start
     logger.info("模型加载完成: %s (耗时 %.1fs)", MODEL_ID, elapsed)
 

@@ -235,6 +235,14 @@ public class ModelProviderService {
     }
 
     private List<ModelProviderResponse> prependBuiltInEmbedding(List<ModelProviderResponse> managedModels) {
+        // 如果数据库已有嵌入模型记录（由 ConsoleCardSeedService 初始化），
+        // 不再追加内置模型，避免重复显示
+        boolean hasRealEmbeddingModel = managedModels.stream()
+                .anyMatch(m -> m.getType() == ModelType.EMBEDDING && !Boolean.TRUE.equals(m.getBuiltIn()));
+        if (hasRealEmbeddingModel) {
+            return managedModels;
+        }
+
         if (!embeddingService.hasModel(BUILT_IN_EMBEDDING_ID)) {
             return managedModels;
         }
@@ -268,6 +276,13 @@ public class ModelProviderService {
     }
 
     private List<ModelProviderResponse> prependBuiltInRerank(List<ModelProviderResponse> managedModels) {
+        // 如果数据库已有重排序模型记录，不再追加内置模型
+        boolean hasRealRerankModel = managedModels.stream()
+                .anyMatch(m -> m.getType() == ModelType.RERANK && !Boolean.TRUE.equals(m.getBuiltIn()));
+        if (hasRealRerankModel) {
+            return managedModels;
+        }
+
         String rerankModel = ragConfig.getRetrieval().getRerankModel();
         String rerankProvider = ragConfig.getRetrieval().getRerankProvider();
         if (rerankModel == null || rerankModel.isBlank()) {
@@ -305,6 +320,13 @@ public class ModelProviderService {
     }
 
     private List<ModelOption> mergeBuiltInEmbeddingOption(List<ModelOption> managedOptions) {
+        // 如果数据库已有嵌入模型，跳过内置选项（避免重复）
+        boolean hasRealEmbeddingOption = managedOptions.stream()
+                .anyMatch(o -> !Boolean.TRUE.equals(o.getBuiltIn()));
+        if (hasRealEmbeddingOption) {
+            return managedOptions;
+        }
+
         if (!embeddingService.hasModel(BUILT_IN_EMBEDDING_ID)) {
             return managedOptions;
         }
@@ -326,6 +348,13 @@ public class ModelProviderService {
     }
 
     private List<ModelOption> mergeBuiltInRerankOption(List<ModelOption> managedOptions) {
+        // 如果数据库已有重排序模型，跳过内置选项（避免重复）
+        boolean hasRealRerankOption = managedOptions.stream()
+                .anyMatch(o -> !Boolean.TRUE.equals(o.getBuiltIn()));
+        if (hasRealRerankOption) {
+            return managedOptions;
+        }
+
         String rerankModel = ragConfig.getRetrieval().getRerankModel();
         String rerankProvider = ragConfig.getRetrieval().getRerankProvider();
         if (rerankModel == null || rerankModel.isBlank()) {
