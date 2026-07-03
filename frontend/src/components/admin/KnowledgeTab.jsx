@@ -112,7 +112,7 @@ const KnowledgeTab = () => {
             const created = await adminKnowledgeApi.createFolder({
                 name: name.trim(),
                 description: '',
-                embeddingModel: 'bge-m3',
+                embeddingModel: 'ollama:bge-m3',
                 rerankModelId: null
             });
             await loadFolders();

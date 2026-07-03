@@ -2,15 +2,19 @@ package com.shandong.policyagent.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.AgentInstance;
 import com.shandong.policyagent.entity.AgentModelBinding;
 import com.shandong.policyagent.entity.User;
 import com.shandong.policyagent.exception.BusinessException;
 import com.shandong.policyagent.model.dto.AgentCardDto;
 import com.shandong.policyagent.model.dto.AgentUpsertRequest;
+import com.shandong.policyagent.repository.AgentConfigRepository;
 import com.shandong.policyagent.repository.AgentInstanceRepository;
 import com.shandong.policyagent.repository.ModelProviderRepository;
 import com.shandong.policyagent.repository.ToolDefinitionRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -27,10 +31,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AgentInstanceService {
 
+    private static final String ROLE_LLM = "LLM";
+
     private final AgentInstanceRepository agentRepository;
     private final ModelProviderRepository modelRepository;
     private final ToolDefinitionRepository toolRepository;
     private final ObjectMapper objectMapper;
+    private final AgentConfigRepository agentConfigRepository;
+    private final AgentConfigSyncService agentConfigSyncService;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private static final Map<String, String> CATEGORY_LABELS = Map.of(
             "chat", "对话型",
@@ -92,6 +103,9 @@ public class AgentInstanceService {
 
         if (request.getBindings() != null) {
             agent.getBindings().clear();
+            // 立即刷新持久化上下文，确保旧 binding 的 DELETE 先执行，
+            // 避免后续 INSERT 与 (agent_id, role) 唯一约束冲突
+            entityManager.flush();
             for (AgentUpsertRequest.BindingDto b : request.getBindings()) {
                 agent.getBindings().add(buildBinding(agent, b));
             }
@@ -120,7 +134,9 @@ public class AgentInstanceService {
                 agent.setMcpServersConfig("[]");
             }
         }
-        return toCardDto(agentRepository.save(agent));
+        AgentCardDto result = toCardDto(agentRepository.save(agent));
+        syncDefaultAgentToRuntime();
+        return result;
     }
 
     @Transactional
@@ -142,7 +158,9 @@ public class AgentInstanceService {
         AgentInstance agent = agentRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "智能体不存在"));
         agent.setIsDefault(true);
-        return toCardDto(agentRepository.save(agent));
+        AgentCardDto result = toCardDto(agentRepository.save(agent));
+        syncDefaultAgentToRuntime();
+        return result;
     }
 
     @Transactional
@@ -172,6 +190,45 @@ public class AgentInstanceService {
                     .build());
         }
         return toCardDto(agentRepository.save(copy));
+    }
+
+    /**
+     * 将默认智能体的配置同步到运行时 AgentConfig。
+     * 这样当管理员编辑默认智能体或设为默认时，前台聊天立即生效。
+     */
+    private void syncDefaultAgentToRuntime() {
+        try {
+            AgentInstance defaultAgent = agentRepository.findAllByOrderByIsDefaultDescIdAsc().stream()
+                    .filter(a -> Boolean.TRUE.equals(a.getIsDefault()))
+                    .findFirst()
+                    .orElse(null);
+            if (defaultAgent == null) {
+                return;
+            }
+
+            AgentConfig runtimeConfig = agentConfigRepository.findFirstByOrderByIdAsc()
+                    .orElseGet(() -> agentConfigRepository.save(AgentConfig.builder().build()));
+
+            // 同步 LLM 模型绑定
+            defaultAgent.getBindings().stream()
+                    .filter(b -> ROLE_LLM.equals(b.getRole()) && b.getModelId() != null)
+                    .findFirst()
+                    .ifPresent(binding -> runtimeConfig.setLlmModelId(binding.getModelId()));
+
+            // 同步系统提示词和开场白
+            if (defaultAgent.getSystemPrompt() != null) {
+                runtimeConfig.setSystemPrompt(defaultAgent.getSystemPrompt());
+            }
+            if (defaultAgent.getGreetingMessage() != null) {
+                runtimeConfig.setGreetingMessage(defaultAgent.getGreetingMessage());
+            }
+
+            agentConfigRepository.save(runtimeConfig);
+            agentConfigSyncService.syncConfigToRuntime(runtimeConfig);
+            log.info("默认智能体配置已同步到运行时: agentId={}, name={}", defaultAgent.getId(), defaultAgent.getName());
+        } catch (Exception e) {
+            log.error("同步默认智能体到运行时失败", e);
+        }
     }
 
     // --- helpers ---
