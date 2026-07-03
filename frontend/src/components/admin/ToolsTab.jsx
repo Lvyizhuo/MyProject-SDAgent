@@ -53,6 +53,7 @@ const ToolsTab = () => {
     const [statusFilter, setStatusFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [pending, setPending] = useState(null);
+    const [selectedId, setSelectedId] = useState(null);
 
     useEffect(() => {
         loadTools();
@@ -95,6 +96,32 @@ const ToolsTab = () => {
             alert(`测试失败：${err.message}`);
         }
     };
+
+    const handleCreate = async () => {
+        const name = window.prompt('新建工具名称（如：政策检索）');
+        if (!name) return;
+        const code = (name || '').toLowerCase().replace(/\s+/g, '_');
+        const category = window.prompt('分类（web / calc / parse / external）', 'external') || 'external';
+        try {
+            const created = await adminToolApi.createTool({
+                name: name.trim(),
+                code: code.trim(),
+                description: '',
+                category: category.trim().toLowerCase(),
+                icon: 'FileText',
+                enabled: true
+            });
+            await loadTools();
+            if (created?.id) setSelectedId(created.id);
+        } catch (err) {
+            setError(err.message || '创建失败');
+        }
+    };
+
+    const selectedTool = useMemo(
+        () => tools.find((t) => t.id === selectedId) || null,
+        [tools, selectedId]
+    );
 
     const counts = useMemo(() => {
         const enabled = tools.filter((t) => t.enabled).length;
@@ -168,7 +195,7 @@ const ToolsTab = () => {
                     const tone = ICON_TONE_MAP[tool.icon] || '';
                     const isPending = pending === tool.id;
                     return (
-                        <div className="admin-card" key={tool.id} onClick={() => alert(`配置「${tool.name}」`)}>
+                        <div className="admin-card" key={tool.id} onClick={() => setSelectedId(tool.id)}>
                             <div className="admin-card-head-row">
                                 <div className="admin-card-icon-row">
                                     <div className={`admin-card-icon ${tone}`}>
@@ -214,9 +241,9 @@ const ToolsTab = () => {
                             <div className="admin-card-actions">
                                 <button
                                     className="admin-card-action primary"
-                                    onClick={(e) => { e.stopPropagation(); alert(`配置「${tool.name}」`); }}
+                                    onClick={(e) => { e.stopPropagation(); setSelectedId(tool.id); }}
                                 >
-                                    配置
+                                    查看
                                 </button>
                                 <button
                                     className="admin-card-action"
@@ -228,14 +255,71 @@ const ToolsTab = () => {
                         </div>
                     );
                 })}
-                <div className="admin-card create" onClick={() => alert('新建工具（待实现）')}>
+                <div className="admin-card create" onClick={handleCreate}>
                     <div className="plus">
                         <Plus size={20} />
                     </div>
                     <div>新建工具</div>
                 </div>
             </div>
+
+            {selectedTool && (
+                <ToolDetailPanel
+                    tool={selectedTool}
+                    onClose={() => setSelectedId(null)}
+                    onToggle={handleToggle}
+                    onTest={handleTest}
+                />
+            )}
         </section>
+    );
+};
+
+const ToolDetailPanel = ({ tool, onClose, onToggle, onTest }) => {
+    const Icon = ICON_MAP[tool.icon] || FileText;
+    const tone = ICON_TONE_MAP[tool.icon] || '';
+    return (
+        <>
+            <div className="admin-drawer-mask" onClick={onClose} />
+            <aside className="admin-drawer">
+                <header className="admin-drawer-head">
+                    <div className="admin-drawer-title-row">
+                        <div className={`admin-card-icon ${tone}`} style={{ width: 36, height: 36 }}>
+                            <Icon size={18} strokeWidth={2.2} />
+                        </div>
+                        <div>
+                            <h2 className="admin-drawer-title">{tool.name}</h2>
+                            <span className="admin-drawer-subtitle">{tool.code}</span>
+                        </div>
+                    </div>
+                    <button className="admin-drawer-close" onClick={onClose} aria-label="关闭">×</button>
+                </header>
+                <div className="admin-drawer-body">
+                    <section className="admin-drawer-section">
+                        <h3>基础信息</h3>
+                        <dl className="admin-drawer-dl">
+                            <dt>分类</dt><dd>{tool.category}</dd>
+                            <dt>状态</dt><dd>{tool.enabled ? '已启用' : '已停用'}</dd>
+                            <dt>每日调用</dt><dd>{(tool.dailyCalls || 0).toLocaleString('zh-CN')} 次</dd>
+                            <dt>被 agent 使用</dt><dd>{tool.usedByAgentCount || 0} 个</dd>
+                        </dl>
+                    </section>
+                    <section className="admin-drawer-section">
+                        <h3>描述</h3>
+                        <p>{tool.description || '尚未填写'}</p>
+                    </section>
+                </div>
+                <footer className="admin-drawer-foot">
+                    <button
+                        className={`admin-drawer-btn ${tool.enabled ? '' : 'primary'}`}
+                        onClick={(e) => { e.stopPropagation(); onToggle(tool, e); }}
+                    >
+                        {tool.enabled ? '停用' : '启用'}
+                    </button>
+                    <button className="admin-drawer-btn primary" onClick={(e) => onTest(tool, e)}>测试连通</button>
+                </footer>
+            </aside>
+        </>
     );
 };
 

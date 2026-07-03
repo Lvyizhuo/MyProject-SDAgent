@@ -11,6 +11,9 @@ WORKDIR /app
 COPY maven-settings.xml /root/.m2/settings.xml
 
 # 复制 pom.xml 并下载依赖（利用缓存）
+# 重要：COPY pom.xml 之后 mvn dependency:go-offline 会把 pom 里所有
+# <dependency> 都下载到本地仓库，包括 lombok 1.18.46。改 lombok 版本号
+# 之后必须重新 build（docker build --no-cache）才能让缓存失效。
 COPY pom.xml .
 RUN mvn -B \
     -Dmaven.wagon.http.retryHandler.count=5 \
@@ -19,7 +22,10 @@ RUN mvn -B \
 
 # 复制源码并构建
 COPY src ./src
-RUN mvn clean package -DskipTests -B
+COPY lombok.config ./
+# 强制清理任何残留的 target 目录，避免增量构建导致 stale class 文件。
+# 重点：避免 Lombok 命名变化后的旧 class 干扰编译结果。
+RUN rm -rf target && mvn clean package -DskipTests -B -Dmaven.compiler.useIncrementalCompilation=false
 
 # 运行阶段
 FROM eclipse-temurin:21-jre-alpine
@@ -44,8 +50,8 @@ USER appuser
 # 暴露端口
 EXPOSE 8080
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+# 健康检查（给 Flyway V9 迁移 + knowledge 迁移 + seed 留 120s 启动窗口）
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=10 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
 
 # 启动应用

@@ -6,10 +6,19 @@ BGE Reranker v2-m3 推理服务
   -> [ { "index": 0, "score": 0.98 }, ... ]
 
 模型：BAAI/bge-reranker-v2-m3（Cross-Encoder 架构）
+
+启动行为：
+  - 服务启动时在后台线程预加载模型（首次需要 3-5 分钟从 HF 镜像下载 568MB）
+  - 加载期间 /health 返回 {"status": "loading", "model": "..."}（HTTP 200，HTTP client 不报错）
+  - 加载完成后 /health 返回 {"status": "ok", ...}
+  - /rerank 请求会等待模型加载完成（阻塞）后处理
+  - 模型文件通过 volume `huggingface_cache` 持久化，重启后秒级加载
 """
 
 import os
 import logging
+import threading
+import time
 from typing import List
 
 import uvicorn
@@ -20,21 +29,66 @@ from sentence_transformers import CrossEncoder
 MODEL_ID = os.environ.get("RERANK_MODEL_ID", "BAAI/bge-reranker-v2-m3")
 PORT = int(os.environ.get("PORT", "80"))
 
+# 确保 HuggingFace 镜像源生效（国内网络下从 HF 官方下载 568MB 模型要 50+ 分钟，
+# 从 hf-mirror.com 下载只要 3-5 分钟）
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ.setdefault("HF_HOME", "/root/.cache/huggingface")
+os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("rerank-service")
 
 app = FastAPI(title="BGE Reranker Service", version="1.0.0")
 
-# 延迟加载：首次请求时才加载模型，避免健康检查在模型加载完成前就启动
+# 延迟加载 + 启动时后台预下载
 _reranker: CrossEncoder | None = None
+_load_lock = threading.Lock()
+_load_started = False
+
+
+def _load_model() -> None:
+    """同步加载模型。"""
+    global _reranker
+    logger.info("正在加载 rerank 模型: %s (HF_ENDPOINT=%s) ...", MODEL_ID, os.environ.get("HF_ENDPOINT"))
+    start = time.time()
+    _reranker = CrossEncoder(MODEL_ID, max_length=512)
+    elapsed = time.time() - start
+    logger.info("模型加载完成: %s (耗时 %.1fs)", MODEL_ID, elapsed)
+
+
+def _background_load() -> None:
+    """后台线程加载模型，加载失败时记录日志。"""
+    try:
+        _load_model()
+    except Exception as e:
+        logger.error("模型后台加载失败（首次请求时会重试）: %s: %s", type(e).__name__, e)
+
+
+def ensure_loaded() -> None:
+    """确保模型已加载。如果还没启动过，启动后台加载（不阻塞调用方）。"""
+    global _load_started
+    if _reranker is not None or _load_started:
+        return
+    with _load_lock:
+        if _load_started:
+            return
+        _load_started = True
+        thread = threading.Thread(target=_background_load, daemon=True, name="model-loader")
+        thread.start()
 
 
 def get_reranker() -> CrossEncoder:
-    global _reranker
+    """获取已加载的模型。如果未加载，等待加载完成。"""
+    if _reranker is not None:
+        return _reranker
+    # 触发后台加载
+    ensure_loaded()
+    # 等待模型加载完成（最多 10 分钟）
+    deadline = time.time() + 600
+    while _reranker is None and time.time() < deadline:
+        time.sleep(1)
     if _reranker is None:
-        logger.info("正在加载 rerank 模型: %s ...", MODEL_ID)
-        _reranker = CrossEncoder(MODEL_ID, max_length=512)
-        logger.info("模型加载完成: %s", MODEL_ID)
+        raise RuntimeError(f"模型加载超时（10 分钟），请检查 HF_ENDPOINT 配置和网络: {MODEL_ID}")
     return _reranker
 
 
@@ -51,10 +105,23 @@ class RerankResult(BaseModel):
 
 @app.get("/health")
 async def health():
-    """健康检查端点。模型未加载时返回 starting，加载完成返回 ok。"""
-    if _reranker is None:
+    """健康检查端点。
+    - 启动中：{"status": "starting", "model": "..."}
+    - 加载中：{"status": "loading", "model": "..."}
+    - 就绪：{"status": "ok", "model": "..."}
+    """
+    if _reranker is not None:
+        return {"status": "ok", "model": MODEL_ID}
+    if not _load_started:
         return {"status": "starting", "model": MODEL_ID}
-    return {"status": "ok", "model": MODEL_ID}
+    return {"status": "loading", "model": MODEL_ID}
+
+
+@app.on_event("startup")
+async def _on_startup() -> None:
+    """服务启动时立即在后台开始加载模型。"""
+    logger.info("服务启动，触发后台模型预加载 ...")
+    ensure_loaded()
 
 
 @app.post("/rerank", response_model=List[RerankResult])
