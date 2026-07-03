@@ -11,11 +11,17 @@ BGE Reranker v2-m3 推理服务
   - 服务启动时在后台线程预加载模型（首次需要 3-5 分钟从 HF 镜像下载 568MB）
   - 加载期间 /health 返回 {"status": "loading", "model": "..."}（HTTP 200，HTTP client 不报错）
   - 加载完成后 /health 返回 {"status": "ok", ...}
-  - /rerank 请求会等待模型加载完成（阻塞）后处理
-  - 模型文件通过 volume `huggingface_cache` 持久化，重启后秒级加载
+  - /rerank 请求会等待模型加载完成（阻塞）后处理  - 模型文件通过 volume `huggingface_cache` 持久化，重启后秒级加载
 """
 
+# ⚠️ 必须在所有 import 之前删除 HF_ENDPOINT！
+# Dockerfile 写死了 HF_ENDPOINT=https://hf-mirror.com，但该镜像源在
+# huggingface_hub 的 HEAD 请求时返回 308 重定向不跟随，导致模型永远下载失败。
+# huggingface_hub.constants.ENDPOINT 在 import 时固定，import sentence_transformers
+# 会间接 import huggingface_hub，所以必须在 import 之前清掉环境变量。
 import os
+os.environ.pop("HF_ENDPOINT", None)
+
 import logging
 import threading
 import time
@@ -29,11 +35,11 @@ from sentence_transformers import CrossEncoder
 MODEL_ID = os.environ.get("RERANK_MODEL_ID", "BAAI/bge-reranker-v2-m3")
 PORT = int(os.environ.get("PORT", "80"))
 
-# 确保 HuggingFace 镜像源生效（国内网络下从 HF 官方下载 568MB 模型要 50+ 分钟，
-# 从 hf-mirror.com 下载只要 3-5 分钟）
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+# HF_HOME 等配置（HF_ENDPOINT 已在上方 import 前 pop 掉）
 os.environ.setdefault("HF_HOME", "/root/.cache/huggingface")
 os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
+# 关闭并发下载（huggingface_hub 默认 8 并发在 7.7GB 内存限制下会 OOM）
+os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "0")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("rerank-service")
@@ -47,10 +53,16 @@ _load_started = False
 
 
 def _load_model() -> None:
-    """同步加载模型。"""
+    """同步加载模型。
+
+    关键修复：HF_ENDPOINT 已在顶部 pop 掉，走官方 huggingface.co。
+    模型已通过手工下载到 HF_HOME cache 目录，sentence-transformers 会自动从缓存加载。
+    """
     global _reranker
     logger.info("正在加载 rerank 模型: %s (HF_ENDPOINT=%s) ...", MODEL_ID, os.environ.get("HF_ENDPOINT"))
     start = time.time()
+    # CrossEncoder 不支持 from_tf 参数（sentence-transformers 3.3.1）
+    # 它会从 HF_HOME 缓存目录自动加载 model.safetensors
     _reranker = CrossEncoder(MODEL_ID, max_length=512)
     elapsed = time.time() - start
     logger.info("模型加载完成: %s (耗时 %.1fs)", MODEL_ID, elapsed)

@@ -114,9 +114,11 @@ services:
       RERANK_MODEL_ID: ${RERANK_MODEL_ID:-BAAI/bge-reranker-v2-m3}
       PORT: "80"
       TZ: ${TZ:-Asia/Shanghai}
-      # 使用国内 HF 镜像源加速模型下载（首次启动 3-5 分钟；后续秒级）
-      HF_ENDPOINT: https://hf-mirror.com
+      # ⚠️ 不设 HF_ENDPOINT，走官方 huggingface.co。
+      # 历史教训：hf-mirror.com 返回 308 重定向，huggingface_hub
+      # 在 HEAD 请求时不跟随重定向就放弃，导致模型永远下载失败。
       HF_HUB_DOWNLOAD_TIMEOUT: "300"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     healthcheck:
       # /health 端点：
       #   - status=starting/loading: 200 OK（模型后台加载中）
