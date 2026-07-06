@@ -122,16 +122,6 @@ const Sidebar = ({
                         ))
                     )}
                 </div>
-
-                <div className="ui-sidebar-footer">
-                    <div className="ui-user-card">
-                        <div className="ui-user-avatar">政</div>
-                        <div className="ui-user-info">
-                            <div className="ui-user-name">政策用户</div>
-                            <div className="ui-user-plan">免费使用</div>
-                        </div>
-                    </div>
-                </div>
             </aside>
         </>
     );
