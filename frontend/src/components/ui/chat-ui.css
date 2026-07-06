@@ -3,65 +3,64 @@
    仿 DeepSeek 极简风格，覆盖原有 glass-morphism 设计
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
-
+/* 使用系统统一设计变量，与首页/政策查询页保持一致 */
 :root {
-    /* 字体 — Manrope 搭配 Noto Sans SC */
-    --ui-font: 'Manrope', 'Noto Sans SC', 'PingFang SC', -apple-system, sans-serif;
+    /* 字体 — 使用系统字体栈 */
+    --ui-font: var(--font-sans);
 
-    /* DeepSeek 风格色彩 — 低饱和暖蓝系 */
-    --ui-primary: #4d6bfe;
-    --ui-primary-hover: #3d5bef;
-    --ui-primary-soft: #eff4ff;
-    --ui-primary-tint: #e0e8ff;
+    /* 色彩 — 映射到系统 HSL 变量 */
+    --ui-primary: hsl(var(--color-primary));
+    --ui-primary-hover: hsl(var(--color-primary-hover));
+    --ui-primary-soft: hsl(var(--color-primary-light));
+    --ui-primary-tint: hsl(var(--color-primary) / 0.15);
 
-    --ui-bg-app: #f9fafb;
-    --ui-bg-surface: #ffffff;
-    --ui-bg-soft: #f3f4f6;
-    --ui-bg-hover: #f0f1f3;
-    --ui-bg-user-msg: #eff4ff;
+    --ui-bg-app: hsl(var(--color-bg-app));
+    --ui-bg-surface: hsl(var(--color-bg-elevated));
+    --ui-bg-soft: hsl(var(--color-bg-soft));
+    --ui-bg-hover: hsl(var(--color-bg-soft) / 0.6);
+    --ui-bg-user-msg: hsl(var(--color-primary-light));
 
-    --ui-text-primary: #1d1d1f;
-    --ui-text-secondary: #6b7280;
-    --ui-text-muted: #9ca3af;
-    --ui-text-inverse: #ffffff;
+    --ui-text-primary: hsl(var(--color-title));
+    --ui-text-secondary: hsl(var(--color-text-secondary));
+    --ui-text-muted: hsl(var(--color-text-muted));
+    --ui-text-inverse: hsl(var(--color-text-inverse));
 
-    --ui-border: #e5e7eb;
-    --ui-border-soft: #f0f1f3;
+    --ui-border: hsl(var(--color-border));
+    --ui-border-soft: hsl(var(--color-border-soft));
 
-    /* 间距 */
-    --ui-sp-1: 4px;
-    --ui-sp-2: 8px;
-    --ui-sp-3: 12px;
-    --ui-sp-4: 16px;
-    --ui-sp-5: 20px;
-    --ui-sp-6: 24px;
-    --ui-sp-8: 32px;
-    --ui-sp-10: 40px;
-    --ui-sp-12: 48px;
+    /* 间距 — 使用系统间距 */
+    --ui-sp-1: var(--space-2xs);
+    --ui-sp-2: var(--space-xs);
+    --ui-sp-3: var(--space-sm);
+    --ui-sp-4: var(--space-md);
+    --ui-sp-5: var(--space-lg);
+    --ui-sp-6: var(--space-lg);
+    --ui-sp-8: var(--space-xl);
+    --ui-sp-10: var(--space-xl);
+    --ui-sp-12: var(--space-2xl);
 
-    /* 圆角 */
-    --ui-r-sm: 8px;
-    --ui-r-md: 12px;
-    --ui-r-lg: 16px;
-    --ui-r-xl: 20px;
-    --ui-r-pill: 9999px;
+    /* 圆角 — 使用系统圆角 */
+    --ui-r-sm: var(--radius-sm);
+    --ui-r-md: var(--radius-md);
+    --ui-r-lg: var(--radius-lg);
+    --ui-r-xl: var(--radius-xl);
+    --ui-r-pill: var(--radius-pill);
 
-    /* 阴影 — 极轻 */
-    --ui-shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
-    --ui-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
-    --ui-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
-    --ui-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08);
-    --ui-shadow-focus: 0 0 0 3px rgba(77, 107, 254, 0.12);
-    --ui-shadow-input: 0 2px 12px rgba(0, 0, 0, 0.04);
+    /* 阴影 — 使用系统阴影 */
+    --ui-shadow-xs: var(--shadow-sm);
+    --ui-shadow-sm: var(--shadow-sm);
+    --ui-shadow-md: var(--shadow-md);
+    --ui-shadow-lg: var(--shadow-lg);
+    --ui-shadow-focus: var(--shadow-focus);
+    --ui-shadow-input: 0 2px 12px rgba(10, 22, 40, 0.04);
 
-    /* 过渡 */
-    --ui-t-fast: 120ms ease;
-    --ui-t-med: 220ms ease;
-    --ui-t-slow: 400ms cubic-bezier(0.22, 1, 0.36, 1);
+    /* 过渡 — 使用系统过渡 */
+    --ui-t-fast: var(--transition-fast);
+    --ui-t-med: var(--transition-med);
+    --ui-t-slow: var(--transition-slow);
 
     /* 布局 */
-    --ui-sidebar-w: 272px;
+    --ui-sidebar-w: 280px;
     --ui-content-max: 760px;
     --ui-header-h: 56px;
 }
@@ -73,12 +72,16 @@
     display: flex;
     height: calc(100vh - 72px);
     height: calc(100dvh - 72px);
+    max-width: 1400px;
+    margin: 0 auto;
     overflow: hidden;
     font-family: var(--ui-font);
     font-size: 15px;
     color: var(--ui-text-primary);
-    background: var(--ui-bg-app);
+    background: radial-gradient(circle at top center, hsl(var(--color-primary) / 0.06) 0%, transparent 50%),
+                var(--ui-bg-app);
     line-height: 1.6;
+    animation: fadeIn 0.6s ease-out;
 }
 
 /* ============================================
@@ -87,12 +90,17 @@
 .ui-sidebar {
     width: var(--ui-sidebar-w);
     flex-shrink: 0;
-    background: var(--ui-bg-surface);
-    border-right: 1px solid var(--ui-border);
+    background: hsl(var(--color-bg-elevated) / 0.65);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid hsl(var(--color-border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
     display: flex;
     flex-direction: column;
     transition: margin-left var(--ui-t-slow), opacity var(--ui-t-med);
     overflow: hidden;
+    margin: var(--space-sm) 0 var(--space-sm) var(--space-sm);
 }
 
 .ui-sidebar.collapsed {
@@ -385,10 +393,42 @@
     flex-direction: column;
     min-width: 0;
     position: relative;
-    background: var(--ui-bg-app);
+    background: transparent;
+    margin: var(--space-sm) var(--space-sm) var(--space-sm) 0;
+    border-radius: var(--radius-lg);
 }
 
-/* 子顶栏 */
+/* 浮动控制按钮（替代子顶栏） */
+.ui-floating-controls {
+    position: absolute;
+    top: var(--ui-sp-2);
+    right: var(--ui-sp-4);
+    display: flex;
+    align-items: center;
+    gap: var(--ui-sp-1);
+    z-index: 20;
+}
+
+.ui-floating-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--ui-r-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ui-text-secondary);
+    transition: all var(--ui-t-fast);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+}
+
+.ui-floating-btn:hover {
+    background: var(--ui-bg-hover);
+    color: var(--ui-text-primary);
+}
+
+/* 子顶栏（已废弃，保留样式以防回退） */
 .ui-sub-header {
     height: 48px;
     padding: 0 var(--ui-sp-4);
@@ -1355,6 +1395,11 @@
 /* ============================================
    动画
    ============================================ */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 @keyframes ui-fade-up {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }

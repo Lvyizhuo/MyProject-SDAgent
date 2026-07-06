@@ -182,48 +182,39 @@ const ChatPage = () => {
             />
 
             <main className="ui-main">
-                <header className="ui-sub-header">
-                    <div className="ui-sub-header-left">
-                        <button
-                            className="ui-sub-header-toggle"
-                            onClick={toggleSidebar}
-                            title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
-                        >
-                            {sidebarCollapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
-                        </button>
-                        <span className="ui-sub-header-title">智能政策问答</span>
-                        <span className="ui-sub-header-status">
-                            <span className="ui-header-status-dot" />
-                            在线服务中
-                        </span>
-                    </div>
-                    <div className="ui-sub-header-right" ref={moreMenuRef}>
-                        <button
-                            className="ui-sub-header-btn"
-                            onClick={() => setMoreMenuOpen(!moreMenuOpen)}
-                            title="更多操作"
-                        >
-                            <MoreVertical size={18} />
-                        </button>
-                        {moreMenuOpen && (
-                            <div className="ui-dropdown-menu">
-                                <button className="ui-dropdown-item" onClick={handleShare}>
-                                    <Share2 size={16} />
-                                    分享
-                                </button>
-                                <button className="ui-dropdown-item" onClick={handleToggleStar}>
-                                    <Star size={16} className={isStarred ? 'starred' : ''} />
-                                    {isStarred ? '取消收藏' : '收藏'}
-                                </button>
-                                <div className="ui-dropdown-divider" />
-                                <button className="ui-dropdown-item danger" onClick={handleDeleteCurrent}>
-                                    <Trash2 size={16} />
-                                    删除对话
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </header>
+                <div className="ui-floating-controls" ref={moreMenuRef}>
+                    <button
+                        className="ui-floating-btn"
+                        onClick={toggleSidebar}
+                        title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+                    >
+                        {sidebarCollapsed ? <PanelLeft size={17} /> : <PanelLeftClose size={17} />}
+                    </button>
+                    <button
+                        className="ui-floating-btn"
+                        onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+                        title="更多操作"
+                    >
+                        <MoreVertical size={17} />
+                    </button>
+                    {moreMenuOpen && (
+                        <div className="ui-dropdown-menu">
+                            <button className="ui-dropdown-item" onClick={handleShare}>
+                                <Share2 size={16} />
+                                分享
+                            </button>
+                            <button className="ui-dropdown-item" onClick={handleToggleStar}>
+                                <Star size={16} className={isStarred ? 'starred' : ''} />
+                                {isStarred ? '取消收藏' : '收藏'}
+                            </button>
+                            <div className="ui-dropdown-divider" />
+                            <button className="ui-dropdown-item danger" onClick={handleDeleteCurrent}>
+                                <Trash2 size={16} />
+                                删除对话
+                            </button>
+                        </div>
+                    )}
+                </div>
 
                 <ChatWindow
                     key={currentSessionId}
