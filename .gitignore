@@ -23,6 +23,9 @@ Thumbs.db
 *.swp
 .playwright-mcp/
 
+# Local dev logs
+logs/
+
 # Secrets
 .env
 **/.env

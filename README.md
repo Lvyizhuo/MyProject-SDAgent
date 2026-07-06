@@ -6,8 +6,8 @@
   <img src="./image-1.png" alt="AI政策通 Banner" width="100%">
   <h1>AI 政策通·智能体服务平台</h1>
   <!-- <h3> 🏛️《山东省智能政策咨询助手》</h3> -->
-  <h3 align="center">政策解读 | 补贴测算 | 多模态识别 | 管理员控制台</h3>
-  <p><em>面向山东省政策场景，基于 RAG 技术构建的“全链路”智能知识库问答系统</em></p>
+  <h3 align="center">政策解读 | 补贴测算 | 多模态识别 | 多智能体管理</h3>
+  <p><em>面向山东省政策场景，基于 RAG + 多智能体技术构建的"全链路"智能知识库问答系统</em></p>
 
   <img src="https://img.shields.io/github/stars/Lvyizhuo/MyProject-SDAgent?style=flat&logo=github" alt="GitHub stars"/>
   <img src="https://img.shields.io/github/forks/Lvyizhuo/MyProject-SDAgent?style=flat&logo=github" alt="GitHub forks"/>
@@ -34,33 +34,36 @@
 
 ## 项目简介
 
-基于 AI/LLM 的山东省以旧换新政策咨询系统，支持政策问答、补贴计算、多模态识别，以及管理员控制台中的智能体配置、知识库管理和模型服务管理。
+基于 AI/LLM 的山东省以旧换新政策咨询系统，支持政策问答、补贴计算、多模态识别，以及管理员控制台中的多智能体配置、知识库管理和模型服务管理。
 
 ## 行业场景
 
-面向政府部门、公共服务平台与行业协会的政策解读与咨询场景，聚焦山东省以旧换新相关政策的高频咨询需求。系统以“政策查询 + 补贴测算 + 多模态识别”为核心闭环，降低人工客服压力，提升政策触达与服务效率。
+面向政府部门、公共服务平台与行业协会的政策解读与咨询场景，聚焦山东省以旧换新相关政策的高频咨询需求。系统以"政策查询 + 补贴测算 + 多模态识别"为核心闭环，降低人工客服压力，提升政策触达与服务效率。
 
 ## 功能介绍
 
 - 政策问答：基于 RAG 检索增强，提供结构化、可追溯的政策解答。
 - 补贴测算：根据地区、品类、价格等因素计算补贴金额。
 - 多模态识别：支持语音转写、图片/设备/发票识别。
-- 管理员控制台：统一维护智能体配置、知识库与模型服务。
+- 多智能体管理：支持创建和管理多个独立智能体实例（政策咨询/补贴计算/合同审查/数据分析/语音接待），每个可独立配置模型绑定、系统提示词和技能开关。
+- 模型管理：LLM / 视觉 / 语音 / 嵌入 / 重排序五类模型统一管理，支持新增、连接测试、设为默认、启用/停用。
+- 工具治理：工具卡片化展示与集中开关管理（联网搜索/补贴计算/文件解析/代码沙箱）。
+- 知识库管理：文档上传、网站导入、切片预览、归档导出/导入、批量操作。
 - 安全与治理：鉴权、工具调用意图校验、失败兜底策略与日志审计。
 
 ## 项目实现
 
-整体采用前后端分离架构，前端负责多场景交互与管理控制台，后端负责对话编排、知识检索、模型路由与多模态能力集成；通过统一的工具意图分类与失败策略中心，实现可控、可追踪的智能体能力输出。
+整体采用前后端分离架构，前端提供 DeepSeek 风格聊天界面与管理员控制台，后端负责对话编排、知识检索、多智能体管理与模型路由；通过统一的工具意图分类与失败策略中心，实现可控、可追踪的智能体能力输出。
 
 ## 技术架构
 
 | 层级 | 技术栈 |
 |------|--------|
-| 前端 | React 19 + Vite 7 |
+| 前端 | React 19 + Vite 7，pnpm 包管理 |
 | 后端 | Spring Boot 3.4.1 + Spring AI 1.0.3 |
 | 大模型 | 阿里云 DashScope（聊天默认 `qwen3.5-plus`，支持管理员绑定第三方 OpenAI 兼容模型） |
 | 嵌入模型 | Ollama 本地部署 `bge-m3`（默认，1024 维）/ `nomic-embed-text`（768 维） |
-| 重排序模型 | 自建 `rerank-service`（Python FastAPI + sentence-transformers，`bge-reranker-v2-m3`） |
+| 重排序模型 | 自建 `rerank-service`（Python FastAPI + sentence-transformers，`bge-reranker-v2-m3`），支持 TEI/Xinference/DashScope 三 provider |
 | 向量数据库 | PostgreSQL 16 + pgvector |
 | 缓存/会话 | Redis 7 |
 | 对象存储 | MinIO |
@@ -72,26 +75,42 @@
 ├── backend/
 │   ├── src/main/java/com/shandong/policyagent/
 │   │   ├── advisor/       # 安全、记忆、日志、重读校验
-│   │   ├── agent/         # ToolIntentClassifier / AgentPlanParser
+│   │   ├── agent/         # ToolIntentClassifier / AgentPlanParser / ReActPlanningService
 │   │   ├── config/        # ChatClient/Security/Embedding/Minio 配置
-│   │   ├── controller/    # Chat/Auth/Admin/Knowledge/Model/PublicConfig API
-│   │   ├── entity/        # JPA 实体（含 AgentConfig / ModelProvider / ModelType）
+│   │   ├── controller/    # Chat/Auth/Admin/Agent/ModelCard/Tool/Knowledge/PublicConfig API
+│   │   ├── entity/        # JPA 实体（AgentInstance / AgentModelBinding / ToolDefinition / ModelProvider 等）
+│   │   ├── exception/     # 统一异常处理（BusinessException + GlobalExceptionHandler）
+│   │   ├── model/dto/     # 卡片视图与请求 DTO
 │   │   ├── multimodal/    # ASR 与视觉
-│   │   ├── rag/           # 知识库切片、检索、向量写入、运行时嵌入模型路由
-│   │   ├── service/       # 业务逻辑（含动态模型与密钥加解密）
+│   │   ├── rag/           # 知识库切片、检索、向量写入、多 provider 重排序、运行时嵌入模型路由
+│   │   ├── repository/    # JPA Repository（AgentInstance / ToolDefinition）
+│   │   ├── service/       # 业务逻辑（多智能体管理 / 模型管理 / 工具管理 / 聊天编排）
 │   │   └── tool/          # calculateSubsidy / parseFile / webSearch
 │   ├── src/main/resources/
+│   │   └── db/migration/  # Flyway 迁移脚本（含 V9 多智能体建表）
 │   ├── docker-compose.yml # PostgreSQL + Redis + MinIO + Ollama + Reranker
+│   ├── lombok.config      # Lombok 全局配置
+│   ├── maven-settings.xml # 阿里云 Maven 镜像加速
 │   └── pom.xml
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/         # 含 AdminConsolePage
-│   │   ├── components/    # 含 admin/ 子模块
-│   │   └── services/      # api / adminApi / adminKnowledgeApi
+│   │   ├── components/
+│   │   │   ├── ui/        # DeepSeek 风格聊天界面（ChatPage/ChatWindow/InputArea/Sidebar/MessageBubble）
+│   │   │   └── admin/     # 管理控制台（TopTabs/AdminSidebar/AgentsTab/KnowledgeTab/ModelsTab/ToolsTab）
+│   │   ├── pages/         # HomePage, LoginPage, AdminConsolePage 等
+│   │   ├── services/      # 6 个 API 服务层（api/adminApi/adminAgentApi/adminModelApi/adminToolApi/adminKnowledgeApi）
+│   │   └── context/       # AuthContext 全局认证状态
+│   ├── nginx.conf         # Nginx 配置（API 代理 + Actuator 代理 + 静态资源缓存）
+│   ├── pnpm-lock.yaml     # pnpm 锁文件
 │   └── package.json
-├── rerank-service/        # Python FastAPI 重排序微服务（bge-reranker-v2-m3）
+├── rerank-service/        # Python FastAPI 重排序微服务（TEI 兼容协议）
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── server.py
+├── deploy/                # 生产部署（Docker Compose + 部署脚本，含子命令系统）
 ├── data/
-└── docs/
+├── docs/api/              # 完整 REST API 文档（11 份）
+└── scripts/
 ```
 
 ## 快速开始
@@ -101,6 +120,7 @@
 - Java 21+
 - Node.js 18+
 - Docker & Docker Compose
+- pnpm（前端包管理器）
 
 ### 1. 设置环境变量
 
@@ -132,13 +152,13 @@ cd backend
 
 ```bash
 cd frontend
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 ## 服务器部署（宝塔 + Docker Compose）
 
-推荐在 Linux 服务器使用 `deploy/` 目录一键部署（包含前后端 + PostgreSQL + Redis + MinIO + Ollama）。
+推荐在 Linux 服务器使用 `deploy/` 目录一键部署（包含前后端 + PostgreSQL + Redis + MinIO + Ollama + Reranker）。
 
 ### 1. 准备部署配置
 
@@ -170,14 +190,14 @@ openssl rand -base64 48
 
 ## 管理员控制台
 
-当前管理员控制台包含 4 个主模块：
+当前管理员控制台包含 4 个主模块，采用顶部标签页 + 侧边栏导航：
 
-- 智能体：配置系统提示词、开场白、技能开关，并可绑定大语言/视觉/语音/嵌入模型
-- 知识库：管理文件夹、上传文档/网站导入、批量移动/删除、查看切片结果、重新入库、归档导出/导入
-- 工具：展示统一工具治理的信息架构与后续接入方向
-- 模型：维护 LLM、视觉、语音、嵌入、重排序五类模型，支持新增、编辑、删除、设为默认、连接测试
+- **智能体**：支持多智能体实例管理（创建/编辑/复制/删除/设为默认），每个智能体可独立绑定 LLM/VISION/AUDIO/EMBEDDING/RERANK 模型，配置系统提示词、开场白、技能开关和知识库目录
+- **知识库**：管理文件夹、上传文档/网站导入、批量移动/删除、查看切片结果、重新入库、归档导出/导入
+- **工具**：工具卡片化展示与集中开关管理（联网搜索/补贴计算/文件解析/代码沙箱），支持启用/停用切换和调用量统计
+- **模型**：维护 LLM、视觉、语音、嵌入、重排序五类模型，支持新增、编辑、删除、设为默认、连接测试，内置模型自动合并避免重复显示
 
-智能体测试面板会展示“当前生效模型”，区分是来自模型管理绑定还是手动配置。
+启动后系统自动种子化 5 个默认智能体和 4 个默认工具，可直接使用。
 
 ### 2. 启动容器
 
@@ -206,12 +226,12 @@ curl -f http://127.0.0.1:5173/health
 
 3) 宝塔创建 Docker 网站
 - 入口：`宝塔面板 -> Docker -> 网站 -> 创建`。
-- 选择：`反代容器`（不要选“运行环境/从应用创建”）。
+- 选择：`反代容器`（不要选"运行环境/从应用创建"）。
 - 域名：`mmgg.dpdns.org`。
 - 容器：`policy-agent-frontend`。
 - 端口：优先选容器端口 `80`（若面板仅展示映射端口则选 `5173`）。
 
-4) 在宝塔“配置文件 -> 自定义配置文件（server块）”补充后端路由
+4) 在宝塔"配置文件 -> 自定义配置文件（server块）"补充后端路由
 - 不要写 `server {}`。
 - 如果已有 `location /`，不要重复新增。
 
@@ -356,6 +376,40 @@ cd deploy
 | DELETE | `/api/admin/knowledge/url-import-items/{id}` | 删除待入库内容 |
 | GET | `/api/public/config/agent` | 获取公开智能体配置（当前包含开场白） |
 
+### 多智能体管理（新增）
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/admin/agents` | 获取智能体列表 |
+| GET | `/api/admin/agents/{id}` | 获取智能体详情 |
+| POST | `/api/admin/agents` | 创建智能体 |
+| PUT | `/api/admin/agents/{id}` | 更新智能体 |
+| DELETE | `/api/admin/agents/{id}` | 删除智能体 |
+| POST | `/api/admin/agents/{id}/default` | 设为默认智能体 |
+| POST | `/api/admin/agents/{id}/duplicate` | 复制智能体 |
+| GET | `/api/admin/agents/_meta` | 获取分类/图标/状态元数据 |
+
+### 工具管理（新增）
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/admin/tools` | 获取工具列表 |
+| GET | `/api/admin/tools/{id}` | 获取工具详情 |
+| POST | `/api/admin/tools` | 创建工具 |
+| PUT | `/api/admin/tools/{id}` | 更新工具 |
+| DELETE | `/api/admin/tools/{id}` | 删除工具 |
+| POST | `/api/admin/tools/{id}/enabled` | 切换启用状态 |
+| POST | `/api/admin/tools/{id}/test` | 测试工具连通性 |
+
+### 模型卡片视图（新增）
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| GET | `/api/admin/models-card` | 获取模型卡片列表（支持按类型过滤） |
+| GET | `/api/admin/models-card/{id}` | 获取模型卡片详情 |
+| POST | `/api/admin/models-card/{id}/default` | 设为默认模型 |
+| POST | `/api/admin/models-card/{id}/test` | 测试模型连接 |
+
 ### 多模态
 
 | 方法 | 路径 | 描述 |
@@ -374,17 +428,25 @@ cd backend
 ./mvnw test
 ./mvnw spring-boot:run
 
-# frontend
+# frontend（使用 pnpm）
 cd frontend
-npm run dev
-npm run build
-npm run lint
+pnpm install
+pnpm run dev
+pnpm run build
+pnpm run lint
+
+# 本地开发一键启动
+./dev-start.sh
+./dev-start.sh stop
 ```
 
 ## 运行时说明
 
 - `DynamicChatClientFactory` 会优先使用管理员绑定的大语言模型；未绑定时回退到手动配置。
 - `RuntimeRagVectorStore` 会优先使用管理员绑定的嵌入模型；未绑定时回退到知识库默认嵌入模型。
+- `AgentInstanceService.syncDefaultAgentToRuntime` 将默认智能体配置（LLM 模型、systemPrompt、greetingMessage）同步到运行时 AgentConfig。
+- `ConsoleCardSeedService` 在首次启动时自动种子化默认智能体、工具和模型数据。
+- `ModelProviderService` 自动合并内置嵌入/重排序模型，避免数据库无记录时前端下拉选项为空。
 - `DocumentLoaderService` 在扫描版 PDF 提取不到正文时，会尝试走视觉 OCR 兜底。
 - `ChatService` 对实时查询会优先执行 `webSearch`，并在部分模型超时或 OpenAI 兼容调用异常时尝试降级。
 
