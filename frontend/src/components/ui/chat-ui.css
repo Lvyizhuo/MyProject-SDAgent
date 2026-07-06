@@ -369,6 +369,13 @@
     visibility: visible;
 }
 
+/* 桌面端隐藏遮罩层（overlay 仅移动端使用） */
+@media (min-width: 901px) {
+    .ui-sidebar-overlay {
+        display: none !important;
+    }
+}
+
 /* ============================================
    主区域
    ============================================ */

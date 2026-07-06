@@ -6,7 +6,7 @@ import { conversationApi } from '../../services/api';
 import '../ui/chat-ui.css';
 
 const ChatPage = () => {
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [sessions, setSessions] = useState([]);
     const [currentSessionId, setCurrentSessionId] = useState(() => {
