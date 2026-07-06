@@ -60,7 +60,7 @@
     --ui-t-slow: var(--transition-slow);
 
     /* 布局 */
-    --ui-sidebar-w: 280px;
+    --ui-sidebar-w: 240px;
     --ui-content-max: 760px;
     --ui-header-h: 56px;
 }
@@ -74,6 +74,8 @@
     height: calc(100dvh - 72px);
     max-width: 1400px;
     margin: 0 auto;
+    padding: 0 var(--space-lg);
+    gap: var(--space-sm);
     overflow: hidden;
     font-family: var(--ui-font);
     font-size: 15px;
@@ -90,17 +92,19 @@
 .ui-sidebar {
     width: var(--ui-sidebar-w);
     flex-shrink: 0;
-    background: hsl(var(--color-bg-elevated) / 0.65);
+    background: rgba(255, 255, 255, 0.7);
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
-    border: 1px solid hsl(var(--color-border));
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
+    border: 1px solid var(--color-border-glass);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.6);
     display: flex;
     flex-direction: column;
     transition: margin-left var(--ui-t-slow), opacity var(--ui-t-med);
     overflow: hidden;
-    margin: var(--space-sm) 0 var(--space-sm) var(--space-sm);
+    margin: var(--space-md) 0 var(--space-md) 0;
+    padding: var(--space-md);
+    animation: slideDownFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .ui-sidebar.collapsed {
@@ -162,7 +166,7 @@
 .ui-sidebar-body {
     flex: 1;
     overflow-y: auto;
-    padding: var(--ui-sp-2) var(--ui-sp-3);
+    padding: 0;
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
@@ -173,23 +177,27 @@
 
 .ui-new-chat-btn {
     width: 100%;
-    padding: var(--ui-sp-3) var(--ui-sp-4);
-    border-radius: var(--ui-r-md);
+    padding: 0 16px;
+    min-height: 48px;
+    border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
-    gap: var(--ui-sp-3);
-    font-size: 0.875rem;
+    justify-content: center;
+    gap: var(--space-sm);
+    font-size: 0.9rem;
     font-weight: 600;
-    color: var(--ui-text-primary);
-    transition: all var(--ui-t-fast);
-    margin-bottom: var(--ui-sp-2);
-    border: 1px solid var(--ui-border);
-    background: var(--ui-bg-surface);
+    color: hsl(var(--color-text-inverse));
+    background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
+    border: none;
+    box-shadow: 0 4px 12px hsl(var(--color-primary) / 0.3);
+    transition: all var(--transition-med);
+    margin-bottom: var(--space-sm);
     cursor: pointer;
 }
 
 .ui-new-chat-btn:hover {
-    background: var(--ui-bg-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px hsl(var(--color-primary) / 0.4);
 }
 
 .ui-new-chat-btn svg {
@@ -200,37 +208,47 @@
 
 .ui-sidebar-search {
     position: relative;
-    margin-bottom: var(--ui-sp-3);
+    margin-bottom: var(--space-sm);
 }
 
 .ui-sidebar-search svg {
     position: absolute;
-    left: var(--ui-sp-3);
+    left: 14px;
     top: 50%;
     transform: translateY(-50%);
     width: 14px;
     height: 14px;
-    color: var(--ui-text-muted);
+    color: hsl(var(--color-text-muted));
     pointer-events: none;
+    z-index: 1;
 }
 
 .ui-sidebar-search input {
     width: 100%;
-    height: 36px;
-    padding: 0 var(--ui-sp-3) 0 calc(var(--ui-sp-3) + 22px);
-    border-radius: var(--ui-r-md);
-    background: var(--ui-bg-soft);
-    font-size: 0.8125rem;
-    color: var(--ui-text-primary);
-    transition: all var(--ui-t-fast);
-    border: none;
+    height: 40px;
+    padding: 0 16px 0 40px;
+    border-radius: var(--radius-pill);
+    background: hsl(var(--color-bg-elevated) / 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid hsl(var(--color-border));
+    box-shadow: var(--shadow-sm);
+    font-size: 0.85rem;
+    color: hsl(var(--color-text-main));
+    transition: all 0.3s ease;
     outline: none;
-    font-family: var(--ui-font);
+    font-family: var(--font-sans);
 }
 
 .ui-sidebar-search input:focus {
-    background: var(--ui-bg-surface);
-    box-shadow: var(--ui-shadow-focus);
+    border-color: hsl(var(--color-primary) / 0.6);
+    box-shadow: 0 0 0 2px hsl(var(--color-primary) / 0.1), var(--shadow-md);
+    background: hsl(var(--color-bg-elevated));
+    transform: translateY(-1px);
+}
+
+.ui-sidebar-search input:focus ~ svg {
+    color: hsl(var(--color-primary));
 }
 
 .ui-sidebar-search input::placeholder {
@@ -238,42 +256,47 @@
 }
 
 .ui-conv-group {
-    margin-bottom: var(--ui-sp-2);
+    margin-bottom: var(--space-xs);
 }
 
 .ui-conv-group-label {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--ui-text-muted);
-    padding: var(--ui-sp-2) var(--ui-sp-4);
+    color: hsl(var(--color-text-muted));
+    padding: var(--space-sm) var(--space-xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
 }
 
 .ui-conv-item {
-    padding: var(--ui-sp-2) var(--ui-sp-3);
-    border-radius: var(--ui-r-sm);
-    font-size: 0.8125rem;
-    color: var(--ui-text-secondary);
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    font-size: 0.9rem;
+    color: hsl(var(--color-text-main));
+    background: transparent;
+    border: 1px solid transparent;
     display: flex;
     align-items: center;
-    gap: var(--ui-sp-2);
-    transition: all var(--ui-t-fast);
+    gap: var(--space-sm);
+    transition: all var(--transition-fast);
     position: relative;
-    margin-bottom: 1px;
+    margin-bottom: var(--space-xs);
     line-height: 1.5;
     cursor: pointer;
+    font-weight: 500;
 }
 
 .ui-conv-item:hover {
-    background: var(--ui-bg-hover);
-    color: var(--ui-text-primary);
+    background: rgba(255, 255, 255, 0.5);
+    border-color: var(--color-border-soft);
 }
 
 .ui-conv-item.active {
-    background: var(--ui-primary-soft);
-    color: var(--ui-primary);
-    font-weight: 500;
+    background: hsl(var(--color-primary-light) / 0.4);
+    border-color: hsl(var(--color-primary) / 0.3);
+    box-shadow: inset 0 0 0 1px hsl(var(--color-primary) / 0.1);
+    color: hsl(var(--color-primary));
+    font-weight: 600;
 }
 
 .ui-conv-item-text {
@@ -394,8 +417,8 @@
     min-width: 0;
     position: relative;
     background: transparent;
-    margin: var(--space-sm) var(--space-sm) var(--space-sm) 0;
-    border-radius: var(--radius-lg);
+    margin: var(--space-md) 0 var(--space-md) 0;
+    animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* 浮动控制按钮（替代子顶栏） */
