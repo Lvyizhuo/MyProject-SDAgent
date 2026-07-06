@@ -71,8 +71,8 @@
    ============================================ */
 .ui-app {
     display: flex;
-    height: 100vh;
-    height: 100dvh;
+    height: calc(100vh - 72px);
+    height: calc(100dvh - 72px);
     overflow: hidden;
     font-family: var(--ui-font);
     font-size: 15px;
@@ -390,6 +390,31 @@
 }
 
 .ui-sidebar-expand:hover {
+    background: var(--ui-bg-hover);
+    color: var(--ui-primary);
+}
+
+/* 移动端浮动侧边栏切换按钮 */
+.ui-sidebar-fab {
+    display: none;
+    position: fixed;
+    bottom: 90px;
+    left: 16px;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--ui-r-pill);
+    background: var(--ui-bg-surface);
+    border: 1px solid var(--ui-border);
+    box-shadow: var(--ui-shadow-md);
+    color: var(--ui-text-secondary);
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    transition: all var(--ui-t-fast);
+    cursor: pointer;
+}
+
+.ui-sidebar-fab:hover {
     background: var(--ui-bg-hover);
     color: var(--ui-primary);
 }
@@ -1301,6 +1326,10 @@
 
     .ui-welcome-suggestions {
         grid-template-columns: 1fr;
+    }
+
+    .ui-sidebar-fab {
+        display: flex;
     }
 }
 

@@ -3,8 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import MainLayout from './components/MainLayout';
 import { AuthProvider } from './context/AuthContext';
-import ChatPage from './pages/ChatPage';
-import UIChatPage from './components/ui/ChatPage';
+import ChatPage from './components/ui/ChatPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -48,9 +47,6 @@ function App() {
                             </ProtectedRoute>
                         )}
                     />
-
-                    {/* 新 UI 预览路由（DeepSeek 风格） */}
-                    <Route path="/chat-ui" element={<UIChatPage />} />
 
                     <Route path="*" element={<Navigate to="/home" replace />} />
                 </Routes>

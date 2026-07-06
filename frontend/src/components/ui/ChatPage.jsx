@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Layers, History, MoreVertical } from 'lucide-react';
+import { History } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import { conversationApi } from '../../services/api';
@@ -131,29 +131,15 @@ const ChatPage = () => {
                 onDeleteSession={handleDeleteSession}
             />
 
-            <main className="ui-main">
-                <header className="ui-main-header">
-                    <div className="ui-main-header-left">
-                        <button
-                            className="ui-header-toggle-btn"
-                            onClick={toggleSidebar}
-                            title="历史会话"
-                        >
-                            <History size={18} />
-                        </button>
-                        <span className="ui-header-title">智能政策问答</span>
-                        <span className="ui-header-status">
-                            <span className="ui-header-status-dot" />
-                            在线服务中
-                        </span>
-                    </div>
-                    <div className="ui-main-header-right">
-                        <button className="ui-header-action-btn" title="更多">
-                            <MoreVertical size={17} />
-                        </button>
-                    </div>
-                </header>
+            <button
+                className="ui-sidebar-fab"
+                onClick={toggleSidebar}
+                title="历史会话"
+            >
+                <History size={18} />
+            </button>
 
+            <main className="ui-main">
                 <ChatWindow
                     key={currentSessionId}
                     sessionId={currentSessionId}
