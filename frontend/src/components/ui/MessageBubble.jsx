@@ -250,16 +250,21 @@ const MessageBubble = ({
                     </div>
                 </div>
             ) : (
-                <div className="ui-msg-user-bubble">
-                    {images && images.length > 0 && (
-                        <div className="ui-msg-images">
-                            {images.map((src, idx) => (
-                                <img key={idx} src={src} alt={`上传图片 ${idx + 1}`} className="ui-msg-image-thumb" />
-                            ))}
-                        </div>
-                    )}
-                    {content}
-                </div>
+                <>
+                    <div className="ui-msg-user-bubble">
+                        {images && images.length > 0 && (
+                            <div className="ui-msg-images">
+                                {images.map((src, idx) => (
+                                    <img key={idx} src={src} alt={`上传图片 ${idx + 1}`} className="ui-msg-image-thumb" />
+                                ))}
+                            </div>
+                        )}
+                        {content}
+                    </div>
+                    <div className="ui-msg-user-avatar">
+                        <User size={16} />
+                    </div>
+                </>
             )}
         </div>
     );
