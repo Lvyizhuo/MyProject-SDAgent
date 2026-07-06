@@ -32,3 +32,6 @@ Thumbs.db
 .workbuddy/
 
 tmp/
+
+node_modules
+dist
