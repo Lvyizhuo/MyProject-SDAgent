@@ -75,7 +75,6 @@
     max-width: 1400px;
     margin: 0 auto;
     padding: 0 var(--space-lg);
-    gap: var(--space-sm);
     overflow: hidden;
     font-family: var(--ui-font);
     font-size: 15px;
@@ -100,15 +99,20 @@
     box-shadow: var(--shadow-lg), inset 0 1px 0 rgba(255, 255, 255, 0.6);
     display: flex;
     flex-direction: column;
-    transition: margin-left var(--ui-t-slow), opacity var(--ui-t-med);
+    transition: width var(--ui-t-slow), margin var(--ui-t-slow), padding var(--ui-t-slow), border-width var(--ui-t-slow), opacity var(--ui-t-med);
     overflow: hidden;
-    margin: var(--space-md) 0 var(--space-md) 0;
+    margin: var(--space-md) var(--space-sm) var(--space-md) 0;
     padding: var(--space-md);
     animation: slideDownFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .ui-sidebar.collapsed {
-    margin-left: calc(var(--ui-sidebar-w) * -1);
+    width: 0;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border-width: 0;
+    opacity: 0;
 }
 
 .ui-sidebar-header {
@@ -177,14 +181,14 @@
 
 .ui-new-chat-btn {
     width: 100%;
-    padding: 0 16px;
-    min-height: 48px;
+    padding: 10px 16px;
+    min-height: 44px;
     border-radius: var(--radius-pill);
     display: flex;
     align-items: center;
     justify-content: center;
     gap: var(--space-sm);
-    font-size: 0.9rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: hsl(var(--color-text-inverse));
     background: linear-gradient(135deg, hsl(var(--color-primary)), hsl(var(--color-primary-hover)));
@@ -193,10 +197,11 @@
     transition: all var(--transition-med);
     margin-bottom: var(--space-sm);
     cursor: pointer;
+    text-align: center;
 }
 
 .ui-new-chat-btn:hover {
-    transform: translateY(-2px);
+    filter: brightness(1.1);
     box-shadow: 0 6px 16px hsl(var(--color-primary) / 0.4);
 }
 
