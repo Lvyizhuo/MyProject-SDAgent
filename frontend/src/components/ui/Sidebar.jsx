@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, MoreVertical, Star, Layers } from 'lucide-react';
+import { Plus, Search, MoreVertical, Star } from 'lucide-react';
 import '../ui/chat-ui.css';
 
 const formatDate = (timestamp) => {
@@ -66,15 +66,6 @@ const Sidebar = ({
                 onClick={onClose}
             />
             <aside className={`ui-sidebar ${collapsed ? 'collapsed' : ''} ${isOpen ? 'open' : ''}`}>
-                <div className="ui-sidebar-header">
-                    <div className="ui-sidebar-logo">
-                        <div className="logo-mark">
-                            <Layers size={16} />
-                        </div>
-                        <span>AI政策助手</span>
-                    </div>
-                </div>
-
                 <div className="ui-sidebar-body">
                     <button className="ui-new-chat-btn" onClick={onNewSession}>
                         <Plus size={16} />
