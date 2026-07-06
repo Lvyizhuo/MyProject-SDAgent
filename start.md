@@ -207,10 +207,10 @@ curl http://localhost:8080/api/chat/health
 cd frontend
 
 # 安装依赖（首次需要，以后不用重复执行）
-npm install
+pnpm install
 
 # 启动开发服务器
-npm run dev
+pnpm run dev
 ```
 
 当你看到类似这样的输出时，说明前端已经启动：
@@ -528,11 +528,11 @@ cd deploy
 
 在 `backend/` 目录下创建 `settings.xml` 或修改 Maven 全局配置，添加国内镜像源（如阿里云 Maven 镜像）。
 
-### Q: npm install 太慢怎么办？（方式一）
+### Q: pnpm install 太慢怎么办？（方式一）
 
 ```bash
 # 使用淘宝镜像
-npm config set registry https://registry.npmmirror.com
+pnpm config set registry https://registry.npmmirror.com
 ```
 
 ### Q: 启动后端报数据库连接错误（方式一）
@@ -657,8 +657,8 @@ cd backend
 
 # === 前端 ===
 cd frontend
-npm install                                                      # 安装依赖（首次）
-npm run dev                                                      # 启动开发服务器
+pnpm install                                                      # 安装依赖（首次）
+pnpm run dev                                                      # 启动开发服务器
 
 # === 导入知识库 ===
 curl -X POST "http://localhost:8080/api/documents/load-directory?path=../data"

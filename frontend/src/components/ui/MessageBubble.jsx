@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, User, Copy, RefreshCw, ThumbsUp, ThumbsDown, ChevronRight, MapPinned, LoaderCircle } from 'lucide-react';
+import { Bot, User, Copy, RefreshCw, ThumbsUp, ThumbsDown, ChevronRight, MapPinned, LoaderCircle, FileText } from 'lucide-react';
 import { marked } from 'marked';
 import '../ui/chat-ui.css';
 

@@ -7,9 +7,9 @@
   <h1>AI Policy Agent · SDAgent</h1>
   <h3>🏛️ Shandong Provincial Smart Policy Consulting Assistant</h3>
   <p align="center">
-    <strong>Policy Interpretation | Subsidy Calculation | Multimodal Recognition | Admin Console</strong>
+    <strong>Policy Interpretation | Subsidy Calculation | Multimodal Recognition | Multi-Agent Management</strong>
   </p>
-  <p><em>An end-to-end intelligent knowledge base Q&A system built on RAG technology for Shandong provincial policy scenarios.</em></p>
+  <p><em>An end-to-end intelligent knowledge base Q&A system built on RAG + Multi-Agent technology for Shandong provincial policy scenarios.</em></p>
 
   <img src="https://img.shields.io/github/stars/Lvyizhuo/MyProject-SDAgent?style=flat&logo=github" alt="GitHub stars"/>
   <img src="https://img.shields.io/github/forks/Lvyizhuo/MyProject-SDAgent?style=flat&logo=github" alt="GitHub forks"/>
@@ -34,7 +34,7 @@
 
 ## 📖 Introduction
 
-**AI Policy Agent** is an LLM-powered consulting system designed for Shandong Province's "Trade-in" (以旧换新) policies. It supports intelligent Q&A, automated subsidy estimation, and multimodal recognition. The system includes a comprehensive Admin Console for agent orchestration, knowledge base management, and model service routing.
+**AI Policy Agent** is an LLM-powered consulting system designed for Shandong Province's "Trade-in" (以旧换新) policies. It supports intelligent Q&A, automated subsidy estimation, and multimodal recognition. The system includes a comprehensive Admin Console for multi-agent orchestration, knowledge base management, and model service routing.
 
 ## 🏢 Business Scenarios
 
@@ -45,18 +45,21 @@ Designed for government departments, public service platforms, and industry asso
 - **Policy Q&A**: Structured, traceable answers based on RAG (Retrieval-Augmented Generation).
 - **Subsidy Calculation**: Automatic calculation of subsidy amounts based on region, category, and price.
 - **Multimodal Recognition**: Supports Voice-to-Text (ASR), Image/Device recognition, and Invoice OCR.
-- **Admin Console**: Unified management of agent prompts, knowledge bases, and model providers.
+- **Multi-Agent Management**: Create and manage multiple independent agent instances (Policy Advisor / Subsidy Calculator / Contract Reviewer / Data Analyst / Voice Receptionist), each with independent model bindings, system prompts, and skill toggles.
+- **Model Management**: Unified management of LLM / Vision / Audio / Embedding / Rerank models with connectivity tests and enable/disable toggles.
+- **Tool Governance**: Card-based tool display with centralized on/off switches (Web Search / Subsidy Calculator / File Parser / Code Sandbox).
+- **Knowledge Base**: Document upload, URL import, chunking preview, archive export/import, and batch operations.
 - **Governance & Security**: Features authentication, tool-call intent validation, fallback strategies, and audit logging.
 
 ## 🛠️ Tech Stack
 
 | Layer | Technologies |
 |------|--------|
-| **Frontend** | React 19 + Vite 7 |
+| **Frontend** | React 19 + Vite 7, pnpm package manager |
 | **Backend** | Spring Boot 3.4.1 + Spring AI 1.0.3 |
-| **LLM** | Alibaba DashScope (Default: `qwen-plus`, supports OpenAI-compatible custom models) |
+| **LLM** | Alibaba DashScope (Default: `qwen3.5-plus`, supports OpenAI-compatible custom models) |
 | **Embedding** | Ollama local `bge-m3` (default, 1024-dim) / `nomic-embed-text` (768-dim) |
-| **Reranker** | Self-hosted `rerank-service` (Python FastAPI + sentence-transformers, `bge-reranker-v2-m3`) |
+| **Reranker** | Self-hosted `rerank-service` (Python FastAPI + sentence-transformers, `bge-reranker-v2-m3`), supports TEI / Xinference / DashScope providers |
 | **Vector DB** | PostgreSQL 16 + pgvector |
 | **Cache/Session** | Redis 7 |
 | **Storage** | MinIO (S3 Compatible) |
@@ -67,18 +70,43 @@ Designed for government departments, public service platforms, and industry asso
 ```text
 ├── backend/
 │   ├── src/main/java/com/shandong/policyagent/
-│   │   ├── advisor/      # Security, Memory, Logging, Re-read Validation
-│   │   ├── agent/        # ToolIntentClassifier / AgentPlanParser
-│   │   ├── config/       # ChatClient / Security / Embedding / Minio Configs
-│   │   ├── rag/          # Slicing, Retrieval, Vector Ingestion, Dynamic Routing
-│   │   ├── multimodal/   # ASR and Vision (OCR)
-│   │   └── tool/         # calculateSubsidy / parseFile / webSearch
-│   └── docker-compose.yml # PostgreSQL + Redis + MinIO + Ollama + Reranker
+│   │   ├── advisor/       # Security, Memory, Logging, Re-read Validation
+│   │   ├── agent/         # ToolIntentClassifier / AgentPlanParser / ReActPlanningService
+│   │   ├── config/        # ChatClient / Security / Embedding / Minio Configs
+│   │   ├── controller/    # Chat / Auth / Agent / ModelCard / Tool / Knowledge / PublicConfig APIs
+│   │   ├── entity/        # JPA Entities (AgentInstance / AgentModelBinding / ToolDefinition / ModelProvider)
+│   │   ├── exception/     # Unified exception handling (BusinessException + GlobalExceptionHandler)
+│   │   ├── model/dto/     # Card view and request DTOs
+│   │   ├── multimodal/    # ASR and Vision (OCR)
+│   │   ├── rag/           # Slicing, Retrieval, Vector Ingestion, Multi-provider Reranking, Dynamic Routing
+│   │   ├── repository/    # JPA Repositories (AgentInstance / ToolDefinition)
+│   │   ├── service/       # Business logic (Multi-Agent / Model / Tool / Chat orchestration)
+│   │   └── tool/          # calculateSubsidy / parseFile / webSearch
+│   ├── src/main/resources/
+│   │   └── db/migration/  # Flyway migrations (V9: multi-agent tables)
+│   ├── docker-compose.yml # PostgreSQL + Redis + MinIO + Ollama + Reranker
+│   ├── lombok.config      # Lombok global config
+│   ├── maven-settings.xml # Alibaba Cloud Maven mirror
+│   └── pom.xml
 ├── frontend/
-│   └── src/
-│       ├── pages/        # Main UI + Admin Console
-│       └── services/     # API Integration (Chat & Admin)
-├── rerank-service/       # Python FastAPI reranker microservice (bge-reranker-v2-m3)
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── ui/        # DeepSeek-style chat UI (ChatPage/ChatWindow/InputArea/Sidebar/MessageBubble)
+│   │   │   └── admin/     # Admin Console (TopTabs/AdminSidebar/AgentsTab/KnowledgeTab/ModelsTab/ToolsTab)
+│   │   ├── pages/         # HomePage, LoginPage, AdminConsolePage etc.
+│   │   ├── services/      # 6 API service layers (api/adminApi/adminAgentApi/adminModelApi/adminToolApi/adminKnowledgeApi)
+│   │   └── context/       # AuthContext global auth state
+│   ├── nginx.conf         # Nginx config (API proxy + Actuator proxy + static caching)
+│   ├── pnpm-lock.yaml     # pnpm lock file
+│   └── package.json
+├── rerank-service/        # Python FastAPI reranker microservice (TEI-compatible protocol)
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── server.py
+├── deploy/                # Production deployment (Docker Compose + deploy scripts with subcommand system)
+├── data/
+├── docs/api/              # Complete REST API documentation (11 files)
+└── scripts/
 ```
 
 
@@ -89,6 +117,7 @@ Designed for government departments, public service platforms, and industry asso
   - Java 21+
   - Node.js 18+
   - Docker & Docker Compose
+  - pnpm (frontend package manager)
 
 ### 1\. Environment Variables
 
@@ -113,21 +142,23 @@ docker compose up -d
 
 # Frontend
 cd frontend
-npm install && npm run dev
+pnpm install && pnpm run dev
 ```
 
 ## 🖥️ Admin Console
 
-The Admin Console provides 4 core modules:
+The Admin Console provides 4 core modules with top tab navigation and sidebar:
 
-1.  **Agent Config**: Manage System Prompts, Skills, and bind specific LLM/Vision/ASR models.
-2.  **Knowledge Base**: Folder management, document/URL ingestion, chunking previews, and archival.
-3.  **Tools**: Information architecture for integrated tool governance.
-4.  **Model Management**: Maintain LLM, Visual, Audio, Embedding, and Rerank models with connectivity tests.
+1. **Agents**: Multi-agent instance management (create/edit/duplicate/delete/set default). Each agent can independently bind LLM/VISION/AUDIO/EMBEDDING/RERANK models, configure system prompts, greeting messages, skill toggles, and knowledge base folders.
+2. **Knowledge Base**: Folder management, document/URL ingestion, chunking preview, batch operations, and archive export/import.
+3. **Tools**: Card-based tool display with centralized on/off switches (Web Search / Subsidy Calculator / File Parser / Code Sandbox) and call statistics.
+4. **Model Management**: Maintain LLM, Visual, Audio, Embedding, and Rerank models with connectivity tests, enable/disable toggles, and built-in model auto-merge.
+
+On first startup, the system automatically seeds 5 default agents and 4 default tools.
 
 ## 🌐 Server Deployment (BaoTa + Docker Compose)
 
-For production deployment on Linux, use the `deploy/` directory for one-click startup (frontend + backend + PostgreSQL + Redis + MinIO + Ollama).
+For production deployment on Linux, use the `deploy/` directory for one-click startup (frontend + backend + PostgreSQL + Redis + MinIO + Ollama + Reranker).
 
 ### 1. Prepare deployment config
 
@@ -163,6 +194,8 @@ Notes:
 cd /www/wwwroot/MyProject-SDAgent/deploy
 ./deploy.sh
 ```
+
+Subcommands available: `./deploy.sh restart|status|logs|down`
 
 ### 3. Health checks
 
@@ -249,11 +282,59 @@ cd deploy
 
 ## 📌 API Overview
 
+### Chat & Documents
+
 | Method | Path | Description |
 |------|------|------|
-| POST | `/api/chat/stream` | Streaming Q\&A (SSE) |
-| POST | `/api/admin/models/test` | Model Connectivity Test |
-| POST | `/api/admin/knowledge/documents` | Upload & Ingest Knowledge |
+| POST | `/api/chat` | Standard Q&A |
+| POST | `/api/chat/stream` | Streaming Q&A (SSE) |
+| GET | `/api/chat/health` | Health check |
+
+### User Auth & Sessions
+
+| Method | Path | Description |
+|------|------|------|
+| POST | `/api/auth/register` | User registration |
+| POST | `/api/auth/login` | User login |
+| GET | `/api/auth/me` | Current user info |
+| GET | `/api/conversations` | List conversations |
+| DELETE | `/api/conversations/{sessionId}` | Delete conversation |
+
+### Multi-Agent Management (New)
+
+| Method | Path | Description |
+|------|------|------|
+| GET | `/api/admin/agents` | List agents |
+| GET | `/api/admin/agents/{id}` | Get agent detail |
+| POST | `/api/admin/agents` | Create agent |
+| PUT | `/api/admin/agents/{id}` | Update agent |
+| DELETE | `/api/admin/agents/{id}` | Delete agent |
+| POST | `/api/admin/agents/{id}/default` | Set as default |
+| POST | `/api/admin/agents/{id}/duplicate` | Duplicate agent |
+
+### Tool Management (New)
+
+| Method | Path | Description |
+|------|------|------|
+| GET | `/api/admin/tools` | List tools |
+| POST | `/api/admin/tools` | Create tool |
+| POST | `/api/admin/tools/{id}/enabled` | Toggle enabled |
+| POST | `/api/admin/tools/{id}/test` | Test connectivity |
+
+### Model Management
+
+| Method | Path | Description |
+|------|------|------|
+| GET | `/api/admin/models` | List models |
+| POST | `/api/admin/models` | Create model |
+| POST | `/api/admin/models/{id}/test` | Test connection |
+| GET | `/api/admin/models-card` | Model card view (new) |
+
+### Multimodal
+
+| Method | Path | Description |
+|------|------|------|
+| POST | `/api/multimodal/transcribe` | Speech-to-Text |
 | POST | `/api/multimodal/analyze-invoice` | OCR Invoice Analysis |
 
 ## ⭐ Star History

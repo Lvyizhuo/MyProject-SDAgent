@@ -14,6 +14,9 @@
 | 公开配置 | [public-config.md](./public-config.md) | `/api/public/config` | 无 | 获取智能体公开配置（开场白） |
 | 管理员认证 | [admin-auth.md](./admin-auth.md) | `/api/admin/auth` | 部分 | 管理员登录、修改密码 |
 | 智能体配置 | [admin-agent-config.md](./admin-agent-config.md) | `/api/admin/agent-config` | 管理员 | 获取/更新/重置/测试智能体配置 |
+| 多智能体管理 | （新增，暂未独立文档） | `/api/admin/agents` | 管理员 | 智能体实例 CRUD、设默认、复制、元数据 |
+| 工具管理 | （新增，暂未独立文档） | `/api/admin/tools` | 管理员 | 工具定义 CRUD、启用切换、连通性测试 |
+| 模型卡片 | （新增，暂未独立文档） | `/api/admin/models-card` | 管理员 | 模型卡片视图、按类型过滤、简化测试 |
 | 模型管理 | [admin-models.md](./admin-models.md) | `/api/admin/models` | 管理员 | 模型提供商 CRUD、设默认、测试连接 |
 | 知识库管理 | [admin-knowledge.md](./admin-knowledge.md) | `/api/admin/knowledge` | 管理员 | 文件夹、文档、分块、配置、网站导入、归档 |
 
@@ -136,6 +139,9 @@
 | `UrlImportItemType`（导入条目类型） | `ARTICLE`、`ATTACHMENT` |
 | `UrlImportParseStatus`（解析状态） | `PENDING`、`PARSED`、`FILTERED`、`FAILED` |
 | `UrlImportReviewStatus`（审核状态） | `WAITING_CONFIRM`、`CONFIRMED`、`REJECTED`、`IMPORT_FAILED` |
+| `AgentStatus`（智能体状态） | `draft`、`published` |
+| `AgentCategory`（智能体分类） | `chat`（对话型）、`workflow`（工作流）、`support`（客服型） |
+| `ToolCategory`（工具分类） | `web`（联网）、`calc`（计算）、`parse`（解析）、`external`（外部 API） |
 
 ### CORS 跨域
 

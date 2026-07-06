@@ -37,7 +37,10 @@ export const authApi = {
             headers: getAuthHeaders()
         });
         if (!response.ok) {
-            throw new Error('获取用户信息失败');
+            // 401 = token 无效/过期；其他非 2xx 可能是后端暂时不可用
+            const err = new Error('获取用户信息失败');
+            err.status = response.status;
+            throw err;
         }
         return response.json();
     }

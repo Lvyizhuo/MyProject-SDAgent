@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Layers, FileText, MapPin, Calculator, Bot } from 'lucide-react';
+import { Layers, FileText, MapPin, Calculator, Bot, Target } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import InputArea from './InputArea';
 import { chatApi, publicConfigApi } from '../../services/api';
@@ -249,7 +249,7 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                 <>
                     <div className="ui-welcome">
                         <div className="ui-welcome-logo">
-                            <Layers size={28} />
+                            <Target size={28} />
                         </div>
                         <h1 className="ui-welcome-title">您好，我是山东政策咨询助手</h1>
                         <p className="ui-welcome-subtitle">

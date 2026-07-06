@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, MoreVertical, Settings, Layers, X } from 'lucide-react';
+import { Plus, Search, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
 import '../ui/chat-ui.css';
 
 const formatDate = (timestamp) => {
@@ -60,14 +60,9 @@ const Sidebar = ({
             />
             <aside className={`ui-sidebar ${collapsed ? 'collapsed' : ''} ${isOpen ? 'open' : ''}`}>
                 <div className="ui-sidebar-header">
-                    <div className="ui-sidebar-logo">
-                        <div className="logo-mark">
-                            <Layers size={16} />
-                        </div>
-                        AI政策助手
-                    </div>
+                    <span style={{ flex: 1 }} />
                     <button className="ui-sidebar-toggle" onClick={handleToggle} title="收起侧栏">
-                        <X size={18} />
+                        <ChevronLeft size={18} />
                     </button>
                 </div>
 
@@ -119,21 +114,7 @@ const Sidebar = ({
                         ))
                     )}
                 </div>
-
-                <div className="ui-sidebar-footer">
-                    <div className="ui-user-card">
-                        <div className="ui-user-avatar">政</div>
-                        <div className="ui-user-info">
-                            <div className="ui-user-name">政策用户</div>
-                            <div className="ui-user-plan">免费使用</div>
-                        </div>
-                        <button className="ui-conv-item-menu" style={{ opacity: 1 }}>
-                            <Settings size={16} />
-                        </button>
-                    </div>
-                </div>
             </aside>
-
             {collapsed && (
                 <button
                     className="ui-sidebar-expand"
@@ -141,7 +122,7 @@ const Sidebar = ({
                     title="展开侧栏"
                     style={{ display: 'flex' }}
                 >
-                    <Layers size={18} />
+                    <ChevronRight size={18} />
                 </button>
             )}
         </>
