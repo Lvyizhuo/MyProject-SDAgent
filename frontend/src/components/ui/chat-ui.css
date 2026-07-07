@@ -1044,17 +1044,17 @@
 }
 
 .ui-msg-ai-avatar {
-    width: 30px;
-    height: 30px;
-    border-radius: var(--ui-r-sm);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
     background: linear-gradient(135deg, var(--ui-primary), #6d8aff);
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(77, 107, 254, 0.18);
-    margin-top: 2px;
+    box-shadow: 0 2px 8px rgba(77, 107, 254, 0.2);
+    margin-top: 3px;
 }
 
 .ui-msg-ai-body {
@@ -1162,16 +1162,17 @@
 }
 
 .ui-msg-user-avatar {
-    width: 30px;
-    height: 30px;
-    border-radius: var(--ui-r-sm);
-    background: #e8e8eb;
-    color: var(--ui-text-secondary);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e2e2e6, #d4d4da);
+    color: #8a8a93;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    margin-top: 2px;
+    margin-top: 3px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 .ui-msg-user-bubble {
@@ -1473,6 +1474,13 @@
     .ui-welcome-suggestions {
         grid-template-columns: 1fr;
     }
+
+    /* 平板端头像微调 */
+    .ui-msg-ai-avatar,
+    .ui-msg-user-avatar {
+        width: 34px;
+        height: 34px;
+    }
 }
 
 @media (max-width: 640px) {
@@ -1506,5 +1514,27 @@
 
     .ui-msg-user-bubble {
         max-width: 95%;
+    }
+
+    /* 移动端头像缩小 */
+    .ui-msg-ai-avatar,
+    .ui-msg-user-avatar {
+        width: 30px;
+        height: 30px;
+        margin-top: 2px;
+    }
+
+    .ui-msg-ai-avatar svg,
+    .ui-msg-user-avatar svg {
+        width: 15px;
+        height: 15px;
+    }
+
+    .ui-msg-ai {
+        gap: var(--ui-sp-2);
+    }
+
+    .ui-msg-user {
+        gap: var(--ui-sp-2);
     }
 }

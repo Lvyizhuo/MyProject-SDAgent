@@ -92,7 +92,7 @@ const MessageBubble = ({
         return (
             <div className="ui-msg-ai">
                 <div className="ui-msg-ai-avatar">
-                    <Bot size={16} />
+                    <Bot size={18} />
                 </div>
                 <div className="ui-msg-ai-body">
                     <div className="ui-msg-ai-name">AI政策助手</div>
@@ -130,7 +130,7 @@ const MessageBubble = ({
         <div className={isAi ? 'ui-msg-ai' : 'ui-msg-user'}>
             {isAi && (
                 <div className="ui-msg-ai-avatar">
-                    <Bot size={16} />
+                    <Bot size={18} />
                 </div>
             )}
             {isAi ? (
@@ -262,7 +262,7 @@ const MessageBubble = ({
                         {content}
                     </div>
                     <div className="ui-msg-user-avatar">
-                        <User size={16} />
+                        <User size={18} />
                     </div>
                 </>
             )}
