@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, BookOpen, Wrench, Cpu, Bell, User as UserIcon, ChevronDown } from 'lucide-react';
+import { Sparkles, BookOpen, Wrench, Cpu, Bell, User as UserIcon, ChevronDown, Target } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import './TopTabs.css';
@@ -21,11 +21,9 @@ const TopTabs = ({ activeTab, onTabChange }) => {
             <div className="admin-toptabs-inner">
                 <button className="admin-toptabs-brand" onClick={() => navigate('/home')}>
                     <span className="brand-mark">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                            <path d="M12 2L9 9 2 12l7 3 3 7 3-7 7-3-7-3z" />
-                        </svg>
+                        <Target size={18} />
                     </span>
-                    <span className="brand-text">AI 政策通</span>
+                    <span className="brand-text">AI政策通</span>
                     <span className="brand-workspace">Lonez&apos;s Workspace</span>
                 </button>
 
@@ -38,7 +36,7 @@ const TopTabs = ({ activeTab, onTabChange }) => {
                                 className={`admin-toptabs-tab ${activeTab === tab.id ? 'active' : ''}`}
                                 onClick={() => onTabChange(tab.id)}
                             >
-                                <Icon size={16} strokeWidth={2.2} />
+                                <Icon size={16} />
                                 <span>{tab.label}</span>
                             </button>
                         );
@@ -51,16 +49,14 @@ const TopTabs = ({ activeTab, onTabChange }) => {
                         title="通知"
                         onClick={() => navigate('/user?tab=notifications')}
                     >
-                        <Bell size={16} />
+                        <Bell size={18} />
                         <span className="dot" />
                     </button>
                     <div className="admin-toptabs-user-wrap">
                         <button className="admin-toptabs-user" onClick={() => setMenuOpen((v) => !v)}>
-                            <span className="user-avatar-mini">
-                                {(user?.username || 'A').slice(0, 1).toUpperCase()}
-                            </span>
+                            <UserIcon size={16} />
                             <span>{user?.username || 'admin'}</span>
-                            <ChevronDown size={12} className={menuOpen ? 'rotated' : ''} />
+                            <ChevronDown size={14} className={menuOpen ? 'rotated' : ''} />
                         </button>
                         {menuOpen && (
                             <div className="admin-toptabs-dropdown" role="menu">
