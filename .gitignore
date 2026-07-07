@@ -23,6 +23,8 @@ Thumbs.db
 *.swp
 .playwright-mcp/
 
+tmp/
+
 # Local dev logs
 logs/
 
