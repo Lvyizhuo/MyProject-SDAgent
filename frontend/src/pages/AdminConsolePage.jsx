@@ -23,7 +23,7 @@ const AdminConsolePage = () => {
             <div className="admin-console-page">
                 <TopTabs activeTab={activeTab} onTabChange={setActiveTab} />
                 <main className="admin-console-content">
-                    <ActiveComponent />
+                    <ActiveComponent key={activeTab} />
                 </main>
             </div>
         </AdminConsoleProvider>

@@ -6,6 +6,7 @@
         radial-gradient(1200px 640px at 8% -12%, hsl(var(--color-primary-light) / 0.4), transparent 68%),
         radial-gradient(1000px 540px at 88% -22%, hsl(var(--color-secondary) / 0.1), transparent 70%),
         linear-gradient(180deg, hsl(var(--color-bg-elevated)), hsl(var(--color-bg-app)) 58%);
+    animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .admin-console-content {
@@ -17,6 +18,7 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+    animation: slideUpFade 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @media (max-width: 720px) {
