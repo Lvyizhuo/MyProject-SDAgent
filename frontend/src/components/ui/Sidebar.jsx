@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Search, MoreVertical, Star } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Search, MoreVertical, Star, Share2, Trash2 } from 'lucide-react';
 import '../ui/chat-ui.css';
 
 const formatDate = (timestamp) => {
@@ -48,9 +48,13 @@ const Sidebar = ({
     onSelectSession,
     onNewSession,
     onDeleteSession,
-    starredSessions
+    starredSessions,
+    onToggleStar,
+    onShare
 }) => {
     const [searchQuery, setSearchQuery] = useState('');
+    const [menuOpenSessionId, setMenuOpenSessionId] = useState(null);
+    const menuRef = useRef(null);
     const starredSet = starredSessions || new Set();
 
     const filteredSessions = searchQuery
@@ -58,6 +62,25 @@ const Sidebar = ({
         : sessions;
 
     const grouped = groupSessions(filteredSessions, starredSet);
+
+    useEffect(() => {
+        if (menuOpenSessionId === null) return;
+
+        const handleClick = (e) => {
+            if (menuRef.current && !menuRef.current.contains(e.target)) {
+                setMenuOpenSessionId(null);
+            }
+        };
+
+        const timer = setTimeout(() => {
+            document.addEventListener('mousedown', handleClick);
+        }, 0);
+
+        return () => {
+            clearTimeout(timer);
+            document.removeEventListener('mousedown', handleClick);
+        };
+    }, [menuOpenSessionId]);
 
     return (
         <>
@@ -105,16 +128,64 @@ const Sidebar = ({
                                             <span className="ui-conv-item-text">
                                                 {session.title || '新对话'}
                                             </span>
-                                            <button
-                                                className="ui-conv-item-menu"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onDeleteSession(session.id);
-                                                }}
-                                                title="删除"
+                                            <div
+                                                className="ui-conv-item-actions"
+                                                ref={menuOpenSessionId === session.id ? menuRef : null}
                                             >
-                                                <MoreVertical size={14} />
-                                            </button>
+                                                <button
+                                                    className="ui-conv-item-menu"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setMenuOpenSessionId(
+                                                            menuOpenSessionId === session.id ? null : session.id
+                                                        );
+                                                    }}
+                                                    title="更多操作"
+                                                >
+                                                    <MoreVertical size={14} />
+                                                </button>
+                                                {menuOpenSessionId === session.id && (
+                                                    <div
+                                                        className="ui-conv-dropdown"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <button
+                                                            className="ui-conv-dropdown-item"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onShare?.(session.id);
+                                                                setMenuOpenSessionId(null);
+                                                            }}
+                                                        >
+                                                            <Share2 size={14} />
+                                                            分享
+                                                        </button>
+                                                        <button
+                                                            className="ui-conv-dropdown-item"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onToggleStar?.(session.id);
+                                                                setMenuOpenSessionId(null);
+                                                            }}
+                                                        >
+                                                            <Star size={14} />
+                                                            收藏
+                                                        </button>
+                                                        <div className="ui-conv-dropdown-divider" />
+                                                        <button
+                                                            className="ui-conv-dropdown-item danger"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onDeleteSession(session.id);
+                                                                setMenuOpenSessionId(null);
+                                                            }}
+                                                        >
+                                                            <Trash2 size={14} />
+                                                            删除
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     );
                                 })}
