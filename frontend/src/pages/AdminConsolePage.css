@@ -18,7 +18,15 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    animation: slideUpFade 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 标签内容动画：每次切换标签时重新播放 */
+.admin-tab-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @media (max-width: 720px) {
