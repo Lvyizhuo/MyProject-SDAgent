@@ -279,6 +279,9 @@
     padding: var(--space-sm) var(--space-xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .ui-conv-item {
