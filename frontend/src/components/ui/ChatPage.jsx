@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { History, MoreVertical, Share2, Trash2, Star, PanelLeftClose, PanelLeft } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { PanelLeftClose, PanelLeft } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import { conversationApi } from '../../services/api';
@@ -14,10 +14,8 @@ const ChatPage = () => {
         return id;
     });
     const [loading, setLoading] = useState(true);
-    const [moreMenuOpen, setMoreMenuOpen] = useState(false);
     const [starredSessions, setStarredSessions] = useState(new Set());
     const [shareToast, setShareToast] = useState(false);
-    const moreMenuRef = useRef(null);
 
     useEffect(() => {
         const loadSessions = async () => {
@@ -41,17 +39,6 @@ const ChatPage = () => {
         };
         loadSessions();
     }, []);
-
-    useEffect(() => {
-        if (!moreMenuOpen) return;
-        const handleClickOutside = (event) => {
-            if (moreMenuRef.current && !moreMenuRef.current.contains(event.target)) {
-                setMoreMenuOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [moreMenuOpen]);
 
     const handleNewSession = useCallback(() => {
         const newId = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
@@ -100,7 +87,7 @@ const ChatPage = () => {
         });
     }, []);
 
-    const handleShare = () => {
+    const handleShare = useCallback(() => {
         const url = window.location.href;
         navigator.clipboard?.writeText(url).then(() => {
             setShareToast(true);
@@ -115,28 +102,19 @@ const ChatPage = () => {
             setShareToast(true);
             setTimeout(() => setShareToast(false), 2000);
         });
-        setMoreMenuOpen(false);
-    };
+    }, []);
 
-    const handleDeleteCurrent = () => {
-        if (currentSessionId && sessions.find((s) => s.id === currentSessionId)) {
-            handleDeleteSession(currentSessionId);
-        }
-        setMoreMenuOpen(false);
-    };
-
-    const handleToggleStar = () => {
+    const handleToggleStar = useCallback((sessionId) => {
         setStarredSessions((prev) => {
             const next = new Set(prev);
-            if (next.has(currentSessionId)) {
-                next.delete(currentSessionId);
+            if (next.has(sessionId)) {
+                next.delete(sessionId);
             } else {
-                next.add(currentSessionId);
+                next.add(sessionId);
             }
             return next;
         });
-        setMoreMenuOpen(false);
-    };
+    }, []);
 
     const toggleSidebar = () => {
         if (window.innerWidth <= 900) {
@@ -147,7 +125,6 @@ const ChatPage = () => {
     };
 
     const currentSession = sessions.find((s) => s.id === currentSessionId);
-    const isStarred = starredSessions.has(currentSessionId);
 
     if (loading) {
         return (
@@ -172,10 +149,12 @@ const ChatPage = () => {
                 onNewSession={handleNewSession}
                 onDeleteSession={handleDeleteSession}
                 starredSessions={starredSessions}
+                onToggleStar={handleToggleStar}
+                onShare={handleShare}
             />
 
             <main className="ui-main">
-                <div className="ui-floating-controls" ref={moreMenuRef}>
+                <div className="ui-floating-controls">
                     <button
                         className="ui-floating-btn"
                         onClick={toggleSidebar}
@@ -183,30 +162,6 @@ const ChatPage = () => {
                     >
                         {sidebarCollapsed ? <PanelLeft size={17} /> : <PanelLeftClose size={17} />}
                     </button>
-                    <button
-                        className="ui-floating-btn"
-                        onClick={() => setMoreMenuOpen(!moreMenuOpen)}
-                        title="更多操作"
-                    >
-                        <MoreVertical size={17} />
-                    </button>
-                    {moreMenuOpen && (
-                        <div className="ui-dropdown-menu">
-                            <button className="ui-dropdown-item" onClick={handleShare}>
-                                <Share2 size={16} />
-                                分享
-                            </button>
-                            <button className="ui-dropdown-item" onClick={handleToggleStar}>
-                                <Star size={16} className={isStarred ? 'starred' : ''} />
-                                {isStarred ? '取消收藏' : '收藏'}
-                            </button>
-                            <div className="ui-dropdown-divider" />
-                            <button className="ui-dropdown-item danger" onClick={handleDeleteCurrent}>
-                                <Trash2 size={16} />
-                                删除对话
-                            </button>
-                        </div>
-                    )}
                 </div>
 
                 <ChatWindow

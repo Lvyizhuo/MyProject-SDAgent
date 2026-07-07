@@ -326,7 +326,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
+    opacity: 0.6;
     transition: all var(--ui-t-fast);
     flex-shrink: 0;
     border: none;
@@ -339,8 +339,66 @@
     opacity: 1;
 }
 
+.ui-conv-item-actions {
+    position: relative;
+    flex-shrink: 0;
+}
+
+/* 侧栏下拉菜单 */
+.ui-conv-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    background: var(--ui-bg-surface);
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-r-md);
+    box-shadow: var(--ui-shadow-md);
+    overflow: hidden;
+    z-index: 50;
+    min-width: 130px;
+    animation: ui-dropdown-in 0.15s ease-out;
+}
+
+.ui-conv-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--ui-sp-2);
+    padding: 8px 14px;
+    width: 100%;
+    font-size: 0.8125rem;
+    color: var(--ui-text-primary);
+    transition: background var(--ui-t-fast);
+    border: none;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.ui-conv-dropdown-item:hover {
+    background: var(--ui-bg-hover);
+}
+
+.ui-conv-dropdown-item.danger {
+    color: #ef4444;
+}
+
+.ui-conv-dropdown-item.danger:hover {
+    background: #fef2f2;
+}
+
+.ui-conv-dropdown-item svg {
+    flex-shrink: 0;
+}
+
+.ui-conv-dropdown-divider {
+    height: 1px;
+    background: var(--ui-border-soft);
+    margin: 2px 0;
+}
+
 .ui-conv-item-menu:hover {
-    background: rgba(0, 0, 0, 0.06);
+    background: var(--ui-bg-hover);
     color: var(--ui-text-primary);
 }
 
