@@ -139,13 +139,13 @@
     width: 28px;
     height: 28px;
     border-radius: var(--ui-r-sm);
-    background: linear-gradient(135deg, var(--ui-primary), #6d8aff);
+    background: var(--ui-primary);
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(77, 107, 254, 0.25);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
 }
 
 .ui-sidebar-toggle {
@@ -165,6 +165,10 @@
 .ui-sidebar-toggle:hover {
     background: var(--ui-bg-hover);
     color: var(--ui-text-primary);
+}
+
+.ui-sidebar-toggle:active {
+    transform: scale(0.9);
 }
 
 .ui-sidebar-body {
@@ -203,6 +207,10 @@
 .ui-new-chat-btn:hover {
     filter: brightness(1.1);
     box-shadow: 0 6px 16px hsl(var(--color-primary) / 0.4);
+}
+
+.ui-new-chat-btn:active {
+    transform: scale(0.97);
 }
 
 .ui-new-chat-btn svg {
@@ -360,7 +368,7 @@
     width: 32px;
     height: 32px;
     border-radius: var(--ui-r-pill);
-    background: linear-gradient(135deg, #dd55ff, #6d8aff);
+    background: var(--ui-primary);
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -454,6 +462,10 @@
 .ui-floating-btn:hover {
     background: var(--ui-bg-hover);
     color: var(--ui-text-primary);
+}
+
+.ui-floating-btn:active {
+    transform: scale(0.92);
 }
 
 /* 子顶栏（已废弃，保留样式以防回退） */
@@ -678,13 +690,13 @@
     width: 56px;
     height: 56px;
     border-radius: var(--ui-r-lg);
-    background: linear-gradient(135deg, var(--ui-primary), #6d8aff);
+    background: var(--ui-primary);
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
     margin-bottom: var(--ui-sp-6);
-    box-shadow: 0 8px 24px rgba(77, 107, 254, 0.18);
+    box-shadow: 0 8px 24px rgba(59, 130, 246, 0.18);
     animation: ui-welcome-float 4s ease-in-out infinite;
 }
 
@@ -700,6 +712,7 @@
     letter-spacing: -0.02em;
     margin-bottom: var(--ui-sp-3);
     text-align: center;
+    text-wrap: balance;
 }
 
 .ui-welcome-subtitle {
@@ -722,8 +735,9 @@
 .ui-suggestion-card {
     padding: var(--ui-sp-4);
     border-radius: var(--ui-r-md);
-    border: 1px solid var(--ui-border);
+    border: none;
     background: var(--ui-bg-surface);
+    box-shadow: var(--ui-shadow-input);
     text-align: left;
     transition: all var(--ui-t-med);
     display: flex;
@@ -733,10 +747,9 @@
 }
 
 .ui-suggestion-card:hover {
-    border-color: var(--ui-primary-tint);
     background: var(--ui-primary-soft);
-    transform: translateY(-1px);
-    box-shadow: var(--ui-shadow-sm);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.12);
 }
 
 .ui-suggestion-card-icon {
@@ -851,6 +864,10 @@
     color: var(--ui-text-primary);
 }
 
+.ui-tool-toggle:active {
+    transform: scale(0.96);
+}
+
 .ui-tool-toggle.active {
     background: var(--ui-primary-soft);
     border-color: var(--ui-primary-tint);
@@ -878,6 +895,10 @@
     color: var(--ui-text-primary);
 }
 
+.ui-tool-btn:active {
+    transform: scale(0.92);
+}
+
 .ui-tool-btn.active {
     background: var(--ui-primary-soft);
     color: var(--ui-primary);
@@ -900,7 +921,7 @@
     color: white;
     transition: all var(--ui-t-fast);
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(77, 107, 254, 0.3);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
     border: none;
     cursor: pointer;
 }
@@ -908,6 +929,10 @@
 .ui-send-btn:hover:not(:disabled) {
     background: var(--ui-primary-hover);
     transform: scale(1.05);
+}
+
+.ui-send-btn:active:not(:disabled) {
+    transform: scale(0.95);
 }
 
 .ui-send-btn:disabled {
@@ -1046,14 +1071,14 @@
 .ui-msg-ai-avatar {
     width: 36px;
     height: 36px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--ui-primary), #6d8aff);
+    border-radius: var(--ui-r-md);
+    background: var(--ui-primary);
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
     flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(77, 107, 254, 0.2);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
     margin-top: 3px;
 }
 
@@ -1153,6 +1178,10 @@
     color: var(--ui-text-primary);
 }
 
+.ui-msg-action-btn:active {
+    transform: scale(0.88);
+}
+
 /* 用户消息 */
 .ui-msg-user {
     display: flex;
@@ -1164,8 +1193,8 @@
 .ui-msg-user-avatar {
     width: 36px;
     height: 36px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #e2e2e6, #d4d4da);
+    border-radius: var(--ui-r-md);
+    background: #e8e8eb;
     color: #8a8a93;
     display: flex;
     align-items: center;
@@ -1432,6 +1461,37 @@
 @keyframes ui-fade-up {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* 加载状态 */
+.ui-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--ui-sp-3);
+    padding: var(--ui-sp-12) var(--ui-sp-6);
+    color: var(--ui-text-muted);
+}
+
+.ui-loading-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid hsl(var(--color-primary) / 0.12);
+    border-top-color: var(--ui-primary);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+.ui-loading-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+    animation: pulse-glow 2s ease-in-out infinite;
 }
 
 .ui-welcome > * {

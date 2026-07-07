@@ -151,17 +151,10 @@ const ChatPage = () => {
 
     if (loading) {
         return (
-            <div className="ui-app" style={{ alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ textAlign: 'center', color: 'var(--ui-text-muted)' }}>
-                    <div style={{
-                        width: 32, height: 32,
-                        border: '2px solid var(--ui-border)',
-                        borderTopColor: 'var(--ui-primary)',
-                        borderRadius: '50%',
-                        animation: 'spin 0.8s linear infinite',
-                        margin: '0 auto 12px'
-                    }} />
-                    <span style={{ fontSize: '0.875rem' }}>加载中...</span>
+            <div className="ui-app">
+                <div className="ui-loading">
+                    <div className="ui-loading-spinner" />
+                    <span className="ui-loading-text">加载中...</span>
                 </div>
             </div>
         );
