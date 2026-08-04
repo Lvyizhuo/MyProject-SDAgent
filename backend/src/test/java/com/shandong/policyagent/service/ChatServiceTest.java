@@ -93,7 +93,8 @@ class ChatServiceTest {
         ExecutionPromptBuilder realExecutionPromptBuilder = new ExecutionPromptBuilder();
         realPricePrefetchCoordinator = new PricePrefetchCoordinator(
                 sessionFactCacheService, productPriceCacheService);
-        ImageAnalysisService realImageAnalysisService = new ImageAnalysisService(visionService);
+        ImageAnalysisService realImageAnalysisService = new ImageAnalysisService(
+                visionService, mock(java.util.concurrent.Executor.class));
         ExecutionFallbackChain realExecutionFallbackChain = new ExecutionFallbackChain(
                 dynamicChatClientFactory,
                 dynamicAgentConfigHolder,

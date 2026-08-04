@@ -3,15 +3,19 @@ package com.shandong.policyagent.service;
 import com.shandong.policyagent.multimodal.service.VisionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * 图片分析服务。
  * <p>
  * 负责调用视觉模型分析用户上传的图片（单张或多张），提取设备/家电信息。
- * 从 ChatService 拆分而来，保持原逻辑行为完全不变。
+ * 从 ChatService 拆分而来；多图场景并行调用视觉模型（A10 优化），单图保持串行。
  * </p>
  */
 @Slf4j
@@ -20,6 +24,7 @@ import java.util.List;
 public class ImageAnalysisService {
 
     private final VisionService visionService;
+    private final @Qualifier("chatAsyncTaskExecutor") Executor imageAnalysisExecutor;
 
     /**
      * 分析用户上传的 Base64 图片列表，提取设备/家电结构化信息。
@@ -39,11 +44,20 @@ public class ImageAnalysisService {
                 return result;
             }
 
-            StringBuilder combined = new StringBuilder();
+            // A10 优化：多图并行调用视觉模型，避免耗时线性增长（按原图顺序拼接结果）
+            String prompt = buildDeviceRecognitionPrompt();
+            List<CompletableFuture<String>> futures = new ArrayList<>(imageBase64List.size());
             for (int i = 0; i < imageBase64List.size(); i++) {
-                String result = visionService.analyzeBase64Image(
-                        imageBase64List.get(i), format, buildDeviceRecognitionPrompt());
-                combined.append(String.format("【图片%d识别结果】\n%s\n\n", i + 1, result));
+                final int index = i;
+                futures.add(CompletableFuture.supplyAsync(
+                        () -> visionService.analyzeBase64Image(imageBase64List.get(index), format, prompt),
+                        imageAnalysisExecutor));
+            }
+
+            StringBuilder combined = new StringBuilder();
+            for (int i = 0; i < futures.size(); i++) {
+                // join 抛 CompletionException（unchecked），由外层 catch 兜底，行为与原串行实现一致
+                combined.append(String.format("【图片%d识别结果】\n%s\n\n", i + 1, futures.get(i).join()));
             }
             log.info("多张图片识别完成 | 数量={}", imageBase64List.size());
             return combined.toString().trim();
