@@ -7,7 +7,6 @@ import com.shandong.policyagent.agent.ToolIntentClassifier;
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
-import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.multimodal.service.VisionService;
 import com.shandong.policyagent.rag.RagFailureDetector;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
@@ -20,7 +19,6 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.Generation;
-import reactor.core.publisher.Flux;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -28,7 +26,6 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -65,11 +62,11 @@ class ChatServiceTest {
     @Mock
     private SessionFactCacheService sessionFactCacheService;
 
-        @Mock
-        private FastPathService fastPathService;
+    @Mock
+    private FastPathService fastPathService;
 
-        @Mock
-        private QuestionSemanticCacheService questionSemanticCacheService;
+    @Mock
+    private QuestionSemanticCacheService questionSemanticCacheService;
 
     @Mock
     private ToolFailurePolicyCenter toolFailurePolicyCenter;
@@ -77,8 +74,8 @@ class ChatServiceTest {
     @Mock
     private ModelProviderService modelProviderService;
 
-        @Mock
-        private ProductPriceCacheService productPriceCacheService;
+    @Mock
+    private ProductPriceCacheService productPriceCacheService;
 
     @Mock
     private RagFailureDetector ragFailureDetector;
@@ -87,28 +84,46 @@ class ChatServiceTest {
     private KnowledgeReferenceService knowledgeReferenceService;
 
     private ChatService chatService;
+    private PricePrefetchCoordinator realPricePrefetchCoordinator;
 
     @BeforeEach
     void setUp() {
-        chatService = new ChatService(
+        // 创建需要真实逻辑的拆分组件实例（依赖 mock 对象）
+        ClarificationService realClarificationService = new ClarificationService();
+        ExecutionPromptBuilder realExecutionPromptBuilder = new ExecutionPromptBuilder();
+        realPricePrefetchCoordinator = new PricePrefetchCoordinator(
+                sessionFactCacheService, productPriceCacheService);
+        ImageAnalysisService realImageAnalysisService = new ImageAnalysisService(visionService);
+        ExecutionFallbackChain realExecutionFallbackChain = new ExecutionFallbackChain(
                 dynamicChatClientFactory,
                 dynamicAgentConfigHolder,
-                visionService,
+                modelProviderService,
+                toolFailurePolicyCenter,
+                ragFailureDetector,
+                knowledgeReferenceService,
+                realExecutionPromptBuilder
+        );
+
+        chatService = new ChatService(
                 planningService,
                 toolIntentClassifier,
                 plannedToolExecutor,
                 sessionFactCacheService,
                 fastPathService,
                 questionSemanticCacheService,
-                toolFailurePolicyCenter,
-                modelProviderService,
-                                productPriceCacheService,
-                ragFailureDetector,
-                knowledgeReferenceService
+                realClarificationService,
+                realPricePrefetchCoordinator,
+                realExecutionPromptBuilder,
+                realImageAnalysisService,
+                realExecutionFallbackChain
         );
-        setField(chatService, "prefetchAwaitEnabled", false);
-        setField(chatService, "prefetchAwaitMaxSeconds", 6L);
-        setField(chatService, "prefetchAwaitPollMillis", 200L);
+        // PricePrefetchCoordinator 的 @Value 默认值
+        setField(realPricePrefetchCoordinator, "prefetchAwaitEnabled", false);
+        setField(realPricePrefetchCoordinator, "prefetchAwaitMaxSeconds", 6L);
+        setField(realPricePrefetchCoordinator, "prefetchAwaitPollMillis", 200L);
+        // ChatService 的 @Value 默认值
+        setField(chatService, "fastPathEnabled", true);
+        setField(chatService, "qaCacheEnabled", true);
         // 默认预执行器返回空结果，保持现有测试行为不变；
         // 部分用例在澄清/价格预取阶段提前返回，不触发预执行，故使用 lenient 避免 UnnecessaryStubbing
         lenient().when(plannedToolExecutor.execute(any(), anyString(), any(), any()))
@@ -258,10 +273,8 @@ class ChatServiceTest {
 
     @Test
     void shouldWaitForPrefetchAndMergePriceBeforeAgentPhase() {
-        setField(chatService, "prefetchAwaitEnabled", true);
-        setField(chatService, "prefetchAwaitMaxSeconds", 1L);
-        setField(chatService, "prefetchAwaitPollMillis", 10L);
-
+        // 该用例验证价格预取阻塞等待命中：显式开启等待（setUp 默认关闭）
+        setField(realPricePrefetchCoordinator, "prefetchAwaitEnabled", true);
         ChatClient client = mock(ChatClient.class, RETURNS_DEEP_STUBS);
         AgentExecutionPlan plan = new AgentExecutionPlan(
                 "先联网搜索再回答",
@@ -301,48 +314,6 @@ class ChatServiceTest {
         assertEquals("已根据联网价格完成回答。", response.getContent());
         verify(productPriceCacheService).prefetchPriceAsync(eq("查一下MacBook Pro m5pro的价格"), eq(facts));
         verify(sessionFactCacheService).mergeFactsFromText(eq("conversation-prefetch-wait"), anyString(), eq(SessionFactCacheService.FactSource.WEB_SEARCH));
-    }
-
-    @Test
-    void shouldIgnoreNullAndEmptyStreamChunks() {
-        ChatClient streamingClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
-        AgentExecutionPlan plan = new AgentExecutionPlan(
-                "直接回答用户问候",
-                false,
-                List.of(new AgentExecutionPlan.AgentStep(1, "友好回应用户问候", "none"))
-        );
-        ToolIntentClassifier.IntentDecision decision =
-                new ToolIntentClassifier.IntentDecision(true, "none", "", "无需工具");
-
-        ChatClientResponse nullChunk = new ChatClientResponse(null, Map.of());
-        ChatClientResponse emptyChunk = chatClientResponse("");
-        ChatClientResponse contentChunk = chatClientResponse("您好，我可以帮您解答山东以旧换新政策问题。");
-
-        when(sessionFactCacheService.mergeFacts(anyString(), any(ChatRequest.class)))
-                .thenReturn(new SessionFactCacheService.SessionFacts());
-        when(planningService.createPlan(anyString(), anyString())).thenReturn(plan);
-        when(toolIntentClassifier.classify(anyString(), eq(plan))).thenReturn(decision);
-        when(toolIntentClassifier.applyDecision(eq(plan), eq(decision))).thenReturn(plan);
-        when(dynamicAgentConfigHolder.getSystemPrompt()).thenReturn("你是山东省智能政策咨询助手。");
-        when(dynamicChatClientFactory.create(false, false)).thenReturn(streamingClient);
-        when(streamingClient.prompt().system(anyString()).user(anyString()).advisors(org.mockito.ArgumentMatchers.<Consumer<ChatClient.AdvisorSpec>>any())
-                .stream().chatClientResponse())
-                .thenReturn(Flux.just(nullChunk, emptyChunk, contentChunk));
-        when(knowledgeReferenceService.buildReferences(any())).thenReturn(List.of());
-
-        List<String> deltaContents = chatService.chatStream(ChatRequest.builder()
-                        .conversationId("conversation-3")
-                        .message("你好")
-                        .build())
-                .filter(event -> "delta".equals(event.getType()))
-                .map(ChatStreamEvent::getContent)
-                .collectList()
-                .block();
-
-        assertFalse(deltaContents == null || deltaContents.isEmpty());
-        assertEquals(List.of("您好，我可以帮您解答山东以旧换新政策问题。"), deltaContents);
-        verify(dynamicChatClientFactory).create(false, false);
-        verify(dynamicChatClientFactory, never()).create(false, true);
     }
 
     @Test
@@ -428,13 +399,13 @@ class ChatServiceTest {
         );
     }
 
-        private void setField(Object target, String fieldName, Object value) {
-                try {
-                        Field field = target.getClass().getDeclaredField(fieldName);
-                        field.setAccessible(true);
-                        field.set(target, value);
-                } catch (Exception exception) {
-                        throw new IllegalStateException("设置测试字段失败: " + fieldName, exception);
-                }
+    private void setField(Object target, String fieldName, Object value) {
+        try {
+            Field field = target.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (Exception exception) {
+            throw new IllegalStateException("设置测试字段失败: " + fieldName, exception);
         }
+    }
 }

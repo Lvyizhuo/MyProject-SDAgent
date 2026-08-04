@@ -32,6 +32,13 @@ public class ModelRouterService {
         };
     }
 
+    /**
+     * 流式路由（已下线 ChatService.chatStream，统一走同步模式）。
+     * <p>
+     * 原调用 {@code chatService.chatStream()} 返回 Flux，现改为调用 {@code chatService.chat()} 同步接口，
+     * 将结果包装为单元素 Flux。行为变化：不再逐 token 推送，改为整段响应一次返回。
+     * </p>
+     */
     public Flux<String> routeStream(MultiModalRequest request) {
         InputType inputType = detectInputType(request);
 
@@ -40,9 +47,11 @@ public class ModelRouterService {
                     .message(request.getText())
                     .conversationId(request.getConversationId())
                     .build();
-            return chatService.chatStream(chatRequest)
-                    .filter(event -> "delta".equals(event.getType()) || "error".equals(event.getType()))
-                    .map(event -> "error".equals(event.getType()) ? event.getMessage() : event.getContent());
+            ChatResponse chatResponse = chatService.chat(chatRequest);
+            if (chatResponse.getContent() == null || chatResponse.getContent().isBlank()) {
+                return Flux.empty();
+            }
+            return Flux.just(chatResponse.getContent());
         }
 
         MultiModalResponse response = route(request);

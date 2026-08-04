@@ -7,11 +7,15 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -53,6 +57,14 @@ public class ReActPlanningService {
     private final AgentPlanParser planParser;
     private final AgentWorkflowProperties properties;
 
+    /**
+     * ReAct 规划专用线程池（可选注入）。
+     * 未注入时（如单元测试直接 new），supplyAsync 退回到 ForkJoinPool.commonPool()。
+     */
+    @Autowired(required = false)
+    @Qualifier("agentPlannerTaskExecutor")
+    private Executor agentPlannerTaskExecutor;
+
     public AgentExecutionPlan createPlan(String conversationId, String userMessage) {
         if (!properties.isPlanningEnabled()) {
             return planParser.parse("", userMessage, properties.getMaxPlanningSteps());
@@ -68,8 +80,13 @@ public class ReActPlanningService {
                     new SystemMessage(PLANNER_SYSTEM_PROMPT),
                     new UserMessage(userMessage)
             ));
-            String rawPlan = CompletableFuture.supplyAsync(() ->
-                            chatModel.call(planningPrompt).getResult().getOutput().getText())
+            // 规划 LLM 调用走专用线程池，避免阻塞 ForkJoinPool.commonPool
+            Supplier<String> llmCall = () ->
+                    chatModel.call(planningPrompt).getResult().getOutput().getText();
+            CompletableFuture<String> planFuture = agentPlannerTaskExecutor != null
+                    ? CompletableFuture.supplyAsync(llmCall, agentPlannerTaskExecutor)
+                    : CompletableFuture.supplyAsync(llmCall);
+            String rawPlan = planFuture
                     .orTimeout(properties.getPlanningTimeoutSeconds(), TimeUnit.SECONDS)
                     .join();
 
