@@ -1,6 +1,8 @@
 package com.shandong.policyagent.controller;
 
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/public/config")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Tag(name = "公开配置", description = "无需认证的公开配置接口")
 public class PublicConfigController {
 
     private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
@@ -34,6 +37,7 @@ public class PublicConfigController {
      *
      * @return 公开配置响应（包含开场白等）
      */
+    @Operation(summary = "获取智能体公开配置", description = "返回智能体开场白等公开配置信息（无需登录）")
     @GetMapping("/agent")
     public ResponseEntity<PublicAgentConfigResponse> getAgentConfig() {
         String greetingMessage = dynamicAgentConfigHolder.get() != null

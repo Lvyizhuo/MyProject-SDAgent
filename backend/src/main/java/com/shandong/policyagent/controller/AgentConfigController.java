@@ -5,6 +5,8 @@ import com.shandong.policyagent.model.admin.AgentConfigRequest;
 import com.shandong.policyagent.model.admin.AgentConfigResponse;
 import com.shandong.policyagent.service.AgentConfigService;
 import com.shandong.policyagent.service.AgentConfigSyncService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/admin/agent-config")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Tag(name = "智能体配置", description = "运行时智能体配置的查询、更新与重置")
 public class AgentConfigController {
 
     private final AgentConfigService agentConfigService;
@@ -26,6 +29,7 @@ public class AgentConfigController {
     /**
      * 获取当前配置（API Key 脱敏）
      */
+    @Operation(summary = "获取当前配置", description = "获取运行时智能体配置（API Key 已脱敏）")
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AgentConfigResponse> getConfig(@AuthenticationPrincipal User user) {
@@ -36,6 +40,7 @@ public class AgentConfigController {
     /**
      * 更新配置并同步到运行时
      */
+    @Operation(summary = "更新配置并同步到运行时", description = "更新智能体配置并立即同步到运行时 AgentConfig")
     @PutMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AgentConfigResponse> updateConfig(
@@ -52,6 +57,7 @@ public class AgentConfigController {
     /**
      * 重置为默认配置并同步到运行时
      */
+    @Operation(summary = "重置为默认配置", description = "重置为默认配置并同步到运行时")
     @PostMapping("/reset")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AgentConfigResponse> resetConfig(@AuthenticationPrincipal User user) {

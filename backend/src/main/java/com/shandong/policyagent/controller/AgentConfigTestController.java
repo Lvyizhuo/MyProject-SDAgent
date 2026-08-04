@@ -5,6 +5,8 @@ import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.model.admin.AgentConfigTestRequest;
 import com.shandong.policyagent.service.ChatService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +28,7 @@ import java.util.UUID;
 @RequestMapping("/api/admin/agent-config")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Tag(name = "智能体配置测试", description = "管理员验证智能体配置是否正常工作的测试接口")
 public class AgentConfigTestController {
 
     private final ChatService chatService;
@@ -39,6 +42,7 @@ public class AgentConfigTestController {
      * @param user    当前认证的管理员用户
      * @return 与正式对话相同格式的 ChatResponse
      */
+    @Operation(summary = "测试智能体配置", description = "发送测试消息验证当前运行时配置，返回与正式对话相同格式的响应")
     @PostMapping("/test")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ChatResponse> testConfig(

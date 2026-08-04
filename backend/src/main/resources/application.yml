@@ -71,6 +71,19 @@ server:
   address: 0.0.0.0
   port: 8080
 
+# OpenAPI 文档（springdoc，ApiFox 可通过 /v3/api-docs 导入）
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: ${SPRINGDOC_ENABLED:true}
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: ${SPRINGDOC_ENABLED:true}
+  info:
+    title: AI 政策通·智能体服务平台 API
+    description: 山东省以旧换新政策咨询系统 - RAG 检索增强 + 多智能体架构
+    version: v1.0.0
+
 # Actuator 监控
 management:
   endpoints:

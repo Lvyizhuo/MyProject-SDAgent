@@ -69,7 +69,10 @@ public class SecurityConfig {
                     "/api/chat/**",
                     "/api/documents/**",
                     "/api/multimodal/**",
-                    "/actuator/**"
+                    "/actuator/**",
+                    "/v3/api-docs/**",
+                    "/swagger-ui/**",
+                    "/swagger-ui.html"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
