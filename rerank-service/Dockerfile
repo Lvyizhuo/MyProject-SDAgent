@@ -32,7 +32,11 @@ ENV HF_HUB_ENABLE_HF_TRANSFER=0
 
 # 安装 Python 依赖
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# PyPI 镜像源：清华源（tuna）2026-08 起对 wheel 下载返回 403（镜像侧拒绝，
+# 索引页 403 全站不可用），已改用阿里云镜像。仍可临时覆盖：
+#   docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple ...
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+RUN pip install --no-cache-dir -r requirements.txt -i ${PIP_INDEX_URL}
 
 # 复制服务代码
 COPY server.py .
