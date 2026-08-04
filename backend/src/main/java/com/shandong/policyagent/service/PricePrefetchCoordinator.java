@@ -24,7 +24,7 @@ public class PricePrefetchCoordinator {
     @Value("${app.price-cache.prefetch-await-enabled:true}")
     private boolean prefetchAwaitEnabled;
 
-    @Value("${app.price-cache.prefetch-await-max-seconds:6}")
+    @Value("${app.price-cache.prefetch-await-max-seconds:1}")
     private long prefetchAwaitMaxSeconds;
 
     @Value("${app.price-cache.prefetch-await-poll-millis:200}")

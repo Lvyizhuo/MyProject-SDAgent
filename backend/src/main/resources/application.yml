@@ -270,7 +270,8 @@ app:
     ttl-minutes: 1440
     prefetch-max-results: 3
     prefetch-await-enabled: true
-    prefetch-await-max-seconds: 6
+    # A6 优化：等待上限从 6s 缩短为 1s，降低主线程阻塞（首问价格体验为"正在查价"，下轮命中缓存）
+    prefetch-await-max-seconds: 1
     prefetch-await-poll-millis: 200
 
   security:
