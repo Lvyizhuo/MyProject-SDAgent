@@ -9,6 +9,8 @@ import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.service.ChatService;
 import com.shandong.policyagent.service.ConversationService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Tag(name = "对话服务", description = "标准对话与流式对话接口")
 public class ChatController {
 
     private static final int MAX_IMAGE_COUNT = 3;
@@ -52,6 +55,7 @@ public class ChatController {
     /**
      * 标准对话接口 - 返回完整响应
      */
+    @Operation(summary = "发送对话消息（同步响应）", description = "支持文字、图片、工具调用（补贴计算/文件解析/联网搜索），返回完整响应")
     @PostMapping
     public ChatResponse chat(
             @AuthenticationPrincipal User user,
@@ -94,6 +98,7 @@ public class ChatController {
     /**
      * 流式对话接口 - SSE 推送
      */
+    @Operation(summary = "流式对话接口（已下线）", description = "SSE 流式接口已禁用，统一走 /api/chat 同步接口，访问返回 410")
     @PostMapping("/stream")
     public ResponseEntity<?> chatStream(
             @AuthenticationPrincipal User user,
@@ -159,6 +164,7 @@ public class ChatController {
                 .body(stream);
     }
 
+    @Operation(summary = "对话服务健康检查", hidden = true)
     @GetMapping("/health")
     public String health() {
         return "OK";

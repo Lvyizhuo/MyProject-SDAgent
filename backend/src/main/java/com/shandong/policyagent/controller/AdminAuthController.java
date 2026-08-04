@@ -7,6 +7,8 @@ import com.shandong.policyagent.model.admin.AdminChangePasswordRequest;
 import com.shandong.policyagent.model.admin.AdminLoginRequest;
 import com.shandong.policyagent.repository.UserRepository;
 import com.shandong.policyagent.security.JwtService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +26,7 @@ import java.util.Map;
 @RequestMapping("/api/admin/auth")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
+@Tag(name = "管理员认证", description = "管理员登录与密码管理")
 public class AdminAuthController {
 
     private final UserRepository userRepository;
@@ -34,6 +37,7 @@ public class AdminAuthController {
     /**
      * 管理员登录（验证角色为 ADMIN）
      */
+    @Operation(summary = "管理员登录", description = "管理员账号登录，验证 ADMIN 角色并返回 JWT Token")
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> adminLogin(@Valid @RequestBody AdminLoginRequest request) {
         log.info("收到管理员登录请求: username={}", request.getUsername());
@@ -67,6 +71,7 @@ public class AdminAuthController {
     /**
      * 修改管理员密码
      */
+    @Operation(summary = "修改管理员密码", description = "验证旧密码后修改当前管理员密码")
     @PostMapping("/change-password")
     public ResponseEntity<Map<String, String>> changePassword(
             @Valid @RequestBody AdminChangePasswordRequest request,

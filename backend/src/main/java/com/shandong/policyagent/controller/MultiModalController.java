@@ -4,6 +4,8 @@ import com.shandong.policyagent.multimodal.model.MultiModalRequest;
 import com.shandong.policyagent.multimodal.model.MultiModalResponse;
 import com.shandong.policyagent.multimodal.service.AsrService;
 import com.shandong.policyagent.multimodal.service.VisionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,11 +21,13 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/multimodal")
 @RequiredArgsConstructor
+@Tag(name = "多模态服务", description = "语音识别（ASR）与视觉分析接口")
 public class MultiModalController {
 
     private final AsrService asrService;
     private final VisionService visionService;
 
+    @Operation(summary = "语音识别（ASR）", description = "将音频转写为文字，支持 audioUrl 或 base64Audio")
     @PostMapping("/transcribe")
     public ResponseEntity<MultiModalResponse> transcribeAudio(
             @RequestBody MultiModalRequest.AudioTranscription request) {
@@ -49,6 +53,7 @@ public class MultiModalController {
         }
     }
 
+    @Operation(summary = "图像分析", description = "对图片进行视觉问答分析，支持 imageUrls 或 base64Image")
     @PostMapping("/analyze-image")
     public ResponseEntity<MultiModalResponse> analyzeImage(
             @Valid @RequestBody MultiModalRequest.ImageAnalysis request) {
@@ -77,6 +82,7 @@ public class MultiModalController {
         }
     }
 
+    @Operation(summary = "发票识别", description = "识别发票图片，提取发票号码、金额、税额等结构化信息")
     @PostMapping("/analyze-invoice")
     public ResponseEntity<MultiModalResponse> analyzeInvoice(
             @RequestBody MultiModalRequest.InvoiceAnalysis request) {
@@ -105,6 +111,7 @@ public class MultiModalController {
         }
     }
 
+    @Operation(summary = "旧机设备识别", description = "识别旧家电图片，提取设备类型、品牌、型号等信息")
     @PostMapping("/analyze-device")
     public ResponseEntity<MultiModalResponse> analyzeDevice(
             @RequestBody MultiModalRequest.DeviceAnalysis request) {

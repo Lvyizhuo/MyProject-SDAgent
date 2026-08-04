@@ -4,6 +4,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.shandong.policyagent.rag.VectorStoreService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,10 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/documents")
 @RequiredArgsConstructor
+@Tag(name = "文档管理", description = "知识库文档加载与删除（开发调试用）")
 public class DocumentController {
 
     private final VectorStoreService vectorStoreService;
 
+    @Operation(summary = "加载默认文档目录", description = "加载默认文档目录下的所有政策文档并入库")
     @PostMapping("/load")
     public ResponseEntity<Map<String, Object>> loadDefaultDocuments() {
         log.info("开始加载默认文档目录");
@@ -36,6 +40,7 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "加载指定目录文档", description = "从指定目录加载文档并入库（开发调试用）")
     @PostMapping("/load-directory")
     public ResponseEntity<Map<String, Object>> loadFromDirectory(
             @RequestParam String path) {
@@ -51,6 +56,7 @@ public class DocumentController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "删除文档", description = "按文档 ID 批量删除已入库文档（开发调试用）")
     @DeleteMapping
     public ResponseEntity<Map<String, Object>> deleteDocuments(
             @RequestParam java.util.List<String> ids) {
