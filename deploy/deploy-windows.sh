@@ -141,7 +141,7 @@ check_port_available() {
 
 check_ports() {
   local ports=(
-    "5432:PostgreSQL"
+    "5433:PostgreSQL"
     "6379:Redis"
     "9000:MinIO API"
     "9001:MinIO Console"

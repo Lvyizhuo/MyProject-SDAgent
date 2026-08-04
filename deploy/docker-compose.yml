@@ -15,7 +15,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../backend/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
