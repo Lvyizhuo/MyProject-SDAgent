@@ -125,6 +125,12 @@ public class RagConfig {
          * 注入到最终对话提示词中的单条知识库文档最大字符数
          */
         private int promptMaxDocChars = 1200;
+
+        /**
+         * 检索结果级缓存 TTL（分钟），0 或负数表示禁用缓存。
+         * 缓存键由 query + embeddingModelId + folderPath + topK + rerank 配置组合计算 SHA-256。
+         */
+        private int cacheTtlMinutes = 10;
     }
 
     @Data
