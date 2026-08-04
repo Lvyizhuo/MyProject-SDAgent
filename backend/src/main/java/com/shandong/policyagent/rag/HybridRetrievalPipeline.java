@@ -44,6 +44,7 @@ public class HybridRetrievalPipeline {
     private final EmbeddingService embeddingService;
     private final DashScopeRerankService rerankService;
     private final RagConfig ragConfig;
+    private final RetrievalResultCache retrievalResultCache;
 
     // ==================== 检索上下文解析（从 RuntimeRagVectorStore 迁入） ====================
 
@@ -101,6 +102,33 @@ public class HybridRetrievalPipeline {
         int candidateTopK = Math.max(finalTopK, retrievalConfig.getCandidateTopK());
         double effectiveThreshold = similarityThreshold > 0 ? similarityThreshold : 0;
 
+        // 检索结果级缓存：优先读缓存，命中后直接返回（跳过管线）
+        if (retrievalConfig.getCacheTtlMinutes() > 0) {
+            String cacheKey = retrievalResultCache.buildKey(
+                    query, context.embeddingModelId(), context.folderPath(), finalTopK, effectiveThreshold);
+            var cached = retrievalResultCache.get(cacheKey);
+            if (cached.isPresent()) {
+                return cached.get();
+            }
+            // 缓存未命中，执行管线后将结果回写缓存
+            List<Document> results = executePipeline(query, context, retrievalConfig, finalTopK, candidateTopK, effectiveThreshold);
+            retrievalResultCache.put(cacheKey, results);
+            return results;
+        }
+
+        // 缓存禁用时直接执行管线
+        return executePipeline(query, context, retrievalConfig, finalTopK, candidateTopK, effectiveThreshold);
+    }
+
+    /**
+     * 执行完整检索管线（不含缓存逻辑），供 retrieve 缓存装饰层调用。
+     */
+    private List<Document> executePipeline(String query,
+                                           RetrievalContext context,
+                                           RagConfig.Retrieval retrievalConfig,
+                                           int finalTopK,
+                                           int candidateTopK,
+                                           double effectiveThreshold) {
         String expandedQuery = expandQueryForSynonyms(query);
 
         // 1. 向量召回

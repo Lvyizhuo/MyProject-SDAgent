@@ -1,6 +1,7 @@
 package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.agent.AgentExecutionPlan;
+import com.shandong.policyagent.agent.PlannedToolExecutor;
 import com.shandong.policyagent.agent.QueryIntentRules;
 import com.shandong.policyagent.agent.ReActPlanningService;
 import com.shandong.policyagent.agent.ToolIntentClassifier;
@@ -50,6 +51,7 @@ public class ChatService {
     private final VisionService visionService;
     private final ReActPlanningService planningService;
     private final ToolIntentClassifier toolIntentClassifier;
+    private final PlannedToolExecutor plannedToolExecutor;
     private final SessionFactCacheService sessionFactCacheService;
     private final FastPathService fastPathService;
     private final QuestionSemanticCacheService questionSemanticCacheService;
@@ -133,11 +135,15 @@ public class ChatService {
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
 
-        String executionPrompt = buildExecutionPrompt(userMessage, plan);
+        // 服务端预执行工具：在模型调用前先执行 calculateSubsidy/webSearch，将计划变为真正的控制流
+        PlannedToolExecutor.ToolExecutionOutcome toolOutcome =
+                plannedToolExecutor.execute(plan, userMessage, facts, intentDecision);
+
+        String executionPrompt = buildExecutionPrompt(userMessage, plan, toolOutcome);
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan);
         boolean enableRag = shouldEnableRag(plan);
-        log.info("进入智能体执行阶段 | phase=agentPhase | conversationId={} | needToolCall={} | enableRag={}",
-                conversationId, plan.needToolCall(), enableRag);
+        log.info("进入智能体执行阶段 | phase=agentPhase | conversationId={} | needToolCall={} | enableRag={} | preExecutedTools={}",
+                conversationId, plan.needToolCall(), enableRag, toolOutcome.hasAnyResult());
 
         ChatExecutionResult result;
         try {
@@ -147,11 +153,14 @@ public class ChatService {
                     exception,
                     request.getMessage(),
                     conversationId,
-                    null,
-                    null
+                    toolOutcome.hasWebSearchResult() ? toolOutcome.webSearchResult() : null,
+                    toolOutcome.hasSubsidyResult() ? toolOutcome.subsidyResult() : null
             );
         }
-        result = ensureNonBlankResponse(result, null, null, conversationId);
+        result = ensureNonBlankResponse(result,
+                toolOutcome.hasWebSearchResult() ? toolOutcome.webSearchResult() : null,
+                toolOutcome.hasSubsidyResult() ? toolOutcome.subsidyResult() : null,
+                conversationId);
 
         List<ChatResponse.Reference> responseReferences = result.references();
 
@@ -212,14 +221,20 @@ public class ChatService {
                     conversationId, intentDecision.targetTool(), intentDecision.reason());
         }
 
-        String executionPrompt = buildExecutionPrompt(userMessage, plan);
+        // 服务端预执行工具（与 chat() 保持一致）
+        PlannedToolExecutor.ToolExecutionOutcome toolOutcome =
+                plannedToolExecutor.execute(plan, userMessage, facts, intentDecision);
+
+        String executionPrompt = buildExecutionPrompt(userMessage, plan, toolOutcome);
         boolean enableToolCallbacks = shouldEnableToolCallbacks(plan);
         boolean enableRag = shouldEnableRag(plan);
         ChatClient chatClient = dynamicChatClientFactory.create(enableToolCallbacks, enableRag);
 
         if (plan.needToolCall()) {
             log.info("检测到工具调用计划，直接使用非流式执行以规避流式工具调用缺陷 | conversationId={}", conversationId);
-                return fallbackToNonStreaming(executionPrompt, conversationId, null, null,
+                return fallbackToNonStreaming(executionPrompt, conversationId,
+                    toolOutcome.hasWebSearchResult() ? toolOutcome.webSearchResult() : null,
+                    toolOutcome.hasSubsidyResult() ? toolOutcome.subsidyResult() : null,
                     enableToolCallbacks, enableRag);
         }
 
@@ -480,7 +495,8 @@ public class ChatService {
     }
 
     private String buildExecutionPrompt(String userMessage,
-                                        AgentExecutionPlan plan) {
+                                        AgentExecutionPlan plan,
+                                        PlannedToolExecutor.ToolExecutionOutcome toolOutcome) {
         StringBuilder stepsBuilder = new StringBuilder();
         for (AgentExecutionPlan.AgentStep step : plan.steps()) {
             stepsBuilder.append(step.id())
@@ -507,9 +523,14 @@ public class ChatService {
                 3. 需要计算补贴时必须调用 calculateSubsidy。
                 4. 用户询问线下购买、门店、回收点、路线、导航时，优先调用高德地图MCP工具；若MCP暂不可用再给出人工兜底建议。
                 5. 不要暴露内部思维链路，只输出对用户可读的结论、步骤和建议。
-                6. 问题涉及“政策+价格”混合诉求时，先给出本地政策结论，再补充价格信息；仅在用户明确要实时价格或本地证据不足时再联网检索。
+                6. 问题涉及"政策+价格"混合诉求时，先给出本地政策结论，再补充价格信息；仅在用户明确要实时价格或本地证据不足时再联网检索。
                 7. 若问题明确包含最新/实时/今日/当前/新闻/政策动态等强时效诉求，应调用 webSearch 并给出来源链接。
                 """, userMessage, plan.summary(), plan.needToolCall(), stepsBuilder);
+
+        // 注入预执行工具结果
+        if (toolOutcome != null && toolOutcome.hasAnyResult()) {
+            prompt += "\n\n" + buildPreExecutedToolsSection(toolOutcome);
+        }
 
         if (isPolicyPriceMixedQuestion(userMessage)) {
             return prompt + "\n\n【混合问法补充策略】\n"
@@ -518,6 +539,31 @@ public class ChatService {
                     + "3. 价格补充放在政策结论之后。";
         }
         return prompt;
+    }
+
+    /**
+     * 构建【系统已执行工具结果】注入区块。
+     * 明确告知模型这些工具已由服务端执行完毕，直接使用结果作答，不要重复调用。
+     */
+    private String buildPreExecutedToolsSection(PlannedToolExecutor.ToolExecutionOutcome toolOutcome) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【系统已执行工具结果】\n");
+        sb.append("以下工具已由系统预先执行完毕，请直接基于以下结果作答。\n");
+        sb.append("不要重复调用 calculateSubsidy 和 webSearch 工具，它们的结果已提供。\n");
+
+        if (toolOutcome.hasSubsidyResult()) {
+            sb.append("\n--- 补贴计算结果 ---\n");
+            sb.append(buildDirectSubsidyAnswer(toolOutcome.subsidyResult()));
+            sb.append("\n");
+        }
+
+        if (toolOutcome.hasWebSearchResult()) {
+            sb.append("\n--- 联网搜索结果 ---\n");
+            sb.append(buildWebSearchFallbackAnswer(toolOutcome.webSearchResult()));
+            sb.append("\n");
+        }
+
+        return sb.toString();
     }
 
     private AgentExecutionPlan enforceRealtimeWebSearch(String userMessage,

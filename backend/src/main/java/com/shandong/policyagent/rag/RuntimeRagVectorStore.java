@@ -73,6 +73,12 @@ public class RuntimeRagVectorStore implements VectorStore {
                 .toList();
     }
 
+    /**
+     * 智能截断文档文本，适应 prompt 长度限制。
+     * 优先在中文句号（。！？；）、换行等自然边界处截断；
+     * 在 promptMaxDocChars 限制内找最后一个合法边界，找不到时回退为硬截断并添加省略号。
+     * 始终保留 truncatedForPrompt 元数据标记，供下游跟踪。
+     */
     private Document truncateForPrompt(Document source, int promptMaxDocChars) {
         String text = source.getText();
         if (text == null || text.length() <= promptMaxDocChars) {
@@ -84,6 +90,54 @@ public class RuntimeRagVectorStore implements VectorStore {
                 : new HashMap<>(source.getMetadata());
         metadata.put("truncatedForPrompt", true);
         metadata.put("promptChars", promptMaxDocChars);
-        return new Document(source.getId(), text.substring(0, promptMaxDocChars).trim(), metadata);
+        metadata.put("originalChars", text.length());
+
+        // 在 promptMaxDocChars 范围内查找最后一个合适的中文边界
+        int effectiveLimit = Math.min(promptMaxDocChars, text.length());
+        int boundary = findLastSentenceBoundary(text, effectiveLimit);
+
+        String truncated;
+        if (boundary > 0) {
+            truncated = text.substring(0, boundary).trim();
+            metadata.put("truncationMethod", "smart");
+            metadata.put("truncatedChars", truncated.length());
+        } else {
+            // 未找到合适边界，回退硬截断并追加省略号
+            int hardLimit = Math.max(1, promptMaxDocChars - 3);
+            truncated = text.substring(0, Math.min(hardLimit, text.length())).trim() + "...";
+            metadata.put("truncationMethod", "hard");
+            metadata.put("truncatedChars", truncated.length());
+        }
+
+        return new Document(source.getId(), truncated, metadata);
+    }
+
+    /**
+     * 在文本的 [0, effectiveLimit) 范围内，从后向前查找中文句子边界。
+     * 优先级：中文句号/问号/感叹号/分号 > 换行 > 逗号/顿号。
+     * 仅在有效范围的后 25% 区间内搜索，避免过度截断。
+     *
+     * @return 截断位置（包含边界字符），未找到时返回 -1
+     */
+    private int findLastSentenceBoundary(String text, int effectiveLimit) {
+        int searchStart = Math.max(1, effectiveLimit * 3 / 4);
+
+        // 第一优先级：强句子边界（。！？；\n）
+        for (int i = effectiveLimit - 1; i >= searchStart; i--) {
+            char c = text.charAt(i);
+            if (c == '。' || c == '！' || c == '？' || c == '；' || c == '\n') {
+                return i + 1; // 包含边界字符
+            }
+        }
+
+        // 第二优先级：弱句子边界（，、）
+        for (int i = effectiveLimit - 1; i >= searchStart; i--) {
+            char c = text.charAt(i);
+            if (c == '，' || c == '、') {
+                return i + 1;
+            }
+        }
+
+        return -1; // 未找到合适边界
     }
 }

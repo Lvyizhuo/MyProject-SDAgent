@@ -32,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class MultiVectorStoreService {
     private static final int HNSW_MAX_DIMENSIONS = 2000;
+    private static final int BATCH_INSERT_SIZE = 32;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final DataSource dataSource;
@@ -103,6 +104,9 @@ public class MultiVectorStoreService {
 
         List<Object> params = new ArrayList<>();
 
+        // 注意：JOIN 条件 CAST(metadata->>'knowledgeDocumentId' AS BIGINT) 无法利用 B-tree 索引。
+        // 向量表已有 idx_{table}_kdid 表达式索引（metadata->>'knowledgeDocumentId'），但 CAST 后索引不命中。
+        // 若后续验证此处为瓶颈，可将 JOIN 改为 d.id::text = v.metadata->>'knowledgeDocumentId'。
         if (hasFolderScope) {
             sql.append("JOIN knowledge_documents d ON d.id = CAST(v.metadata->>'knowledgeDocumentId' AS BIGINT) ")
                     .append("LEFT JOIN knowledge_folders f ON f.id = d.folder_id ");
@@ -110,6 +114,9 @@ public class MultiVectorStoreService {
 
         sql.append("WHERE 1=1 ");
 
+        // 注意：folder path LIKE 前缀匹配（如 '/policies/%'）在不安装 pg_trgm 扩展时无法利用索引。
+        // 当前 COALESCE(f.path, '/') LIKE ? 条件走全表扫描，数据量大时可能成为瓶颈。
+        // 生产环境受限无法安装扩展，后续可考虑在 knowledge_folders 表冗余存储 path 前缀层级字段。
         if (hasFolderScope) {
             sql.append("AND (COALESCE(f.path, '/') = ? OR COALESCE(f.path, '/') LIKE ?) ");
             params.add(normalizedFolderPath);
@@ -193,7 +200,7 @@ public class MultiVectorStoreService {
 
         sql.append("FROM ").append(safeTableName).append(" v ");
 
-        // 目录范围 JOIN
+        // 目录范围 JOIN（同 similaritySearch，CAST 无法利用索引，见上方注释）
         if (hasFolderScope) {
             sql.append("JOIN knowledge_documents d ON d.id = CAST(v.metadata->>'knowledgeDocumentId' AS BIGINT) ")
                     .append("LEFT JOIN knowledge_folders f ON f.id = d.folder_id ");
@@ -215,6 +222,8 @@ public class MultiVectorStoreService {
         }
 
         // 匹配条件：ILIKE 词项匹配（主） + tsvector 英文补充（辅）
+        // 注意：content ILIKE '%keyword%' 在中文字段上无法利用 B-tree 索引，无 pg_trgm 扩展时必然全表扫描。
+        // 当前通过 ILIKE 实现中文关键词匹配是受限环境下的折中方案；后续若获扩展安装权限可考虑 pg_trgm GIN 索引。
         boolean hasMatchCondition = !searchTerms.isEmpty() || hasEnglish;
         if (hasMatchCondition) {
             sql.append("AND (");
@@ -584,6 +593,20 @@ public class MultiVectorStoreService {
                         tableName, dimensions, HNSW_MAX_DIMENSIONS);
             }
 
+            // 为 metadata->>'knowledgeDocumentId' 的 JOIN/DELETE 查询创建表达式索引
+            // 注意：该索引仅对等值匹配有效（如 WHERE metadata->>'knowledgeDocumentId' = '123'），
+            // 对于 CAST(...AS BIGINT) 的 JOIN 条件，PostgreSQL 优化器可能不会选用；
+            // 若生产验证索引未命中，可在后续将 JOIN 条件改为字符串等值比较（id = ?::text）。
+            try {
+                String kdidIndexSql = String.format(
+                        "CREATE INDEX IF NOT EXISTS idx_%s_kdid ON %s ((metadata->>'knowledgeDocumentId'))",
+                        tableName, tableName);
+                jdbcTemplate.execute(kdidIndexSql);
+                log.info("Created expression index on metadata->>'knowledgeDocumentId' for table: {}", tableName);
+            } catch (Exception e) {
+                log.warn("建 expression index 失败（可能已有无效数据），跳过 | table={} | error={}", tableName, e.getMessage());
+            }
+
             log.info("Vector table created: {}", tableName);
             return;
         }
@@ -658,7 +681,8 @@ public class MultiVectorStoreService {
             }
         };
 
-        return new SimplePgVectorStore(dataSource, springAiModel, modelConfig.getVectorTable(), modelConfig.getDimensions());
+        return new SimplePgVectorStore(dataSource, springAiModel, modelConfig.getVectorTable(), modelConfig.getDimensions(),
+                embeddingService, modelConfig.getId());
     }
 
     private String sanitizeTableName(String tableName) {
@@ -745,48 +769,97 @@ public class MultiVectorStoreService {
         private final EmbeddingModel embeddingModel;
         private final String tableName;
         private final int dimensions;
+        private final EmbeddingService embeddingService;
+        private final String modelId;
 
         public SimplePgVectorStore(DataSource dataSource,
                                    EmbeddingModel embeddingModel,
                                    String tableName,
-                                   int dimensions) {
+                                   int dimensions,
+                                   EmbeddingService embeddingService,
+                                   String modelId) {
             this.dataSource = dataSource;
             this.embeddingModel = embeddingModel;
             this.tableName = tableName;
             this.dimensions = dimensions;
+            this.embeddingService = embeddingService;
+            this.modelId = modelId;
         }
 
+        /**
+         * 批量嵌入 + 批量 INSERT，替代逐条串行入库。
+         * 每批 {@link MultiVectorStoreService#BATCH_INSERT_SIZE} 条文档：
+         * 1）批量调用 embeddingService.embedTexts 获取所有向量
+         * 2）使用 jdbcTemplate.batchUpdate 批量写入（单事务，ON CONFLICT 处理幂等）
+         */
         @Override
         public void add(List<Document> documents) {
-            JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-            for (Document doc : documents) {
-                float[] embedding = embeddingModel.embed(doc);
-                if (embedding.length != dimensions) {
-                    throw new IllegalStateException(String.format(
-                            "Embedding dimension mismatch before insert: table=%s, expected=%d, actual=%d",
-                            tableName, dimensions, embedding.length
-                    ));
-                }
-                String embeddingStr = "[" + MultiVectorStoreService.arrayToString(embedding) + "]";
-
-                String metadataJson;
-                try {
-                    metadataJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(doc.getMetadata());
-                } catch (Exception e) {
-                    metadataJson = "{}";
-                }
-
-                String sql = String.format("""
-                    INSERT INTO %s (id, content, metadata, embedding)
-                    VALUES (?::uuid, ?, ?::jsonb, ?::vector)
-                    ON CONFLICT (id) DO UPDATE SET
-                        content = EXCLUDED.content,
-                        metadata = EXCLUDED.metadata,
-                        embedding = EXCLUDED.embedding
-                    """, tableName);
-
-                jdbcTemplate.update(sql, doc.getId(), doc.getText(), metadataJson, embeddingStr);
+            if (documents == null || documents.isEmpty()) {
+                return;
             }
+
+            JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
+            String sql = String.format("""
+                INSERT INTO %s (id, content, metadata, embedding)
+                VALUES (?::uuid, ?, ?::jsonb, ?::vector)
+                ON CONFLICT (id) DO UPDATE SET
+                    content = EXCLUDED.content,
+                    metadata = EXCLUDED.metadata,
+                    embedding = EXCLUDED.embedding
+                """, tableName);
+
+            ObjectMapper mapper = new ObjectMapper();
+
+            for (int batchStart = 0; batchStart < documents.size(); batchStart += BATCH_INSERT_SIZE) {
+                int batchEnd = Math.min(batchStart + BATCH_INSERT_SIZE, documents.size());
+                List<Document> batch = documents.subList(batchStart, batchEnd);
+
+                // 批量嵌入：一次调用获取所有文档的向量
+                List<String> texts = batch.stream().map(Document::getText).toList();
+                List<float[]> embeddings = embeddingService.embedTexts(modelId, texts);
+
+                // 验证嵌入维度
+                for (int i = 0; i < embeddings.size(); i++) {
+                    float[] embedding = embeddings.get(i);
+                    if (embedding.length != dimensions) {
+                        throw new IllegalStateException(String.format(
+                                "Embedding dimension mismatch before insert: table=%s, expected=%d, actual=%d, docIndex=%d",
+                                tableName, dimensions, embedding.length, batchStart + i
+                        ));
+                    }
+                }
+
+                // 批量 INSERT（使用 BatchPreparedStatementSetter 参数化）
+                jdbcTemplate.batchUpdate(sql, new org.springframework.jdbc.core.BatchPreparedStatementSetter() {
+                    @Override
+                    public void setValues(java.sql.PreparedStatement ps, int i) throws java.sql.SQLException {
+                        Document doc = batch.get(i);
+                        float[] embedding = embeddings.get(i);
+                        String embeddingStr = "[" + MultiVectorStoreService.arrayToString(embedding) + "]";
+
+                        String metadataJson;
+                        try {
+                            metadataJson = mapper.writeValueAsString(doc.getMetadata());
+                        } catch (Exception e) {
+                            metadataJson = "{}";
+                        }
+
+                        ps.setString(1, doc.getId());
+                        ps.setString(2, doc.getText());
+                        ps.setString(3, metadataJson);
+                        ps.setString(4, embeddingStr);
+                    }
+
+                    @Override
+                    public int getBatchSize() {
+                        return batch.size();
+                    }
+                });
+            }
+
+            log.debug("批量入库完成 | table={} | totalDocs={} | batches={}",
+                    tableName, documents.size(),
+                    (int) Math.ceil((double) documents.size() / BATCH_INSERT_SIZE));
         }
 
         @Override

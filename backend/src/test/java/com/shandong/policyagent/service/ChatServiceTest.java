@@ -1,6 +1,7 @@
 package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.agent.AgentExecutionPlan;
+import com.shandong.policyagent.agent.PlannedToolExecutor;
 import com.shandong.policyagent.agent.ReActPlanningService;
 import com.shandong.policyagent.agent.ToolIntentClassifier;
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
@@ -34,6 +35,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,6 +58,9 @@ class ChatServiceTest {
 
     @Mock
     private ToolIntentClassifier toolIntentClassifier;
+
+    @Mock
+    private PlannedToolExecutor plannedToolExecutor;
 
     @Mock
     private SessionFactCacheService sessionFactCacheService;
@@ -91,6 +96,7 @@ class ChatServiceTest {
                 visionService,
                 planningService,
                 toolIntentClassifier,
+                plannedToolExecutor,
                 sessionFactCacheService,
                 fastPathService,
                 questionSemanticCacheService,
@@ -103,6 +109,10 @@ class ChatServiceTest {
         setField(chatService, "prefetchAwaitEnabled", false);
         setField(chatService, "prefetchAwaitMaxSeconds", 6L);
         setField(chatService, "prefetchAwaitPollMillis", 200L);
+        // 默认预执行器返回空结果，保持现有测试行为不变；
+        // 部分用例在澄清/价格预取阶段提前返回，不触发预执行，故使用 lenient 避免 UnnecessaryStubbing
+        lenient().when(plannedToolExecutor.execute(any(), anyString(), any(), any()))
+                .thenReturn(PlannedToolExecutor.ToolExecutionOutcome.empty());
     }
 
     @Test
