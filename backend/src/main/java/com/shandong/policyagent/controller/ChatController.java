@@ -1,12 +1,9 @@
 package com.shandong.policyagent.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.entity.User;
 import com.shandong.policyagent.model.ChatMessage;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
-import com.shandong.policyagent.model.ChatStreamEvent;
 import com.shandong.policyagent.service.ChatService;
 import com.shandong.policyagent.service.ConversationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,31 +11,28 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 对话控制器
- * 提供标准对话和流式对话两种接口
+ * 提供标准对话接口（流式接口已下线，统一走 /api/chat 同步接口）
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
-@Tag(name = "对话服务", description = "标准对话与流式对话接口")
+@Tag(name = "对话服务", description = "标准对话接口（流式已下线）")
 public class ChatController {
 
     private static final int MAX_IMAGE_COUNT = 3;
@@ -47,10 +41,6 @@ public class ChatController {
 
     private final ChatService chatService;
     private final ConversationService conversationService;
-    private final ObjectMapper objectMapper;
-
-    @Value("${app.chat.mode:sync-only}")
-    private String chatMode;
 
     /**
      * 标准对话接口 - 返回完整响应
@@ -61,18 +51,18 @@ public class ChatController {
             @AuthenticationPrincipal User user,
             @Valid @RequestBody ChatRequest request) {
         Long userId = user != null ? user.getId() : null;
-        log.info("收到对话请求: userId={}, conversationId={}, message={}, hasImages={}", 
+        log.info("收到对话请求: userId={}, conversationId={}, message={}, hasImages={}",
                 userId, request.getConversationId(), request.getMessage(), request.hasImages());
-        
+
         validateImageRequest(request);
-        
+
         String conversationId = request.getConversationId();
         if (conversationId == null || conversationId.isBlank()) {
             conversationId = UUID.randomUUID().toString();
             request.setConversationId(conversationId);
         }
         conversationService.getOrCreateSession(userId, conversationId);
-        
+
         ChatMessage userMessage = ChatMessage.builder()
                 .id(UUID.randomUUID().toString())
                 .role("user")
@@ -80,9 +70,9 @@ public class ChatController {
                 .timestamp(System.currentTimeMillis())
                 .build();
         conversationService.addMessage(conversationId, userMessage);
-        
+
         ChatResponse response = chatService.chat(request);
-        
+
         ChatMessage assistantMessage = ChatMessage.builder()
                 .id(response.getId())
                 .role("assistant")
@@ -91,77 +81,24 @@ public class ChatController {
                 .timestamp(System.currentTimeMillis())
                 .build();
         conversationService.addMessage(conversationId, assistantMessage);
-        
+
         return response;
     }
 
     /**
-     * 流式对话接口 - SSE 推送
+     * 流式对话接口 - SSE 推送（已下线，始终返回 410）
      */
     @Operation(summary = "流式对话接口（已下线）", description = "SSE 流式接口已禁用，统一走 /api/chat 同步接口，访问返回 410")
     @PostMapping("/stream")
     public ResponseEntity<?> chatStream(
             @AuthenticationPrincipal User user,
             @Valid @RequestBody ChatRequest request) {
-        if (!"dual".equalsIgnoreCase(chatMode)) {
-            return ResponseEntity.status(HttpStatus.GONE)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of(
-                            "code", "STREAM_ENDPOINT_REMOVED",
-                            "message", "流式接口已下线，请改用 /api/chat 非流式接口"
-                    ));
-        }
-
-        Long userId = user != null ? user.getId() : null;
-        log.info("收到流式对话请求: userId={}, conversationId={}, message={}, hasImages={}", 
-                userId, request.getConversationId(), request.getMessage(), request.hasImages());
-        
-        validateImageRequest(request);
-        
-        String conversationId = request.getConversationId();
-        if (conversationId == null || conversationId.isBlank()) {
-            conversationId = UUID.randomUUID().toString();
-            request.setConversationId(conversationId);
-        }
-        conversationService.getOrCreateSession(userId, conversationId);
-        
-        ChatMessage userMessage = ChatMessage.builder()
-                .id(UUID.randomUUID().toString())
-                .role("user")
-                .content(request.getMessage())
-                .timestamp(System.currentTimeMillis())
-                .build();
-        conversationService.addMessage(conversationId, userMessage);
-        
-        final String finalConversationId = conversationId;
-        StringBuilder responseContent = new StringBuilder();
-        AtomicReference<List<ChatResponse.Reference>> responseReferences = new AtomicReference<>(List.of());
-
-        Flux<String> stream = chatService.chatStream(request)
-                .doOnNext(event -> {
-                    if ("delta".equals(event.getType()) && event.getContent() != null) {
-                        responseContent.append(event.getContent());
-                    }
-                    if ("references".equals(event.getType()) && event.getReferences() != null) {
-                        responseReferences.set(event.getReferences());
-                    }
-                })
-                .map(this::serializeStreamEvent)
-                .doOnComplete(() -> {
-                    ChatMessage assistantMessage = ChatMessage.builder()
-                            .id(UUID.randomUUID().toString())
-                            .role("assistant")
-                            .content(responseContent.toString())
-                            .references(responseReferences.get())
-                            .timestamp(System.currentTimeMillis())
-                            .build();
-                    conversationService.addMessage(finalConversationId, assistantMessage);
-                    log.info("流式响应完成并保存: conversationId={}", finalConversationId);
-                });
-
-        return ResponseEntity.ok()
-                .contentType(MediaType.TEXT_EVENT_STREAM)
-                .body(stream);
+        return ResponseEntity.status(HttpStatus.GONE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of(
+                        "code", "STREAM_ENDPOINT_REMOVED",
+                        "message", "流式接口已下线，请改用 /api/chat 非流式接口"
+                ));
     }
 
     @Operation(summary = "对话服务健康检查", hidden = true)
@@ -227,14 +164,6 @@ public class ChatController {
 
         if (!isJpeg && !isPng && !isWebp) {
             throw new IllegalArgumentException("第" + imageIndex + "张图片格式无效，仅支持JPEG/PNG/WebP");
-        }
-    }
-
-    private String serializeStreamEvent(ChatStreamEvent event) {
-        try {
-            return objectMapper.writeValueAsString(event);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("序列化流式响应失败", exception);
         }
     }
 }

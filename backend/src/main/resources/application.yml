@@ -250,6 +250,11 @@ app:
     planning-enabled: true
     max-planning-steps: 4
     planning-timeout-seconds: 15
+    # ReAct 规划专用线程池（避免阻塞 ForkJoinPool.commonPool）
+    planner-pool:
+      core-size: 2
+      max-size: 4
+      queue-capacity: 50
     fast-path-enabled: true
     pre-rag-enabled: true
     pre-rag-direct-threshold: 0.86
