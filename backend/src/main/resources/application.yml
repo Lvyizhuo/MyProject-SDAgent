@@ -149,6 +149,11 @@ app:
       rerank-model: ${APP_RAG_RERANK_MODEL:bge-reranker-v2-m3}
       rerank-endpoint: ${APP_RAG_RERANK_ENDPOINT:http://localhost:8989/rerank}
       rerank-max-doc-chars: 3000
+      # 检索结果级缓存 TTL（分钟），0 表示禁用。
+      # 缓存键：SHA-256(query|embeddingModelId|folderPath|topK|similarityThreshold|rerank配置)
+      # 缓存值：完整 Document 列表（JSON 序列化，含 id/text/metadata）
+      # Redis 不可用或序列化失败时静默降级为不缓存，不影响主链路。
+      cache-ttl-minutes: 10
 
   # Knowledge Base 配置 (新方式)
   knowledge:
