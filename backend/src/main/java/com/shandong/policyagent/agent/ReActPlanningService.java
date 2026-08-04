@@ -10,7 +10,6 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -98,8 +97,8 @@ public class ReActPlanningService {
                     "用户在进行问候，直接友好回应并说明可提供的帮助",
                     false,
                     List.of(
-                            new AgentExecutionPlan.AgentStep(1, "识别为问候语并简洁回应", "none"),
-                            new AgentExecutionPlan.AgentStep(2, "简要说明可咨询的政策范围", "none")
+                            new AgentExecutionPlan.AgentStep(1, "识别为问候语并简洁回应", AgentExecutionPlan.TOOL_HINT_NONE),
+                            new AgentExecutionPlan.AgentStep(2, "简要说明可咨询的政策范围", AgentExecutionPlan.TOOL_HINT_NONE)
                     )
             );
         }
@@ -110,21 +109,20 @@ public class ReActPlanningService {
                     "缺少成交价，先联网查价再计算补贴",
                     true,
                     List.of(
-                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询该型号近期价格区间", "webSearch"),
-                            new AgentExecutionPlan.AgentStep(2, "根据检索到的成交价调用 calculateSubsidy 计算补贴", "calculateSubsidy"),
-                            new AgentExecutionPlan.AgentStep(3, "输出补贴测算并提示用户确认成交价", "none")
+                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询该型号近期价格区间", AgentExecutionPlan.TOOL_HINT_WEB_SEARCH),
+                            new AgentExecutionPlan.AgentStep(2, "根据检索到的成交价调用 calculateSubsidy 计算补贴", AgentExecutionPlan.TOOL_HINT_CALCULATE_SUBSIDY),
+                            new AgentExecutionPlan.AgentStep(3, "输出补贴测算并提示用户确认成交价", AgentExecutionPlan.TOOL_HINT_NONE)
                     )
             );
         }
-
         if (requiresSubsidyCalculation(normalized)) {
             log.info("ReAct 规划命中补贴计算快捷路径 | conversationId={}", conversationId);
             return new AgentExecutionPlan(
                     "问题聚焦补贴金额计算，优先走补贴工具",
                     true,
                     List.of(
-                            new AgentExecutionPlan.AgentStep(1, "收集并校验补贴计算所需参数", "calculateSubsidy"),
-                            new AgentExecutionPlan.AgentStep(2, "调用 calculateSubsidy 输出补贴金额和说明", "calculateSubsidy")
+                            new AgentExecutionPlan.AgentStep(1, "收集并校验补贴计算所需参数", AgentExecutionPlan.TOOL_HINT_CALCULATE_SUBSIDY),
+                            new AgentExecutionPlan.AgentStep(2, "调用 calculateSubsidy 输出补贴金额和说明", AgentExecutionPlan.TOOL_HINT_CALCULATE_SUBSIDY)
                     )
             );
         }
@@ -135,8 +133,8 @@ public class ReActPlanningService {
                     "先给政策结论，再按需补充实时价格",
                     false,
                     List.of(
-                        new AgentExecutionPlan.AgentStep(1, "从知识库检索并总结本地政策口径", "rag"),
-                        new AgentExecutionPlan.AgentStep(2, "先回答政策结论，再提示可继续补充实时价格", "none")
+                        new AgentExecutionPlan.AgentStep(1, "从知识库检索并总结本地政策口径", AgentExecutionPlan.TOOL_HINT_RAG),
+                        new AgentExecutionPlan.AgentStep(2, "先回答政策结论，再提示可继续补充实时价格", AgentExecutionPlan.TOOL_HINT_NONE)
                     )
                 );
             }
@@ -147,8 +145,8 @@ public class ReActPlanningService {
                         "问题需要实时信息，先联网检索后回答",
                         true,
                         List.of(
-                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(shortcutSource), "webSearch"),
-                            new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", "none")
+                            new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(shortcutSource), AgentExecutionPlan.TOOL_HINT_WEB_SEARCH),
+                            new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", AgentExecutionPlan.TOOL_HINT_NONE)
                         )
                     );
                 }
@@ -159,8 +157,8 @@ public class ReActPlanningService {
                     "问题涉及门店、回收点或导航，优先走地图工具",
                     true,
                     List.of(
-                            new AgentExecutionPlan.AgentStep(1, "补充或使用已有位置上下文", "amap-mcp"),
-                            new AgentExecutionPlan.AgentStep(2, "调用 amap-mcp 查询附近地点并整理结果", "amap-mcp")
+                            new AgentExecutionPlan.AgentStep(1, "补充或使用已有位置上下文", AgentExecutionPlan.TOOL_HINT_AMAP),
+                            new AgentExecutionPlan.AgentStep(2, "调用 amap-mcp 查询附近地点并整理结果", AgentExecutionPlan.TOOL_HINT_AMAP)
                     )
             );
         }
@@ -171,8 +169,8 @@ public class ReActPlanningService {
                     "问题涉及发票或附件解析，优先走文件解析工具",
                     true,
                     List.of(
-                            new AgentExecutionPlan.AgentStep(1, "确认待解析文件类型与输入是否齐全", "parseFile"),
-                            new AgentExecutionPlan.AgentStep(2, "调用 parseFile 提取结构化字段", "parseFile")
+                            new AgentExecutionPlan.AgentStep(1, "确认待解析文件类型与输入是否齐全", AgentExecutionPlan.TOOL_HINT_PARSE_FILE),
+                            new AgentExecutionPlan.AgentStep(2, "调用 parseFile 提取结构化字段", AgentExecutionPlan.TOOL_HINT_PARSE_FILE)
                     )
             );
         }
@@ -183,8 +181,8 @@ public class ReActPlanningService {
                     "问题聚焦政策规则或申请流程，优先结合知识库检索回答",
                     false,
                     List.of(
-                            new AgentExecutionPlan.AgentStep(1, "从知识库检索相关政策依据", "rag"),
-                            new AgentExecutionPlan.AgentStep(2, "整理规则、条件和办理流程并回答", "none")
+                            new AgentExecutionPlan.AgentStep(1, "从知识库检索相关政策依据", AgentExecutionPlan.TOOL_HINT_RAG),
+                            new AgentExecutionPlan.AgentStep(2, "整理规则、条件和办理流程并回答", AgentExecutionPlan.TOOL_HINT_NONE)
                     )
             );
         }
@@ -211,23 +209,11 @@ public class ReActPlanningService {
         if (isPolicyPriceMixedQuestion(normalized)) {
             return false;
         }
-        return normalized.contains("最新")
-                || normalized.contains("实时")
-                || normalized.contains("今日")
-                || normalized.contains("当前")
-                || normalized.contains("新闻")
-                || normalized.contains("动态")
-                || normalized.contains("价格")
-                || normalized.contains("市场价")
-                || normalized.contains("报价")
-                || normalized.contains("电商")
-                || normalized.contains("官网")
-                || normalized.contains("search")
-                || normalized.contains("websearch");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.REALTIME_SEARCH_KEYWORDS);
     }
 
     private boolean requiresSubsidyCalculation(String normalized) {
-        boolean subsidyContext = containsAny(normalized, "补贴", "国补", "以旧换新");
+        boolean subsidyContext = QueryIntentRules.containsAny(normalized, "补贴", "国补", "以旧换新");
         boolean computationIntent = hasSubsidyComputationIntent(normalized);
         boolean subsidyTargetHint = hasCategory(normalized) || hasSubsidyDeviceHint(normalized);
 
@@ -235,7 +221,8 @@ public class ReActPlanningService {
             return true;
         }
 
-        return containsAny(normalized,
+        // 直接命中补贴计算关键词，保持原始关键词集合不变（避免改变 shortcut 优先级顺序）
+        return QueryIntentRules.containsAny(normalized,
                 "算补贴", "补多少", "能补多少", "补贴金额", "补贴额度", "核算补贴", "国补能有多少",
                 "补贴后", "补贴后的价格", "到手价", "计算补贴")
                 || (subsidyContext
@@ -244,7 +231,7 @@ public class ReActPlanningService {
     }
 
     private boolean requiresPriceLookupBeforeSubsidy(String normalized) {
-        boolean subsidyOrBenefitContext = containsAny(normalized, "补贴", "国补", "以旧换新", "优惠");
+        boolean subsidyOrBenefitContext = QueryIntentRules.containsAny(normalized, "补贴", "国补", "以旧换新", "优惠");
         boolean computationIntent = hasSubsidyComputationIntent(normalized)
                 || hasSubsidyBenefitQueryIntent(normalized);
         boolean deviceHint = hasSubsidyDeviceHint(normalized);
@@ -252,28 +239,24 @@ public class ReActPlanningService {
     }
 
     private boolean hasSubsidyBenefitQueryIntent(String normalized) {
-        return containsAny(normalized,
+        return QueryIntentRules.containsAny(normalized,
                 "优惠多少", "能优惠多少", "享受多少优惠", "能享受多少优惠", "补多少", "补贴多少", "有多少优惠");
     }
 
     private boolean requiresMapSearch(String normalized) {
-        return containsAny(normalized, "地图", "导航", "路线", "门店", "附近", "回收点", "高德", "amap");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.MAP_KEYWORDS);
     }
 
     private boolean requiresFileParsing(String normalized) {
-        return containsAny(normalized, "发票", "附件", "上传", "图片", "文件", "pdf", "jpg", "png");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.FILE_PARSE_KEYWORDS);
     }
 
     private boolean requiresPolicyLookup(String normalized) {
-        return containsAny(normalized, "政策", "申请", "流程", "条件", "资格", "标准", "规则", "材料", "怎么办");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.POLICY_CONSULTING_KEYWORDS);
     }
 
     private boolean isPolicyPriceMixedQuestion(String normalized) {
-        boolean hasPolicy = containsAny(normalized,
-                "政策", "补贴", "国补", "以旧换新", "申领", "流程", "条件", "资格", "标准", "规则");
-        boolean hasPrice = containsAny(normalized,
-                "价格", "报价", "市场价", "多少钱", "优惠", "到手价", "售价", "价位", "价");
-        return hasPolicy && hasPrice;
+        return QueryIntentRules.isPolicyPriceMixed(normalized);
     }
 
     private String summarizeQuery(String userMessage) {
@@ -306,7 +289,7 @@ public class ReActPlanningService {
     }
 
     private String normalize(String userMessage) {
-        return userMessage == null ? "" : userMessage.trim().toLowerCase(Locale.ROOT);
+        return QueryIntentRules.normalize(userMessage);
     }
 
     private boolean hasPrice(String normalized) {
@@ -314,28 +297,18 @@ public class ReActPlanningService {
     }
 
     private boolean hasCategory(String normalized) {
-        return containsAny(normalized,
-                "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器",
-                "微波炉", "油烟机", "洗碗机", "燃气灶", "净水器", "笔记本", "电脑", "macbook", "thinkpad", "surface");
+        // 设备品类 + 品牌（原实现中 hasCategory 包含 macbook/thinkpad/surface，与 hasSubsidyDeviceHint 联合使用）
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.DEVICE_CATEGORIES)
+                || QueryIntentRules.containsAny(normalized, QueryIntentRules.BRAND_MODEL_KEYWORDS);
     }
 
     private boolean hasSubsidyDeviceHint(String normalized) {
-        return containsAny(normalized,
-                "macbook", "thinkpad", "surface", "matebook",
-                "iphone", "ipad", "华为", "小米", "荣耀", "oppo", "vivo");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.BRAND_MODEL_KEYWORDS);
     }
 
     private boolean hasSubsidyComputationIntent(String normalized) {
-        return containsAny(normalized,
+        // 保持原始关键词集合，仅覆盖"计算意图"语义，避免与补贴优惠查询意图混淆影响 shortcut 优先级
+        return QueryIntentRules.containsAny(normalized,
                 "计算", "算一下", "帮我算", "核算", "到手价", "补贴后", "补贴后的价格", "国补后");
-    }
-
-    private boolean containsAny(String text, String... keywords) {
-        for (String keyword : keywords) {
-            if (text.contains(keyword.toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-        }
-        return false;
     }
 }

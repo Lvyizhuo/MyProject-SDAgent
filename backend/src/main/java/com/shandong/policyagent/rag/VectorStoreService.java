@@ -5,7 +5,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -13,7 +12,6 @@ import org.springframework.stereotype.Service;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class VectorStoreService {
 
     private static final int EMBEDDING_BATCH_SIZE = 10;
@@ -22,6 +20,21 @@ public class VectorStoreService {
     private final DocumentLoaderService documentLoaderService;
     private final TextSplitterService textSplitterService;
     private final IngestionStateService ingestionStateService;
+
+    /**
+     * 显式构造函数替代 {@link lombok.RequiredArgsConstructor}——由于移除 {@code @Primary RerankingVectorStore}
+     * 后存在两个 VectorStore bean（auto-configured "vectorStore" + "runtimeRagVectorStore"），
+     * 必须通过 Qualifier 明确指定注入目标。
+     */
+    public VectorStoreService(@org.springframework.beans.factory.annotation.Qualifier("vectorStore") VectorStore vectorStore,
+                              DocumentLoaderService documentLoaderService,
+                              TextSplitterService textSplitterService,
+                              IngestionStateService ingestionStateService) {
+        this.vectorStore = vectorStore;
+        this.documentLoaderService = documentLoaderService;
+        this.textSplitterService = textSplitterService;
+        this.ingestionStateService = ingestionStateService;
+    }
 
     public void addDocuments(List<Document> documents) {
         if (documents.isEmpty()) {
