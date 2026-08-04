@@ -1,5 +1,14 @@
 package com.shandong.policyagent.rag;
 
+import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.entity.AgentConfig;
+import com.shandong.policyagent.entity.KnowledgeFolder;
+import com.shandong.policyagent.repository.KnowledgeFolderRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.document.Document;
+import org.springframework.stereotype.Component;
+
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -9,18 +18,18 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.document.Document;
-import org.springframework.stereotype.Service;
-
+/**
+ * 混合检索管线：统合向量召回 + 关键词召回 → RRF 融合 → Rerank 重排序 → 阈值过滤 → Parent 扩展 → 年份排序。
+ * 提供单一入口，供 RuntimeRagVectorStore 和 RagRetrievalService 共同使用，消除循环依赖。
+ */
 @Slf4j
-@Service
+@Component
 @RequiredArgsConstructor
-public class RagRetrievalService {
+public class HybridRetrievalPipeline {
 
     private static final int DEFAULT_RRF_K = 60;
     private static final double VECTOR_RRF_WEIGHT = 0.65;
@@ -28,35 +37,80 @@ public class RagRetrievalService {
     private static final int PARENT_EXPAND_RADIUS = 1;
     private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)(20\\d{2})(?!\\d)");
 
-    private final RuntimeRagVectorStore runtimeRagVectorStore;
+    private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
+    private final KnowledgeFolderRepository knowledgeFolderRepository;
+    private final KnowledgeService knowledgeService;
     private final MultiVectorStoreService multiVectorStoreService;
+    private final EmbeddingService embeddingService;
     private final DashScopeRerankService rerankService;
     private final RagConfig ragConfig;
-    private final KnowledgeService knowledgeService;
 
-    public List<Document> retrieveRelevantDocuments(String query) {
+    // ==================== 检索上下文解析（从 RuntimeRagVectorStore 迁入） ====================
+
+    public RetrievalContext resolveRetrievalContext() {
+        ScopeResolution scope = resolveKnowledgeBaseScope();
+        String embeddingModelId = scope.enabled() && scope.embeddingModelId() != null && !scope.embeddingModelId().isBlank()
+                ? scope.embeddingModelId()
+                : resolveFallbackEmbeddingModelId();
+        String vectorTableName = scope.enabled() && scope.vectorTableName() != null && !scope.vectorTableName().isBlank()
+                ? scope.vectorTableName()
+                : embeddingService.getModelConfig(embeddingModelId).getVectorTable();
+
+        if (scope.missing()) {
+            return new RetrievalContext(embeddingModelId, vectorTableName, scope.folderId(), null, null, null, true);
+        }
+
+        String folderPath = scope.enabled() ? scope.folderPath() : null;
+        Long folderId = scope.enabled() ? scope.folderId() : null;
+        Long rerankModelId = scope.enabled() ? scope.rerankModelId() : null;
+        String rerankModelName = scope.enabled() ? scope.rerankModelName() : null;
+        return new RetrievalContext(embeddingModelId, vectorTableName, folderId, folderPath, rerankModelId, rerankModelName, false);
+    }
+
+    public record RetrievalContext(String embeddingModelId,
+                                   String vectorTableName,
+                                   Long folderId,
+                                   String folderPath,
+                                   Long rerankModelId,
+                                   String rerankModelName,
+                                   boolean missing) {
+    }
+
+    // ==================== 主检索入口 ====================
+
+    /**
+     * 完整混合检索管线。供 RuntimeRagVectorStore 直接调用。
+     *
+     * @param query               用户查询
+     * @param topK                最终返回文档数
+     * @param similarityThreshold 向量召回相似度阈值（0-1），用于 SQL 预过滤
+     * @param context             已解析的检索上下文
+     * @return 排序后的最终文档列表
+     */
+    public List<Document> retrieve(String query, int topK, double similarityThreshold, RetrievalContext context) {
         if (query == null || query.isBlank()) {
             return List.of();
         }
-
-        RuntimeRagVectorStore.RetrievalContext context = runtimeRagVectorStore.resolveRetrievalContext();
-        if (context.missing()) {
-            log.warn("知识库范围配置异常，返回空召回结果 | folderId={}", context.folderId());
+        if (context == null || context.missing()) {
+            log.warn("知识库范围配置异常，返回空召回结果 | folderId={}", context == null ? null : context.folderId());
             return List.of();
         }
 
         RagConfig.Retrieval retrievalConfig = ragConfig.getRetrieval();
-        int finalTopK = Math.max(1, retrievalConfig.getTopK());
+        int finalTopK = Math.max(1, topK);
         int candidateTopK = Math.max(finalTopK, retrievalConfig.getCandidateTopK());
+        double effectiveThreshold = similarityThreshold > 0 ? similarityThreshold : 0;
 
         String expandedQuery = expandQueryForSynonyms(query);
 
+        // 1. 向量召回
         List<Document> vectorCandidates = multiVectorStoreService.similaritySearch(
                 context.embeddingModelId(),
                 expandedQuery,
                 candidateTopK,
                 context.folderPath(),
-                "child"
+                "child",
+                effectiveThreshold
         );
 
         if (vectorCandidates.isEmpty()) {
@@ -65,32 +119,50 @@ public class RagRetrievalService {
                     expandedQuery,
                     candidateTopK,
                     context.folderPath(),
-                    null
+                    null,
+                    effectiveThreshold
             );
         }
 
-        List<Document> keywordCandidates = multiVectorStoreService.keywordSearch(
-                context.embeddingModelId(),
+        // 2. 关键词召回（带降级）
+        List<Document> keywordCandidates;
+        try {
+            keywordCandidates = multiVectorStoreService.keywordSearch(
+                    context.embeddingModelId(),
+                    expandedQuery,
+                    candidateTopK,
+                    context.folderPath(),
+                    "child"
+            );
+        } catch (Exception e) {
+            log.warn("关键词检索异常，降级为纯向量检索 | query={} | error={}",
+                    truncateQuery(query), e.getMessage());
+            keywordCandidates = List.of();
+        }
+
+        // 3. RRF 融合
+        List<Document> fusedCandidates = fuseByRrf(vectorCandidates, keywordCandidates, candidateTopK);
+
+        // 4. Rerank 重排序（内置回退纯向量）
+        List<Document> reranked = rerankService.rerank(
                 expandedQuery,
-                candidateTopK,
-                context.folderPath(),
-                "child"
+                fusedCandidates,
+                finalTopK,
+                context.rerankModelId(),
+                context.rerankModelName()
         );
 
-        List<Document> fusedCandidates = fuseByRrf(vectorCandidates, keywordCandidates, candidateTopK);
-        List<Document> reranked = rerankService.rerank(
-            expandedQuery,
-            fusedCandidates,
-            finalTopK,
-            context.rerankModelId(),
-            context.rerankModelName()
-        );
+        // 5. Rerank 分数阈值过滤
         List<Document> thresholdFiltered = applyRerankThreshold(
-            reranked,
-            knowledgeService.resolveRerankScoreThreshold(),
-            finalTopK
+                reranked,
+                knowledgeService.resolveRerankScoreThreshold(),
+                finalTopK
         );
+
+        // 6. Parent-child 扩展
         List<Document> expanded = expandChildHitsToParent(context.vectorTableName(), thresholdFiltered, finalTopK);
+
+        // 7. 政策年份偏好排序
         List<Document> ordered = preferLatestPolicyDocuments(expanded, finalTopK);
 
         log.debug("检索完成 | query={} | vector={} | keyword={} | fused={} | reranked={} | expanded={}",
@@ -101,34 +173,10 @@ public class RagRetrievalService {
                 thresholdFiltered.size(),
                 ordered.size());
 
-            return ordered;
+        return ordered;
     }
 
-    public List<Document> retrieveWithFilter(String query, String filterExpression) {
-        return retrieveRelevantDocuments(query);
-    }
-
-    public List<Document> retrieveByCategory(String query, String category) {
-        return retrieveRelevantDocuments(query);
-    }
-
-    public String buildContextFromDocuments(List<Document> documents) {
-        if (documents.isEmpty()) {
-            return "";
-        }
-
-        StringBuilder context = new StringBuilder();
-        context.append("以下是相关的政策文档内容：\n\n");
-
-        for (int i = 0; i < documents.size(); i++) {
-            Document doc = documents.get(i);
-            context.append("【文档 ").append(i + 1).append("】\n");
-            context.append(doc.getText());
-            context.append("\n\n");
-        }
-
-        return context.toString();
-    }
+    // ==================== RRF 融合 ====================
 
     private List<Document> fuseByRrf(List<Document> vectorCandidates,
                                      List<Document> keywordCandidates,
@@ -191,6 +239,58 @@ public class RagRetrievalService {
         }
     }
 
+    // ==================== Rerank 阈值过滤 ====================
+
+    private List<Document> applyRerankThreshold(List<Document> reranked,
+                                                double threshold,
+                                                int topK) {
+        if (reranked == null || reranked.isEmpty()) {
+            return List.of();
+        }
+
+        List<Document> scoredDocs = reranked.stream()
+                .filter(this::hasUsableScore)
+                .toList();
+        if (scoredDocs.isEmpty()) {
+            return shrink(reranked, topK);
+        }
+
+        List<Document> passed = scoredDocs.stream()
+                .filter(document -> extractScore(document) >= threshold)
+                .toList();
+        if (!passed.isEmpty()) {
+            return shrink(passed, topK);
+        }
+        return shrink(scoredDocs, topK);
+    }
+
+    private boolean hasUsableScore(Document document) {
+        return extractScore(document) > 0.0D;
+    }
+
+    private double extractScore(Document document) {
+        if (document == null || document.getMetadata() == null) {
+            return 0.0D;
+        }
+        Object score = document.getMetadata().get("rerankScore");
+        if (score == null) {
+            score = document.getMetadata().get("score");
+        }
+        if (score instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (score != null) {
+            try {
+                return Double.parseDouble(String.valueOf(score));
+            } catch (Exception ignored) {
+                return 0.0D;
+            }
+        }
+        return 0.0D;
+    }
+
+    // ==================== Parent-child 扩展 ====================
+
     private List<Document> expandChildHitsToParent(String vectorTableName,
                                                     List<Document> reranked,
                                                     int topK) {
@@ -249,54 +349,6 @@ public class RagRetrievalService {
         return finalDocs.values().stream().limit(Math.max(1, topK)).toList();
     }
 
-    private List<Document> applyRerankThreshold(List<Document> reranked,
-                                                double threshold,
-                                                int topK) {
-        if (reranked == null || reranked.isEmpty()) {
-            return List.of();
-        }
-
-        List<Document> scoredDocs = reranked.stream()
-                .filter(this::hasUsableScore)
-                .toList();
-        if (scoredDocs.isEmpty()) {
-            return shrink(reranked, topK);
-        }
-
-        List<Document> passed = scoredDocs.stream()
-                .filter(document -> extractScore(document) >= threshold)
-                .toList();
-        if (!passed.isEmpty()) {
-            return shrink(passed, topK);
-        }
-        return shrink(scoredDocs, topK);
-    }
-
-    private boolean hasUsableScore(Document document) {
-        return extractScore(document) > 0.0D;
-    }
-
-    private double extractScore(Document document) {
-        if (document == null || document.getMetadata() == null) {
-            return 0.0D;
-        }
-        Object score = document.getMetadata().get("rerankScore");
-        if (score == null) {
-            score = document.getMetadata().get("score");
-        }
-        if (score instanceof Number number) {
-            return number.doubleValue();
-        }
-        if (score != null) {
-            try {
-                return Double.parseDouble(String.valueOf(score));
-            } catch (Exception ignored) {
-                return 0.0D;
-            }
-        }
-        return 0.0D;
-    }
-
     private String extractParentChunkId(Document document) {
         if (document == null || document.getMetadata() == null) {
             return null;
@@ -318,8 +370,8 @@ public class RagRetrievalService {
     }
 
     private String expandParentWithNeighbors(String vectorTableName,
-                                             Map<String, Object> parentMetadata,
-                                             String fallbackText) {
+                                              Map<String, Object> parentMetadata,
+                                              String fallbackText) {
         Long documentId = parseLongValue(parentMetadata == null ? null : parentMetadata.get("knowledgeDocumentId"));
         Integer parentChunkIndex = parseIntValue(parentMetadata == null ? null : parentMetadata.get("parentChunkIndex"));
         if (documentId == null || parentChunkIndex == null) {
@@ -370,20 +422,7 @@ public class RagRetrievalService {
         }
     }
 
-    private String truncateQuery(String query) {
-        return query.length() > 50 ? query.substring(0, 50) + "..." : query;
-    }
-
-    private List<Document> shrink(List<Document> documents, int topK) {
-        if (documents == null || documents.isEmpty()) {
-            return List.of();
-        }
-        int limit = Math.max(1, topK);
-        if (documents.size() <= limit) {
-            return documents;
-        }
-        return documents.subList(0, limit);
-    }
+    // ==================== 同义词扩展 ====================
 
     private String expandQueryForSynonyms(String query) {
         if (query == null || query.isBlank()) {
@@ -406,6 +445,8 @@ public class RagRetrievalService {
 
         return expanded.toString();
     }
+
+    // ==================== 政策年份偏好排序 ====================
 
     private List<Document> preferLatestPolicyDocuments(List<Document> documents, int topK) {
         if (documents == null || documents.isEmpty()) {
@@ -498,6 +539,79 @@ public class RagRetrievalService {
         }
         return latest;
     }
+
+    // ==================== 工具方法 ====================
+
+    private String truncateQuery(String query) {
+        return query.length() > 50 ? query.substring(0, 50) + "..." : query;
+    }
+
+    private List<Document> shrink(List<Document> documents, int topK) {
+        if (documents == null || documents.isEmpty()) {
+            return List.of();
+        }
+        int limit = Math.max(1, topK);
+        if (documents.size() <= limit) {
+            return documents;
+        }
+        return documents.subList(0, limit);
+    }
+
+    // ==================== 内部解析逻辑（原 RuntimeRagVectorStore） ====================
+
+    private ScopeResolution resolveKnowledgeBaseScope() {
+        AgentConfig config = dynamicAgentConfigHolder.get();
+        if (config == null || config.getKnowledgeBaseFolderId() == null) {
+            return ScopeResolution.all();
+        }
+
+        Optional<KnowledgeFolder> folder = knowledgeFolderRepository.findById(config.getKnowledgeBaseFolderId());
+        if (folder.isEmpty()) {
+            return ScopeResolution.missing(config.getKnowledgeBaseFolderId());
+        }
+
+        KnowledgeFolder knowledgeBase = folder.get();
+        return ScopeResolution.folder(
+                knowledgeBase.getId(),
+                knowledgeBase.getPath(),
+                knowledgeBase.getEmbeddingModel(),
+                knowledgeBase.getVectorTableName(),
+                knowledgeBase.getRerankModelId(),
+                knowledgeBase.getRerankModelName()
+        );
+    }
+
+    private record ScopeResolution(Long folderId,
+                                   String folderPath,
+                                   String embeddingModelId,
+                                   String vectorTableName,
+                                   Long rerankModelId,
+                                   String rerankModelName,
+                                   boolean enabled,
+                                   boolean missing) {
+        private static ScopeResolution all() {
+            return new ScopeResolution(null, null, null, null, null, null, false, false);
+        }
+
+        private static ScopeResolution folder(Long folderId,
+                                              String folderPath,
+                                              String embeddingModelId,
+                                              String vectorTableName,
+                                              Long rerankModelId,
+                                              String rerankModelName) {
+            return new ScopeResolution(folderId, folderPath, embeddingModelId, vectorTableName, rerankModelId, rerankModelName, true, false);
+        }
+
+        private static ScopeResolution missing(Long folderId) {
+            return new ScopeResolution(folderId, null, null, null, null, null, false, true);
+        }
+    }
+
+    private String resolveFallbackEmbeddingModelId() {
+        return embeddingService.resolveDefaultModelId(knowledgeService.getConfig().getDefaultEmbeddingModel());
+    }
+
+    // ==================== 内部记录类型 ====================
 
     private record RankedDocument(Document document, int year, double score, int index) {
     }

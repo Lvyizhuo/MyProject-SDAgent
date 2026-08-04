@@ -77,51 +77,12 @@ public class MultiVectorStoreService {
         return deleted;
     }
 
-    public List<Document> similaritySearch(String modelId, String query, int topK) {
-        VectorStore vectorStore = getVectorStore(modelId);
-        SearchRequest searchRequest = SearchRequest.builder()
-                .query(query)
-                .topK(topK)
-                .build();
-        return vectorStore.similaritySearch(searchRequest);
-    }
-
-    public List<Document> similaritySearchInFolderScope(String modelId, String query, int topK, String folderPath) {
-        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(modelId);
-        initializeVectorTable(modelConfig.getVectorTable(), modelConfig.getDimensions());
-
-        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-        String safeTableName = sanitizeTableName(modelConfig.getVectorTable());
-        float[] queryEmbedding = embeddingService.embedTexts(modelId, List.of(query)).get(0);
-        String embeddingStr = "[" + arrayToString(queryEmbedding) + "]";
-        String normalizedFolderPath = normalizeFolderPath(folderPath);
-
-        String sql = String.format("""
-            SELECT v.id, v.content, v.metadata
-            FROM %s v
-            JOIN knowledge_documents d
-              ON d.id = CAST(v.metadata->>'knowledgeDocumentId' AS BIGINT)
-            LEFT JOIN knowledge_folders f
-              ON f.id = d.folder_id
-            WHERE COALESCE(f.path, '/') = ?
-               OR COALESCE(f.path, '/') LIKE ?
-            ORDER BY v.embedding <=> ?::vector
-            LIMIT ?
-            """, safeTableName);
-
-        return jdbcTemplate.query(sql,
-                (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
-                normalizedFolderPath,
-                buildFolderDescendantPattern(normalizedFolderPath),
-                embeddingStr,
-                topK);
-    }
-
     public List<Document> similaritySearch(String modelId,
                                            String query,
                                            int topK,
                                            String folderPath,
-                                           String chunkLevel) {
+                                           String chunkLevel,
+                                           double similarityThreshold) {
         EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(modelId);
         initializeVectorTable(modelConfig.getVectorTable(), modelConfig.getDimensions());
 
@@ -133,6 +94,7 @@ public class MultiVectorStoreService {
         String normalizedFolderPath = normalizeFolderPath(folderPath);
         boolean hasFolderScope = normalizedFolderPath != null && !normalizedFolderPath.isBlank() && !"/".equals(normalizedFolderPath);
         boolean hasChunkLevel = chunkLevel != null && !chunkLevel.isBlank();
+        boolean hasThreshold = similarityThreshold > 0 && similarityThreshold < 1;
 
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT v.id, v.content, v.metadata FROM ")
@@ -159,6 +121,13 @@ public class MultiVectorStoreService {
             params.add(chunkLevel);
         }
 
+        if (hasThreshold) {
+            double cosineThreshold = 1.0 - similarityThreshold;
+            sql.append("AND v.embedding <=> ?::vector <= ? ");
+            params.add(embeddingStr);
+            params.add(cosineThreshold);
+        }
+
         sql.append("ORDER BY v.embedding <=> ?::vector LIMIT ?");
         params.add(embeddingStr);
         params.add(Math.max(1, topK));
@@ -169,6 +138,8 @@ public class MultiVectorStoreService {
                 params.toArray()
         );
     }
+
+    private static final int MAX_KEYWORD_TOKENS = 20;
 
     public List<Document> keywordSearch(String modelId,
                                         String query,
@@ -188,18 +159,41 @@ public class MultiVectorStoreService {
         String normalizedFolderPath = normalizeFolderPath(folderPath);
         boolean hasFolderScope = normalizedFolderPath != null && !normalizedFolderPath.isBlank() && !"/".equals(normalizedFolderPath);
         boolean hasChunkLevel = chunkLevel != null && !chunkLevel.isBlank();
-        String likePattern = "%" + normalizedQuery + "%";
+
+        // 提取搜索词项（中文：整体片段 + 2-gram；英文：按空白/标点切分）
+        List<String> searchTerms = extractSearchTerms(normalizedQuery);
+
+        // 判断是否需要英文 tsvector 补充
+        boolean hasEnglish = containsEnglish(normalizedQuery);
 
         StringBuilder sql = new StringBuilder();
-        sql.append("SELECT v.id, v.content, v.metadata, ")
-                .append("ts_rank_cd(to_tsvector('simple', COALESCE(v.content, '')), plainto_tsquery('simple', ?)) AS bm25_score ")
-                .append("FROM ")
-                .append(safeTableName)
-                .append(" v ");
-
         List<Object> params = new ArrayList<>();
-        params.add(normalizedQuery);
 
+        // SELECT 子句
+        sql.append("SELECT v.id, v.content, v.metadata ");
+
+        // 命中数评分（基于 ILIKE 词项匹配）
+        if (!searchTerms.isEmpty()) {
+            sql.append(", (");
+            for (int i = 0; i < searchTerms.size(); i++) {
+                if (i > 0) {
+                    sql.append(" + ");
+                }
+                sql.append("CASE WHEN v.content ILIKE ? THEN 1 ELSE 0 END");
+                params.add("%" + searchTerms.get(i) + "%");
+            }
+            sql.append(") AS hit_count ");
+        }
+
+        // English tsvector 评分补充
+        if (hasEnglish) {
+            sql.append(", ts_rank_cd(to_tsvector('english', COALESCE(v.content, '')), plainto_tsquery('english', ?)) AS bm25_score ");
+            params.add(normalizedQuery);
+        }
+
+        sql.append("FROM ").append(safeTableName).append(" v ");
+
+        // 目录范围 JOIN
         if (hasFolderScope) {
             sql.append("JOIN knowledge_documents d ON d.id = CAST(v.metadata->>'knowledgeDocumentId' AS BIGINT) ")
                     .append("LEFT JOIN knowledge_folders f ON f.id = d.folder_id ");
@@ -207,26 +201,59 @@ public class MultiVectorStoreService {
 
         sql.append("WHERE 1=1 ");
 
+        // 目录范围条件
         if (hasFolderScope) {
             sql.append("AND (COALESCE(f.path, '/') = ? OR COALESCE(f.path, '/') LIKE ?) ");
             params.add(normalizedFolderPath);
             params.add(buildFolderDescendantPattern(normalizedFolderPath));
         }
 
+        // 切片层级条件
         if (hasChunkLevel) {
             sql.append("AND COALESCE(v.metadata->>'chunkLevel', '') = ? ");
             params.add(chunkLevel);
         }
 
-        sql.append("AND (")
-                .append("to_tsvector('simple', COALESCE(v.content, '')) @@ plainto_tsquery('simple', ?) ")
-                .append("OR v.content ILIKE ?")
-                .append(") ")
-                .append("ORDER BY bm25_score DESC NULLS LAST, LENGTH(COALESCE(v.content, '')) ASC ")
-                .append("LIMIT ?");
+        // 匹配条件：ILIKE 词项匹配（主） + tsvector 英文补充（辅）
+        boolean hasMatchCondition = !searchTerms.isEmpty() || hasEnglish;
+        if (hasMatchCondition) {
+            sql.append("AND (");
+            boolean firstCondition = true;
 
-        params.add(normalizedQuery);
-        params.add(likePattern);
+            if (!searchTerms.isEmpty()) {
+                sql.append("(");
+                for (int i = 0; i < searchTerms.size(); i++) {
+                    if (i > 0) {
+                        sql.append(" OR ");
+                    }
+                    sql.append("v.content ILIKE ?");
+                    params.add("%" + searchTerms.get(i) + "%");
+                }
+                sql.append(")");
+                firstCondition = false;
+            }
+
+            if (hasEnglish) {
+                if (!firstCondition) {
+                    sql.append(" OR ");
+                }
+                sql.append("to_tsvector('english', COALESCE(v.content, '')) @@ plainto_tsquery('english', ?)");
+                params.add(normalizedQuery);
+            }
+
+            sql.append(") ");
+        }
+
+        // 排序：命中词数 DESC → 英文 ts_rank DESC → 长度 ASC
+        sql.append("ORDER BY ");
+        if (!searchTerms.isEmpty()) {
+            sql.append("hit_count DESC NULLS LAST, ");
+        }
+        if (hasEnglish) {
+            sql.append("bm25_score DESC NULLS LAST, ");
+        }
+        sql.append("LENGTH(COALESCE(v.content, '')) ASC ");
+        sql.append("LIMIT ?");
         params.add(Math.max(1, topK));
 
         return jdbcTemplate.query(
@@ -234,6 +261,87 @@ public class MultiVectorStoreService {
                 (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
                 params.toArray()
         );
+    }
+
+    /**
+     * 从查询文本中提取搜索词项。
+     * 中文：按标点/空白切分为连续片段，生成整体词 + 2-gram。
+     * 英文/数字：按空白切分为独立词。
+     * 去重后最多保留 {@link #MAX_KEYWORD_TOKENS} 个。
+     */
+    private List<String> extractSearchTerms(String query) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+
+        List<String> terms = new ArrayList<>();
+        StringBuilder cjkBuffer = new StringBuilder();
+
+        for (int i = 0; i < query.length(); i++) {
+            char c = query.charAt(i);
+            if (isCjk(c)) {
+                cjkBuffer.append(c);
+            } else {
+                // Flush CJK buffer
+                if (cjkBuffer.length() > 0) {
+                    addCjkTerms(terms, cjkBuffer.toString());
+                    cjkBuffer.setLength(0);
+                }
+                // Collect non-CJK word
+                if (Character.isLetterOrDigit(c)) {
+                    int start = i;
+                    while (i + 1 < query.length() && Character.isLetterOrDigit(query.charAt(i + 1))) {
+                        i++;
+                    }
+                    String word = query.substring(start, i + 1).toLowerCase(Locale.ROOT);
+                    if (word.length() >= 2) {
+                        terms.add(word);
+                    }
+                }
+            }
+        }
+
+        // Flush remaining CJK
+        if (cjkBuffer.length() > 0) {
+            addCjkTerms(terms, cjkBuffer.toString());
+        }
+
+        return terms.stream()
+                .distinct()
+                .limit(MAX_KEYWORD_TOKENS)
+                .toList();
+    }
+
+    private void addCjkTerms(List<String> terms, String segment) {
+        if (segment.length() >= 2) {
+            terms.add(segment); // 整体词
+            // 2-gram
+            for (int i = 0; i <= segment.length() - 2; i++) {
+                terms.add(segment.substring(i, i + 2));
+            }
+        } else if (segment.length() == 1) {
+            terms.add(segment);
+        }
+    }
+
+    private boolean isCjk(char c) {
+        Character.UnicodeBlock block = Character.UnicodeBlock.of(c);
+        return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS
+                || block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A
+                || block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS;
+    }
+
+    private boolean containsEnglish(String query) {
+        if (query == null || query.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < query.length(); i++) {
+            if (query.charAt(i) >= 'a' && query.charAt(i) <= 'z'
+                    || query.charAt(i) >= 'A' && query.charAt(i) <= 'Z') {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Map<String, Document> loadDocumentsByIds(String tableName, List<String> chunkIds) {
@@ -701,8 +809,28 @@ public class MultiVectorStoreService {
             JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
             float[] queryEmbedding = embeddingModel.embed(request.getQuery());
             String embeddingStr = "[" + MultiVectorStoreService.arrayToString(queryEmbedding) + "]";
+            double similarityThreshold = request.getSimilarityThreshold();
+            boolean hasThreshold = similarityThreshold > 0 && similarityThreshold < 1;
 
-            String sql = String.format("""
+            String sql;
+            if (hasThreshold) {
+                double cosineThreshold = 1.0 - similarityThreshold;
+                sql = String.format("""
+                    SELECT id, content, metadata
+                    FROM %s
+                    WHERE embedding <=> ?::vector <= ?
+                    ORDER BY embedding <=> ?::vector
+                    LIMIT ?
+                    """, tableName);
+                return jdbcTemplate.query(sql,
+                        (rs, rowNum) -> mapDocument(rs.getString("id"), rs.getString("content"), rs.getString("metadata")),
+                        embeddingStr,
+                        cosineThreshold,
+                        embeddingStr,
+                        request.getTopK());
+            }
+
+            sql = String.format("""
                 SELECT id, content, metadata
                 FROM %s
                 ORDER BY embedding <=> ?::vector

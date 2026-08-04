@@ -1,8 +1,8 @@
 package com.shandong.policyagent.service;
 
+import com.shandong.policyagent.agent.QueryIntentRules;
 import org.springframework.stereotype.Service;
 
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,7 +16,7 @@ public class FastPathService {
             return null;
         }
 
-        String normalized = normalize(rawQuestion);
+        String normalized = QueryIntentRules.normalize(rawQuestion);
         if (isGreeting(normalized)) {
             return "您好，我是山东省以旧换新政策咨询助手。您可以直接告诉我商品类型、购买价格和所在地市，我可以帮您估算补贴并说明申领流程。";
         }
@@ -73,24 +73,30 @@ public class FastPathService {
                 || normalized.contains("功能");
     }
 
+    /*
+     * 以下 FastPath 方法使用多词短语关键词进行精确匹配。
+     * 若拆分为单个词并入 QueryIntentRules 公共集合会导致语义变化（例如"补贴比例"拆为"补贴""比例"将误匹配"商品比例"），
+     * 因此保留局部关键词列表，确保行为完全等价。公共工具方法 containsAny/normalize 统一委托给 QueryIntentRules。
+     */
+
     private boolean isSubsidyRateQuestion(String normalized) {
-        return containsAny(normalized, "补贴比例", "补贴几个点", "补贴多少比例", "按多少补贴", "国补比例");
+        return QueryIntentRules.containsAny(normalized, "补贴比例", "补贴几个点", "补贴多少比例", "按多少补贴", "国补比例");
     }
 
     private boolean isApplicationMaterialsQuestion(String normalized) {
-        return containsAny(normalized, "申请材料", "需要什么材料", "要准备什么", "提交什么资料", "要哪些资料");
+        return QueryIntentRules.containsAny(normalized, "申请材料", "需要什么材料", "要准备什么", "提交什么资料", "要哪些资料");
     }
 
     private boolean isApplicationProcessQuestion(String normalized) {
-        return containsAny(normalized, "申请流程", "怎么办理", "怎么申请", "怎么操作", "申领流程", "领取流程");
+        return QueryIntentRules.containsAny(normalized, "申请流程", "怎么办理", "怎么申请", "怎么操作", "申领流程", "领取流程");
     }
 
     private boolean isArrivalTimeQuestion(String normalized) {
-        return containsAny(normalized, "多久到账", "多久到", "多久能到账", "什么时候到账", "发放时间", "补贴到账");
+        return QueryIntentRules.containsAny(normalized, "多久到账", "多久到", "多久能到账", "什么时候到账", "发放时间", "补贴到账");
     }
 
     private boolean isLocalSubsidyQuestion(String normalized) {
-        return containsAny(normalized,
+        return QueryIntentRules.containsAny(normalized,
                 "本地有补贴吗", "当地有补贴吗", "我们这有补贴吗", "这个城市有补贴吗", "有地方补贴吗", "市补贴");
     }
 
@@ -109,21 +115,5 @@ public class FastPathService {
             }
         }
         return null;
-    }
-
-    private boolean containsAny(String text, String... keywords) {
-        if (text == null || text.isBlank()) {
-            return false;
-        }
-        for (String keyword : keywords) {
-            if (text.contains(keyword.toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String normalize(String text) {
-        return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
     }
 }

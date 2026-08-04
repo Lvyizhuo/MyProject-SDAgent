@@ -1,6 +1,7 @@
 package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.agent.AgentExecutionPlan;
+import com.shandong.policyagent.agent.QueryIntentRules;
 import com.shandong.policyagent.agent.ReActPlanningService;
 import com.shandong.policyagent.agent.ToolIntentClassifier;
 import com.shandong.policyagent.config.DynamicAgentConfigHolder;
@@ -380,7 +381,7 @@ public class ChatService {
 
     private boolean isPolicyConsultingIntent(String normalized,
                                              SessionFactCacheService.SessionFacts facts) {
-        if (containsAny(normalized, "政策", "国补", "以旧换新", "流程", "条件", "资格", "标准")) {
+        if (QueryIntentRules.containsAny(normalized, QueryIntentRules.POLICY_CONSULTING_KEYWORDS)) {
             return true;
         }
         return facts != null && facts.getIntentHints().contains("政策咨询");
@@ -388,7 +389,7 @@ public class ChatService {
 
     private boolean isSubsidyCalculationIntent(String normalized,
                                                SessionFactCacheService.SessionFacts facts) {
-        if (containsAny(normalized, "计算", "帮我算", "算一下", "补贴后", "到手价", "补贴金额", "补多少")) {
+        if (QueryIntentRules.containsAny(normalized, QueryIntentRules.SUBSIDY_CALCULATION_KEYWORDS)) {
             return true;
         }
         return facts != null && facts.getIntentHints().contains("补贴测算");
@@ -398,9 +399,8 @@ public class ChatService {
         if (facts != null && facts.getCategories() != null && !facts.getCategories().isEmpty()) {
             return true;
         }
-        return containsAny(normalized,
-                "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器",
-                "笔记本", "电脑", "家电", "数码", "汽车", "新能源车");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.DEVICE_CATEGORIES)
+                || QueryIntentRules.containsAny(normalized, QueryIntentRules.BROAD_CATEGORIES);
     }
 
     private boolean hasUsablePrice(SessionFactCacheService.SessionFacts facts, String normalized) {
@@ -421,18 +421,18 @@ public class ChatService {
         if (facts != null && facts.getCategories() != null && !facts.getCategories().isEmpty()) {
             return facts.getCategories().stream().allMatch(category -> "家电".equals(category) || "数码".equals(category));
         }
-        return containsAny(normalized, "家电", "数码")
-                && !containsAny(normalized, "手机", "平板", "手表", "手环", "空调", "冰箱", "洗衣机", "电视", "热水器", "笔记本", "电脑");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.BROAD_CATEGORIES)
+                && !QueryIntentRules.containsAny(normalized, QueryIntentRules.DEVICE_CATEGORIES);
     }
 
     private boolean shouldAutoLookupPrice(SessionFactCacheService.SessionFacts facts, String normalized) {
         boolean hasDeviceHints = (facts != null
                 && facts.getDeviceModels() != null
                 && !facts.getDeviceModels().isEmpty())
-                || containsAny(normalized,
-                "macbook", "thinkpad", "surface", "iphone", "ipad", "华为", "小米", "荣耀", "oppo", "vivo",
+                || QueryIntentRules.containsAny(normalized, QueryIntentRules.BRAND_MODEL_KEYWORDS)
+                || QueryIntentRules.containsAny(normalized,
                 "笔记本", "电脑", "手机", "平板", "电视", "空调", "冰箱", "洗衣机");
-        boolean hasComputationOrPriceIntent = containsAny(normalized,
+        boolean hasComputationOrPriceIntent = QueryIntentRules.containsAny(normalized,
                 "帮我算", "算一下", "计算", "优惠", "补多少", "多少钱", "价格", "报价", "查", "搜索");
         return hasDeviceHints && hasComputationOrPriceIntent;
     }
@@ -443,13 +443,13 @@ public class ChatService {
             return false;
         }
         String normalized = rawQuestion.toLowerCase(Locale.ROOT);
-        boolean hasPriceIntent = containsAny(normalized,
+        boolean hasPriceIntent = QueryIntentRules.containsAny(normalized,
                 "价格", "报价", "多少钱", "市场价", "售价", "价位", "优惠");
         if (!hasPriceIntent) {
             return false;
         }
 
-        boolean hasPolicyIntent = containsAny(normalized,
+        boolean hasPolicyIntent = QueryIntentRules.containsAny(normalized,
                 "政策", "补贴", "国补", "以旧换新", "申领", "流程", "资格", "条件");
         if (hasPolicyIntent) {
             return false;
@@ -472,22 +472,8 @@ public class ChatService {
             }
         }
 
-        return containsAny(normalized,
-                "iphone", "ipad", "macbook", "thinkpad", "surface", "matebook",
-                "华为", "小米", "荣耀", "oppo", "vivo", "三星", "联想", "戴尔", "惠普")
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.BRAND_MODEL_KEYWORDS)
                 || normalized.matches(".*(?:\\d{2,4}(gb|g|tb|t)|20[2-6]\\d款).*");
-    }
-
-    private boolean containsAny(String text, String... keywords) {
-        if (text == null || text.isBlank()) {
-            return false;
-        }
-        for (String keyword : keywords) {
-            if (text.contains(keyword.toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private record ClarificationStep(String slotName, String question) {
@@ -544,13 +530,13 @@ public class ChatService {
         if (isPolicyPriceMixedQuestion(userMessage)) {
             return plan;
         }
-        if (containsToolHint(plan, "calculateSubsidy") || isSubsidyQuestion(userMessage)) {
+        if (containsToolHint(plan, AgentExecutionPlan.TOOL_HINT_CALCULATE_SUBSIDY) || isSubsidyQuestion(userMessage)) {
             return plan;
         }
-        if (plan.steps() != null && plan.steps().stream().anyMatch(step -> "webSearch".equals(step.toolHint()))) {
+        if (plan.steps() != null && plan.steps().stream().anyMatch(step -> AgentExecutionPlan.TOOL_HINT_WEB_SEARCH.equals(step.toolHint()))) {
             return plan;
         }
-        if (!intentDecision.allowToolCall() && "webSearch".equals(intentDecision.targetTool())) {
+        if (!intentDecision.allowToolCall() && AgentExecutionPlan.TOOL_HINT_WEB_SEARCH.equals(intentDecision.targetTool())) {
             return plan;
         }
 
@@ -564,10 +550,10 @@ public class ChatService {
                 List.of(
                         new AgentExecutionPlan.AgentStep(1,
                                 "调用 webSearch 查询实时信息，关键词：" + conciseQuery,
-                                "webSearch"),
+                                AgentExecutionPlan.TOOL_HINT_WEB_SEARCH),
                         new AgentExecutionPlan.AgentStep(2,
                                 "结合检索结果给出结论并附来源链接",
-                                "none")
+                                AgentExecutionPlan.TOOL_HINT_NONE)
                 )
         );
     }
@@ -580,19 +566,7 @@ public class ChatService {
         if (isPolicyPriceMixedQuestion(normalized)) {
             return false;
         }
-        return normalized.contains("最新")
-                || normalized.contains("实时")
-                || normalized.contains("今日")
-                || normalized.contains("当前")
-                || normalized.contains("新闻")
-                || normalized.contains("动态")
-                || normalized.contains("价格")
-                || normalized.contains("市场价")
-                || normalized.contains("报价")
-                || normalized.contains("电商")
-                || normalized.contains("官网")
-                || normalized.contains("search")
-                || normalized.contains("websearch");
+        return QueryIntentRules.containsAny(normalized, QueryIntentRules.REALTIME_SEARCH_KEYWORDS);
     }
 
     private boolean isPolicyPriceMixedQuestion(String userMessage) {
@@ -600,11 +574,7 @@ public class ChatService {
             return false;
         }
         String normalized = userMessage.toLowerCase(Locale.ROOT);
-        boolean hasPolicy = containsAny(normalized,
-                "政策", "补贴", "国补", "以旧换新", "申领", "流程", "条件", "资格", "标准", "规则");
-        boolean hasPrice = containsAny(normalized,
-                "价格", "报价", "市场价", "多少钱", "优惠", "到手价", "售价", "价位", "价");
-        return hasPolicy && hasPrice;
+        return QueryIntentRules.isPolicyPriceMixed(normalized);
     }
 
     private boolean isSubsidyQuestion(String userMessage) {
@@ -612,11 +582,7 @@ public class ChatService {
             return false;
         }
         String normalized = userMessage.toLowerCase(Locale.ROOT);
-        return normalized.contains("补贴")
-                || normalized.contains("国补")
-                || normalized.contains("以旧换新")
-                || normalized.contains("到手价")
-                || normalized.contains("补贴后");
+        return QueryIntentRules.containsAny(normalized, "补贴", "国补", "以旧换新", "到手价", "补贴后");
     }
 
     private String extractQueryForWebSearch(String userMessage) {
@@ -717,8 +683,7 @@ public class ChatService {
 
     private boolean isPriceLookupIntent(String normalized,
                                         SessionFactCacheService.SessionFacts facts) {
-        if (containsAny(normalized,
-                "价格", "报价", "多少钱", "市场价", "售价", "价位", "官网", "电商")) {
+        if (QueryIntentRules.containsAny(normalized, "价格", "报价", "多少钱", "市场价", "售价", "价位", "官网", "电商")) {
             return true;
         }
         return facts != null && facts.getIntentHints() != null && facts.getIntentHints().contains("价格查询");
@@ -735,7 +700,7 @@ public class ChatService {
 
     private boolean isSubsidyOrBenefitIntent(String normalized,
                                              SessionFactCacheService.SessionFacts facts) {
-        if (containsAny(normalized,
+        if (QueryIntentRules.containsAny(normalized,
                 "补贴", "国补", "以旧换新", "优惠", "补多少", "享受多少", "到手价", "帮我算", "算一下", "计算")) {
             return true;
         }
@@ -752,16 +717,16 @@ public class ChatService {
     }
 
     private boolean shouldEnableRag(AgentExecutionPlan plan) {
-        return containsToolHint(plan, "rag");
+        return containsToolHint(plan, AgentExecutionPlan.TOOL_HINT_RAG);
     }
 
     private boolean requiresRuntimeToolCallback(String toolHint) {
-        if ("webSearch".equals(toolHint)) {
+        if (AgentExecutionPlan.TOOL_HINT_WEB_SEARCH.equals(toolHint)) {
             return true;
         }
-        return "calculateSubsidy".equals(toolHint)
-                || "parseFile".equals(toolHint)
-                || "amap-mcp".equals(toolHint);
+        return AgentExecutionPlan.TOOL_HINT_CALCULATE_SUBSIDY.equals(toolHint)
+                || AgentExecutionPlan.TOOL_HINT_PARSE_FILE.equals(toolHint)
+                || AgentExecutionPlan.TOOL_HINT_AMAP.equals(toolHint);
     }
 
     private boolean containsToolHint(AgentExecutionPlan plan, String toolHint) {
@@ -788,9 +753,9 @@ public class ChatService {
             return false;
         }
         String normalized = rawQuestion.toLowerCase(Locale.ROOT);
-        if (containsAny(normalized,
-                "最新", "实时", "今日", "当前", "价格", "报价", "市场价", "官网", "电商", "新闻", "动态",
-                "补贴", "国补", "以旧换新", "政策", "申领", "流程", "资格", "条件")) {
+        // 含时效性/价格/政策关键词的问题不适合走语义缓存
+        if (QueryIntentRules.containsAny(normalized, QueryIntentRules.REALTIME_SEARCH_KEYWORDS)
+                || QueryIntentRules.containsAny(normalized, "补贴", "国补", "以旧换新", "政策", "申领", "流程", "资格", "条件")) {
             return false;
         }
         if (normalized.matches(".*20\\d{2}年?.*")) {
