@@ -158,7 +158,7 @@
 | `80` | Nginx（宝塔反代） | HTTP | `0.0.0.0` | 生产统一入口，对外暴露 |
 | `8080` | Backend（Spring Boot） | HTTP | `127.0.0.1` | REST API + Actuator 监控 |
 | `5173` | Frontend | HTTP | `127.0.0.1` | 前端页面（开发=Vite / 生产=容器内 Nginx 映射） |
-| `5432` | PostgreSQL（pgvector） | TCP | `127.0.0.1` | 主数据库 + 向量存储 |
+| `5433` | PostgreSQL（pgvector） | TCP | `127.0.0.1` | 主数据库 + 向量存储 |
 | `6379` | Redis | TCP | `127.0.0.1` | 聊天记忆 / 会话存储 / 缓存 |
 | `9000` | MinIO API | HTTP | `127.0.0.1` | 知识库原始文档对象存储 |
 | `9001` | MinIO Console | HTTP | `127.0.0.1` | MinIO 管理控制台 |
@@ -208,7 +208,7 @@
 
 | 容器服务 | 容器内端口 | 宿主机端口 | 绑定 | 说明 |
 | :--- | :--- | :--- | :--- | :--- |
-| `postgres` | 5432 | 5432 | `127.0.0.1` | pgvector/pg16 |
+| `postgres` | 5432 | 5433 | `127.0.0.1` | pgvector/pg16 |
 | `redis` | 6379 | 6379 | `127.0.0.1` | redis:7-alpine |
 | `minio` | 9000 | 9000 | `127.0.0.1` | S3 API |
 | `minio` | 9001 | 9001 | `127.0.0.1` | 管理控制台 |
@@ -266,7 +266,7 @@
    │            │                                            │
    ▼            ▼                                            ▼
 PostgreSQL   Redis        MinIO       Ollama      Reranker     外部 HTTPS:443
- :5432       :6379        :9000       :11434       :8989       DashScope/Tavily
+ :5433       :6379        :9000       :11434       :8989       DashScope/Tavily
 主库+向量    会话记忆      文档存储    嵌入向量      重排序      LLM/视觉/语音/搜索
 pgvector     TTL 7d        S3 API     bge-m3       bge-reranker
                                                 v2-m3

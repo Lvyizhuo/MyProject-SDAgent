@@ -21,7 +21,7 @@ docker compose up -d
 
 默认端口：
 - `8080` 后端 API
-- `5432` PostgreSQL
+- `5433` PostgreSQL
 - `6379` Redis
 - `9000` MinIO API
 - `9001` MinIO Console

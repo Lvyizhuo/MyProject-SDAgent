@@ -456,7 +456,7 @@ pnpm run lint
 |------|------|
 | 前端 | 5173 |
 | 后端 | 8080 |
-| PostgreSQL | 5432 |
+| PostgreSQL | 5433 |
 | Redis | 6379 |
 | MinIO API | 9000 |
 | MinIO Console | 9001 |
