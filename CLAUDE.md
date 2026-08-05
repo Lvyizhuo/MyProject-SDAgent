@@ -328,7 +328,7 @@ topK=3, similarityThreshold=0.5, candidateTopK=20, rerank 默认启用。rerankM
 |------|---------|---------|
 | 前端（Nginx） | 80 | 5173 |
 | 后端 | 8080 | 8080 |
-| PostgreSQL | 5432 | 5432 |
+| PostgreSQL | 5432 | 5433 |
 | Redis | 6379 | 6379 |
 | MinIO API | 9000 | 9000 |
 | MinIO Console | 9001 | 9001 |

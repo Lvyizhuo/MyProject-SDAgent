@@ -127,7 +127,7 @@ docker compose ps
 你应该看到类似这样的输出（状态都是 `running` 或 `exited(0)`）：
 
 ```
-postgres      running   127.0.0.1:5432->5432/tcp
+postgres      running   127.0.0.1:5433->5432/tcp
 redis         running   127.0.0.1:6379->6379/tcp
 minio         running   127.0.0.1:9000->9000/tcp, 127.0.0.1:9001->9001/tcp
 ollama        running   127.0.0.1:11434->11434/tcp
@@ -273,7 +273,7 @@ chmod +x deploy-windows.sh
 填写完毕后，脚本会显示配置汇总让你确认。确认后，脚本会自动：
 
 1. 检测 Docker 是否就绪
-2. 检测端口是否被占用（5432/6379/9000/9001/11434/8989/8080/5173）
+2. 检测端口是否被占用（5433/6379/9000/9001/11434/8989/8080/5173）
 3. 将配置写入 `deploy/.env` 文件
 4. 构建并启动所有 8 个容器（postgres / redis / minio / ollama / ollama-init / reranker / backend / frontend）
 5. 等待每个容器健康就绪
@@ -424,7 +424,7 @@ wget -O install.sh http://download.bt.cn/install/install-ubuntu_6.0.sh && sudo b
 - `80/tcp`（HTTP）
 - `443/tcp`（HTTPS）
 
-> Docker 容器端口已绑定 `127.0.0.1`，**不需要**对公网放行 8080/5173/5432 等端口。
+> Docker 容器端口已绑定 `127.0.0.1`，**不需要**对公网放行 8080/5173/5433 等端口。
 
 ### 8.3 克隆代码并配置
 
@@ -699,7 +699,7 @@ docker compose down -v                                          # 停止并清�
 |------|------|------|
 | 5173 | 前端 | 浏览器访问的网页 |
 | 8080 | 后端 API | 前端通过代理调用 |
-| 5432 | PostgreSQL | 数据库 |
+| 5433 | PostgreSQL | 数据库 |
 | 6379 | Redis | 缓存 |
 | 9000 | MinIO API | 文件存储接口 |
 | 9001 | MinIO Console | 文件管理网页 |
