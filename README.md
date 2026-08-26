@@ -464,12 +464,12 @@ pnpm run lint
 | Reranker | 8989 |
 
 ## ⭐ Star History
-
-
-<p align="center">
-  <a href="https://star-history.com/#Lvyizhuo/MyProject-SDAgent&Date">
-    <img src="https://api.star-history.com/svg?repos=Lvyizhuo/MyProject-SDAgent&type=Date" alt="Star History Chart" />
-  </a>
-</p>
+<a href="https://www.star-history.com/?type=date&repos=Lvyizhuo%2FMyProject-SDAgent">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Lvyizhuo/MyProject-SDAgent&type=date&theme=dark&legend=top-left&sealed_token=1zmEXmq0cgFKU8Oys5Rt8prCbinHs8BASpIYDGVrJxfixZ5HCMZqaFgy258mNXow06K0KhmlUv57RByt-scMlWhZhyo_ABk7UXvRarKqXsBq10rnqYi1tw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Lvyizhuo/MyProject-SDAgent&type=date&legend=top-left&sealed_token=1zmEXmq0cgFKU8Oys5Rt8prCbinHs8BASpIYDGVrJxfixZ5HCMZqaFgy258mNXow06K0KhmlUv57RByt-scMlWhZhyo_ABk7UXvRarKqXsBq10rnqYi1tw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Lvyizhuo/MyProject-SDAgent&type=date&legend=top-left&sealed_token=1zmEXmq0cgFKU8Oys5Rt8prCbinHs8BASpIYDGVrJxfixZ5HCMZqaFgy258mNXow06K0KhmlUv57RByt-scMlWhZhyo_ABk7UXvRarKqXsBq10rnqYi1tw" />
+ </picture>
+</a>
 
 > 如果这个项目对你有帮助，欢迎点个 Star⭐；也欢迎提交 Issue 或 PR，一起把山东省政策智能体做得更实用。
