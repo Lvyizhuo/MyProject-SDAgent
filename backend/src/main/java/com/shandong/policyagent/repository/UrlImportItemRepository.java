@@ -18,10 +18,13 @@ public interface UrlImportItemRepository extends JpaRepository<UrlImportItem, Lo
 
     List<UrlImportItem> findTop200ByReviewStatusOrderByCreatedAtDesc(UrlImportReviewStatus reviewStatus);
 
+        // why: 一次性抓取 job/targetFolder/attachments，避免列表页逐条懒加载产生约 400 条 SQL 的 N+1
         @Query("""
-                        select item
+                        select distinct item
                         from UrlImportItem item
-                        join item.job job
+                        join fetch item.job job
+                        left join fetch job.targetFolder
+                        left join fetch item.attachments
                         where item.reviewStatus = :reviewStatus
                             and job.deletedAt is null
                         order by item.createdAt desc

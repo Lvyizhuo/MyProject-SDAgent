@@ -7,8 +7,8 @@ import com.shandong.policyagent.config.DynamicAgentConfigHolder;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.entity.ModelType;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -18,6 +18,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 
@@ -26,7 +27,6 @@ import java.util.List;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class DynamicChatClientFactory {
 
     private final OpenAiChatModel openAiChatModel;
@@ -38,6 +38,46 @@ public class DynamicChatClientFactory {
     private final QuestionAnswerAdvisor questionAnswerAdvisor;
     private final LoggingAdvisor loggingAdvisor;
     private final List<ToolCallbackProvider> toolCallbackProviders;
+
+    /**
+     * 容器使用：MCP 彻底关闭（spring.ai.mcp.client.enabled=false）时无 ToolCallbackProvider 候选，
+     * List 集合注入零候选会启动失败（NoSuchBeanDefinitionException），
+     * 故以 ObjectProvider 注入并 getIfAvailable(List::of) 空集兜底。
+     */
+    @Autowired
+    public DynamicChatClientFactory(OpenAiChatModel openAiChatModel,
+                                    DynamicAgentConfigHolder dynamicAgentConfigHolder,
+                                    ModelProviderService modelProviderService,
+                                    SecurityAdvisor securityAdvisor,
+                                    MessageChatMemoryAdvisor messageChatMemoryAdvisor,
+                                    ReReadingAdvisor reReadingAdvisor,
+                                    QuestionAnswerAdvisor questionAnswerAdvisor,
+                                    LoggingAdvisor loggingAdvisor,
+                                    ObjectProvider<List<ToolCallbackProvider>> toolCallbackProviders) {
+        this(openAiChatModel, dynamicAgentConfigHolder, modelProviderService, securityAdvisor,
+                messageChatMemoryAdvisor, reReadingAdvisor, questionAnswerAdvisor, loggingAdvisor,
+                toolCallbackProviders.getIfAvailable(List::of));
+    }
+
+    public DynamicChatClientFactory(OpenAiChatModel openAiChatModel,
+                                    DynamicAgentConfigHolder dynamicAgentConfigHolder,
+                                    ModelProviderService modelProviderService,
+                                    SecurityAdvisor securityAdvisor,
+                                    MessageChatMemoryAdvisor messageChatMemoryAdvisor,
+                                    ReReadingAdvisor reReadingAdvisor,
+                                    QuestionAnswerAdvisor questionAnswerAdvisor,
+                                    LoggingAdvisor loggingAdvisor,
+                                    List<ToolCallbackProvider> toolCallbackProviders) {
+        this.openAiChatModel = openAiChatModel;
+        this.dynamicAgentConfigHolder = dynamicAgentConfigHolder;
+        this.modelProviderService = modelProviderService;
+        this.securityAdvisor = securityAdvisor;
+        this.messageChatMemoryAdvisor = messageChatMemoryAdvisor;
+        this.reReadingAdvisor = reReadingAdvisor;
+        this.questionAnswerAdvisor = questionAnswerAdvisor;
+        this.loggingAdvisor = loggingAdvisor;
+        this.toolCallbackProviders = toolCallbackProviders;
+    }
 
     @Value("${app.model-provider.openai.connect-timeout-seconds:10}")
     private int connectTimeoutSeconds;
@@ -111,6 +151,10 @@ public class DynamicChatClientFactory {
 
         return builder.build();
     }
+
+    // 模型侧工具调用失败的兜底 processor 已迁移至 config/ToolFailureConfig：
+    // 若定义在本类（构造注入 OpenAiChatModel），会形成
+    // openAiChatModel → toolCallingManager → processor → 本类 → openAiChatModel 的循环依赖。
 
     ResolvedChatModelConfig resolveRuntimeConfig() {
         AgentConfig config = dynamicAgentConfigHolder.get();

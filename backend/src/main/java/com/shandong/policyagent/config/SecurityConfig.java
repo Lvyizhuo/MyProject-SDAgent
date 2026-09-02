@@ -67,14 +67,15 @@ public class SecurityConfig {
                     "/api/admin/auth/login",
                     "/api/public/config/**",
                     "/api/chat/**",
-                    "/api/documents/**",
-                    "/api/multimodal/**",
                     "/actuator/**",
                     "/v3/api-docs/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                // 文档加载/删除接口自述为开发调试用，收敛为管理员专属，防止匿名读写向量库
+                .requestMatchers("/api/documents/**").hasRole("ADMIN")
+                // /api/multimodal/** 不再放行，落入 anyRequest().authenticated()（前端无调用方）
                 .anyRequest().authenticated()
             )
             .sessionManagement(session -> session

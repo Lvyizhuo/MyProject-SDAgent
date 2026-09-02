@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -174,4 +175,28 @@ public interface KnowledgeDocumentRepository extends JpaRepository<KnowledgeDocu
     int updateStatusIfMatch(@Param("id") Long id,
                             @Param("expectedStatus") DocumentStatus expectedStatus,
                             @Param("newStatus") DocumentStatus newStatus);
+
+    @Modifying
+    @Transactional
+    @Query("""
+            UPDATE KnowledgeDocument d
+            SET d.status = :newStatus,
+                d.updatedAt = CURRENT_TIMESTAMP
+            WHERE d.status = :expectedStatus
+            """)
+    int updateAllStatusIfMatch(@Param("expectedStatus") DocumentStatus expectedStatus,
+                               @Param("newStatus") DocumentStatus newStatus);
+
+    @Modifying
+    @Transactional
+    @Query("""
+            UPDATE KnowledgeDocument d
+            SET d.status = :newStatus,
+                d.updatedAt = CURRENT_TIMESTAMP
+            WHERE d.status = :expectedStatus
+                AND d.updatedAt < :staleBefore
+            """)
+    int requeueStaleProcessingBefore(@Param("expectedStatus") DocumentStatus expectedStatus,
+                                     @Param("newStatus") DocumentStatus newStatus,
+                                     @Param("staleBefore") LocalDateTime staleBefore);
 }

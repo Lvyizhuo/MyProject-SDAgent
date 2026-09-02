@@ -13,6 +13,7 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -104,7 +105,7 @@ public class ChatClientConfig {
                                  ReReadingAdvisor reReadingAdvisor,
                                  QuestionAnswerAdvisor questionAnswerAdvisor,
                                  LoggingAdvisor loggingAdvisor,
-                                 List<ToolCallbackProvider> toolCallbackProviders) {
+                                 ObjectProvider<List<ToolCallbackProvider>> toolCallbackProviders) {
         return builder
                 .defaultAdvisors(
                         securityAdvisor,
@@ -113,7 +114,9 @@ public class ChatClientConfig {
                         questionAnswerAdvisor,
                         loggingAdvisor
                 )
-                .defaultToolCallbacks(toolCallbackProviders.toArray(ToolCallbackProvider[]::new))
+                // MCP 彻底关闭时无 ToolCallbackProvider 候选，getIfAvailable 以空集兜底避免启动失败
+                .defaultToolCallbacks(toolCallbackProviders.getIfAvailable(List::of)
+                        .toArray(ToolCallbackProvider[]::new))
                 .build();
     }
 }

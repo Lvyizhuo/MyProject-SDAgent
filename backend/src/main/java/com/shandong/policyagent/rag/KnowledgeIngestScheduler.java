@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Semaphore;
@@ -33,6 +35,8 @@ public class KnowledgeIngestScheduler {
     private long availableTokens;
     private long lastRefillNanos;
     private long refillIntervalNanos;
+    // PROCESSING 超过该时长未更新即视为悬挂（JVM 重启/嵌入调用卡死），回退为 PENDING 重新排队
+    private static final Duration STALE_PROCESSING_THRESHOLD = Duration.ofHours(1);
 
     @PostConstruct
     void init() {
@@ -46,6 +50,8 @@ public class KnowledgeIngestScheduler {
             refillIntervalNanos = TimeUnit.MINUTES.toNanos(1) / maxPerMinute;
             lastRefillNanos = System.nanoTime();
         }
+
+        resetLeftoverProcessingDocuments();
     }
 
     @Scheduled(fixedDelayString = "${app.knowledge.ingest.poll-interval-ms:2000}")
@@ -53,6 +59,8 @@ public class KnowledgeIngestScheduler {
         if (!ingestProperties.isSchedulerEnabled()) {
             return;
         }
+
+        requeueStaleProcessingDocuments();
 
         int availablePermits = concurrencyLimiter.availablePermits();
         if (availablePermits <= 0) {
@@ -125,6 +133,39 @@ public class KnowledgeIngestScheduler {
                 DocumentStatus.PROCESSING,
                 DocumentStatus.PENDING
         );
+    }
+
+    // why: 启动时遗留的 PROCESSING 文档无人认领会永久卡死并占满并发额度，先重置为 PENDING
+    private void resetLeftoverProcessingDocuments() {
+        try {
+            int resetCount = documentRepository.updateAllStatusIfMatch(
+                    DocumentStatus.PROCESSING,
+                    DocumentStatus.PENDING
+            );
+            if (resetCount > 0) {
+                log.warn("启动时重置遗留的 PROCESSING 文档为 PENDING: count={}", resetCount);
+            }
+        } catch (Exception exception) {
+            // why: 启动期 DB 未就绪不应阻断应用启动，后续由定时任务的超时回退机制兜底
+            log.error("启动时重置遗留 PROCESSING 文档失败，将依赖定时任务超时回退", exception);
+        }
+    }
+
+    // why: 进程崩溃/嵌入悬挂后 updatedAt 不再刷新，超时回退 PENDING 让定时任务重新认领
+    private void requeueStaleProcessingDocuments() {
+        try {
+            int requeueCount = documentRepository.requeueStaleProcessingBefore(
+                    DocumentStatus.PROCESSING,
+                    DocumentStatus.PENDING,
+                    LocalDateTime.now().minus(STALE_PROCESSING_THRESHOLD)
+            );
+            if (requeueCount > 0) {
+                log.warn("已将 {} 内未更新的 PROCESSING 文档回退为 PENDING: count={}",
+                        STALE_PROCESSING_THRESHOLD, requeueCount);
+            }
+        } catch (Exception exception) {
+            log.error("回退超时 PROCESSING 文档失败", exception);
+        }
     }
 
     private boolean tryAcquireRateToken() {

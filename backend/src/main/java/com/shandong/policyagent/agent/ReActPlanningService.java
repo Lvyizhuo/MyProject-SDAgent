@@ -12,7 +12,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -86,9 +88,17 @@ public class ReActPlanningService {
             CompletableFuture<String> planFuture = agentPlannerTaskExecutor != null
                     ? CompletableFuture.supplyAsync(llmCall, agentPlannerTaskExecutor)
                     : CompletableFuture.supplyAsync(llmCall);
-            String rawPlan = planFuture
-                    .orTimeout(properties.getPlanningTimeoutSeconds(), TimeUnit.SECONDS)
-                    .join();
+            String rawPlan;
+            try {
+                rawPlan = planFuture
+                        .orTimeout(properties.getPlanningTimeoutSeconds(), TimeUnit.SECONDS)
+                        .join();
+            } catch (CompletionException | CancellationException exception) {
+                // 超时弃单后尽力取消：尚未开跑的排队任务会直接跳过执行，避免弃单累积占满规划池
+                // 局限：CompletableFuture.cancel 不中断已运行的线程，LLM 客户端不可中断时该调用无效但无害
+                planFuture.cancel(true);
+                throw exception;
+            }
 
             AgentExecutionPlan plan = planParser.parse(rawPlan, userMessage, properties.getMaxPlanningSteps());
             log.info("ReAct 规划完成 | conversationId={} | summary={} | steps={}",

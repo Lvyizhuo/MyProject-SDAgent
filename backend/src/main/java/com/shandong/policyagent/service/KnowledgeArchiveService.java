@@ -30,9 +30,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -71,7 +71,7 @@ public class KnowledgeArchiveService {
     private final ModelProviderService modelProviderService;
     private final ObjectMapper objectMapper;
 
-    public byte[] exportArchive() {
+    public void exportArchive(OutputStream outputStream) {
         List<KnowledgeFolder> folders = knowledgeFolderRepository.findAll(
                 Sort.by(Sort.Order.asc("depth"), Sort.Order.asc("sortOrder"), Sort.Order.asc("createdAt"))
         );
@@ -95,8 +95,8 @@ public class KnowledgeArchiveService {
                         .build())
                 .toList());
 
-        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-             ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
+        // why: 归档体积随知识库线性增长，整包攒在内存峰值约为归档体积两倍，大知识库导出会 OOM；改为直接向输出流边写边推
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
 
             List<DocumentEntry> manifestDocuments = new ArrayList<>();
             int index = 1;
@@ -135,7 +135,6 @@ public class KnowledgeArchiveService {
             zipOutputStream.write(objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(manifest));
             zipOutputStream.closeEntry();
             zipOutputStream.finish();
-            return outputStream.toByteArray();
         } catch (IOException exception) {
             throw new IllegalStateException("导出知识库归档失败", exception);
         }

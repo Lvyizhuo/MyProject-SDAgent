@@ -37,7 +37,8 @@ public class ApiKeyCipherService {
     @Value("${app.model-provider.legacy-encryption-secrets:}")
     private String legacyEncryptionSecrets;
 
-    @Value("${app.jwt.secret:" + DEFAULT_JWT_SECRET + "}")
+    // 不再回退到硬编码默认 JWT 密钥：缺失时由 init() 快速失败
+    @Value("${app.jwt.secret:}")
     private String jwtSecret;
 
     private SecretKeySpec primarySecretKeySpec;
@@ -50,6 +51,14 @@ public class ApiKeyCipherService {
             Set<String> secrets = new LinkedHashSet<>();
             addSecret(secrets, encryptionSecret);
             addSecret(secrets, jwtSecret);
+
+            // fail-fast：主密钥与 JWT 密钥均缺失时拒绝启动，避免退回公开的内置默认密钥加密新数据
+            if (secrets.isEmpty()) {
+                throw new IllegalStateException(
+                        "必须通过环境变量 APP_MODEL_PROVIDER_ENCRYPTION_SECRET 或 APP_JWT_SECRET 配置 API Key 加密主密钥");
+            }
+
+            // 以下内置密钥仅作为历史数据解密候选，不参与新数据加密
             addSecret(secrets, DEFAULT_JWT_SECRET);
             addSecret(secrets, LEGACY_MODEL_PROVIDER_SECRET);
 
@@ -57,10 +66,6 @@ public class ApiKeyCipherService {
                 for (String secret : legacyEncryptionSecrets.split(",")) {
                     addSecret(secrets, secret);
                 }
-            }
-
-            if (secrets.isEmpty()) {
-                throw new IllegalStateException("未配置可用的 API Key 加密密钥");
             }
 
             List<SecretKeySpec> keySpecs = new ArrayList<>(secrets.size());

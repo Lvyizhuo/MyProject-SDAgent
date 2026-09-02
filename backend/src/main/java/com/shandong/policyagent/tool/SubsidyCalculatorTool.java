@@ -64,6 +64,17 @@ public class SubsidyCalculatorTool {
             """)
     public Function<SubsidyRequest, SubsidyResponse> calculateSubsidy() {
         return request -> {
+            // 防护：request 为 null 或 type 缺失时返回结构化错误，避免 NPE 把整轮对话打成 500
+            if (request == null || request.type() == null || request.type().isBlank()) {
+                log.warn("补贴计算参数缺失 | request={}", request);
+                return new SubsidyResponse(
+                        request != null ? request.type() : "",
+                        request != null ? request.price() : 0,
+                        0, 0, 0, 0,
+                        "参数不完整：请先提供明确的商品类型（type）和数字成交价（price）"
+                );
+            }
+
             // 检查技能是否启用
             if (!toolStateManager.isSubsidyCalculatorEnabled()) {
                 log.warn("补贴计算工具已被管理员禁用");

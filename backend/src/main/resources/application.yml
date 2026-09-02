@@ -92,7 +92,8 @@ management:
         include: health,info,metrics
   endpoint:
     health:
-      show-details: always
+      # 不对外暴露健康检查细节，避免泄露组件拓扑与连接信息
+      show-details: never
 
 # 日志配置
 logging:
@@ -121,8 +122,8 @@ app:
 
   # JWT 配置
   jwt:
-    # Base64 encoded secret key (生产环境请更换)
-    secret: c2VjdXJlU2VjcmV0S2V5Rm9yUG9saWN5QWdlbnRBcHBsaWNhdGlvbjIwMjZKV1Q=
+    # Base64 编码签名密钥，必须通过环境变量 APP_JWT_SECRET 提供（缺失时启动快速失败）
+    secret: ${APP_JWT_SECRET:}
     # Token 有效期 (毫秒) - 默认 24 小时
     expiration: 86400000
 
@@ -157,6 +158,8 @@ app:
 
   # Knowledge Base 配置 (新方式)
   knowledge:
+    # 目录导入白名单根目录：/api/documents/load-directory 仅允许加载该目录内的路径（防路径穿越）
+    import-root: ${APP_KNOWLEDGE_IMPORT_ROOT:data}
     ingest:
       scheduler-enabled: true
       poll-interval-ms: 2000

@@ -13,12 +13,17 @@ import com.shandong.policyagent.rag.KnowledgeService;
 import com.shandong.policyagent.rag.StorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -48,6 +53,20 @@ public class UrlImportService {
     private final JdbcTemplate jdbcTemplate;
     @Qualifier("urlImportTaskExecutor")
     private final Executor urlImportTaskExecutor;
+
+    // why: 字段注入而非构造注入，保持既有构造函数签名不变（单测按位置 new UrlImportService(...)）
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+    private TransactionTemplate itemConfirmTemplate;
+    private TransactionTemplate failureStateTemplate;
+
+    @PostConstruct
+    void initTransactionTemplates() {
+        itemConfirmTemplate = new TransactionTemplate(transactionManager);
+        // why: 失败状态必须在已注定回滚的事务之外独立落库，否则条目会永远停留在“待确认”
+        failureStateTemplate = new TransactionTemplate(transactionManager);
+        failureStateTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    }
 
     @Transactional
     public UrlImportJobResponse createImport(UrlImportCreateRequest request, User currentUser) {
@@ -163,16 +182,27 @@ public class UrlImportService {
         return toItemResponse(item, true);
     }
 
-    @Transactional
     public DocumentResponse confirmImport(Long itemId, UrlImportConfirmRequest request, User currentUser) {
         UrlImportItem item = itemRepository.findById(itemId)
                 .orElseThrow(() -> new IllegalArgumentException("待入库内容不存在"));
         ensureJobVisible(item.getJob());
-        KnowledgeDocument document = confirmImportInternal(item, request, currentUser);
-        return toDocumentResponse(document);
+        try {
+            // why: 入库动作收敛到独立事务，失败时该事务先完整回滚释放行锁，再单独落库失败状态，避免同事务内落库被回滚
+            Long documentId = itemConfirmTemplate.execute(txStatus -> {
+                UrlImportItem managedItem = itemRepository.findById(itemId)
+                        .orElseThrow(() -> new IllegalArgumentException("待入库内容不存在"));
+                return confirmImportInternal(managedItem, request, currentUser).getId();
+            });
+            KnowledgeDocument document = knowledgeService.getDocument(documentId)
+                    .orElseThrow(() -> new IllegalArgumentException("入库文档不存在"));
+            return toDocumentResponse(document);
+        } catch (Exception e) {
+            // why: 失败状态用 REQUIRES_NEW 独立事务落库，否则条目会永远停留在“待确认”；仍向上抛出保持原有错误响应语义
+            markImportFailed(itemId, e);
+            throw e;
+        }
     }
 
-    @Transactional
     public BatchUrlImportConfirmResponse batchConfirmImports(BatchUrlImportConfirmRequest request, User currentUser) {
         if (request != null && request.getFolderId() != null) {
             throw new IllegalArgumentException("一键入库不支持修改目标知识库，请沿用导入任务默认配置");
@@ -188,9 +218,16 @@ public class UrlImportService {
                         .publishDate(item.getPublishDate())
                         .source(item.getSourceSite())
                         .build();
-                KnowledgeDocument document = confirmImportInternal(item, confirmRequest, currentUser);
-                importedIds.add(document.getId());
+                // why: 逐条独立事务，避免整批共用一个大事务：一条失败全部回滚并在提交时抛 UnexpectedRollbackException
+                Long documentId = itemConfirmTemplate.execute(txStatus -> {
+                    UrlImportItem managedItem = itemRepository.findById(item.getId())
+                            .orElseThrow(() -> new IllegalArgumentException("待入库内容不存在"));
+                    return confirmImportInternal(managedItem, confirmRequest, currentUser).getId();
+                });
+                importedIds.add(documentId);
             } catch (Exception e) {
+                // why: 失败状态独立落库后不再中断整批，失败结果统一汇总到响应中返回
+                markImportFailed(item.getId(), e);
                 errors.add("itemId=" + item.getId() + ": " + e.getMessage());
             }
         }
@@ -223,24 +260,32 @@ public class UrlImportService {
             throw new IllegalArgumentException("当前内容不处于可确认入库状态");
         }
 
-        try {
-            KnowledgeDocument document = knowledgeImportBridgeService.importCandidate(item, request, currentUser);
-            item.setKnowledgeDocument(document);
-            item.setReviewStatus(UrlImportReviewStatus.CONFIRMED);
-            item.setReviewComment("已确认入库");
-            item.setUpdatedAt(LocalDateTime.now());
-            itemRepository.save(item);
+        // why: 只保留成功路径，失败状态由调用方通过 markImportFailed 用独立事务落库（同事务内落库会被回滚）
+        KnowledgeDocument document = knowledgeImportBridgeService.importCandidate(item, request, currentUser);
+        item.setKnowledgeDocument(document);
+        item.setReviewStatus(UrlImportReviewStatus.CONFIRMED);
+        item.setReviewComment("已确认入库");
+        item.setUpdatedAt(LocalDateTime.now());
+        itemRepository.save(item);
 
-            UrlImportJob job = item.getJob();
-            job.setImportedCount(job.getImportedCount() + 1);
-            updateJobStatusAfterReview(job);
-            return document;
-        } catch (Exception e) {
-            item.setReviewStatus(UrlImportReviewStatus.IMPORT_FAILED);
-            item.setReviewComment(e.getMessage());
-            itemRepository.save(item);
-            updateJobStatusAfterReview(item.getJob());
-            throw e;
+        UrlImportJob job = item.getJob();
+        job.setImportedCount(job.getImportedCount() + 1);
+        updateJobStatusAfterReview(job);
+        return document;
+    }
+
+    private void markImportFailed(Long itemId, Exception cause) {
+        try {
+            failureStateTemplate.executeWithoutResult(status -> itemRepository.findById(itemId).ifPresent(item -> {
+                item.setReviewStatus(UrlImportReviewStatus.IMPORT_FAILED);
+                item.setReviewComment(cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage());
+                item.setUpdatedAt(LocalDateTime.now());
+                itemRepository.save(item);
+                updateJobStatusAfterReview(item.getJob());
+            }));
+        } catch (Exception saveException) {
+            // why: 失败状态落库本身失败不应掩盖原始导入异常，仅记录日志
+            log.error("保存导入失败状态时出错: itemId={}", itemId, saveException);
         }
     }
 

@@ -21,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 public class RedisChatMemory implements ChatMemory {
@@ -103,22 +104,18 @@ public class RedisChatMemory implements ChatMemory {
     @Override
     public void add(String conversationId, List<Message> messages) {
         String key = buildKey(conversationId);
-        try {
-            List<MessageRecord> existingRecords = getMessageRecords(key);
-            for (Message message : messages) {
-                existingRecords.add(toRecord(message));
-            }
-            // Keep only the last maxMessages
-            if (existingRecords.size() > maxMessages) {
-                existingRecords = existingRecords.subList(existingRecords.size() - maxMessages, existingRecords.size());
-            }
-            saveMessageRecords(key, existingRecords);
-            triggerSummaryIfNeeded(conversationId, existingRecords.size());
-            log.debug("Added {} messages to conversation {}", messages.size(), conversationId);
-        } catch (JsonProcessingException e) {
-            log.error("Failed to serialize messages for conversation {}", conversationId, e);
-            throw new RuntimeException("Failed to add messages to memory", e);
+        List<MessageRecord> existingRecords = getMessageRecords(key);
+        for (Message message : messages) {
+            existingRecords.add(toRecord(message));
         }
+        // Keep only the last maxMessages
+        if (existingRecords.size() > maxMessages) {
+            existingRecords = existingRecords.subList(existingRecords.size() - maxMessages, existingRecords.size());
+        }
+        // saveMessageRecords 内部已吞掉序列化/Redis 异常并降级记 warn，保证写入失败不阻断对话
+        saveMessageRecords(key, existingRecords);
+        triggerSummaryIfNeeded(conversationId, existingRecords.size());
+        log.debug("Added {} messages to conversation {}", messages.size(), conversationId);
     }
 
     @Override
@@ -141,9 +138,13 @@ public class RedisChatMemory implements ChatMemory {
 
     @Override
     public void clear(String conversationId) {
-        String key = buildKey(conversationId);
-        redisTemplate.delete(key);
-        redisTemplate.delete(buildSummaryKey(conversationId));
+        try {
+            redisTemplate.delete(buildKey(conversationId));
+            redisTemplate.delete(buildSummaryKey(conversationId));
+        } catch (Exception e) {
+            // Redis 故障静默降级：清理失败记 warn 不抛出
+            log.warn("清空对话记忆失败 | conversationId={} | error={}", conversationId, e.getMessage());
+        }
         log.debug("Cleared conversation {}", conversationId);
     }
 
@@ -156,7 +157,14 @@ public class RedisChatMemory implements ChatMemory {
     }
 
     private List<MessageRecord> getMessageRecords(String key) {
-        String json = redisTemplate.opsForValue().get(key);
+        String json;
+        try {
+            json = redisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            // Redis 故障静默降级：读取失败按空列表处理，不阻断对话
+            log.warn("读取对话记忆失败，返回空列表 | key={} | error={}", key, e.getMessage());
+            return new ArrayList<>();
+        }
         if (json == null || json.isBlank()) {
             return new ArrayList<>();
         }
@@ -193,42 +201,59 @@ public class RedisChatMemory implements ChatMemory {
         };
     }
 
-    private void saveMessageRecords(String key, List<MessageRecord> records) throws JsonProcessingException {
-        String json = objectMapper.writeValueAsString(records);
-        redisTemplate.opsForValue().set(key, json, ttlDays, TimeUnit.DAYS);
+    private void saveMessageRecords(String key, List<MessageRecord> records) {
+        try {
+            String json = objectMapper.writeValueAsString(records);
+            redisTemplate.opsForValue().set(key, json, ttlDays, TimeUnit.DAYS);
+        } catch (Exception e) {
+            // Redis/序列化故障静默降级：写失败记 warn 不抛出，不阻断对话
+            log.warn("保存对话记忆失败 | key={} | error={}", key, e.getMessage());
+        }
     }
 
     private void triggerSummaryIfNeeded(String conversationId, int currentMessageCount) {
         if (!summaryEnabled || chatModel == null || currentMessageCount < summaryTriggerMessages) {
             return;
         }
-        if (summarizationTasks.containsKey(conversationId)) {
-            return;
-        }
 
+        AtomicBoolean expired = new AtomicBoolean(false);
         CompletableFuture<Void> task = CompletableFuture.runAsync(
-                () -> summarizeConversation(conversationId),
+                () -> summarizeConversation(conversationId, expired),
                 summaryExecutor
         ).orTimeout(summaryTimeoutSeconds, TimeUnit.SECONDS)
                 .exceptionally(ex -> {
                     log.debug("Conversation summary task failed | conversationId={} | error={}", conversationId, ex.getMessage());
                     return null;
-                })
-                .whenComplete((unused, throwable) -> summarizationTasks.remove(conversationId));
+                });
 
-        summarizationTasks.put(conversationId, task);
+        // 超时后任务线程可能仍在运行：置位标志供写回前检查；remove(key, value) 只清理自己的登记，避免误删其他任务
+        task.whenComplete((unused, throwable) -> {
+            expired.set(true);
+            summarizationTasks.remove(conversationId, task);
+        });
+
+        // putIfAbsent 保证登记的原子性，避免并发触发两个摘要任务互相覆盖
+        if (summarizationTasks.putIfAbsent(conversationId, task) != null) {
+            // 已有摘要任务在执行：取消本次，expired 置位后其写回逻辑会自动放弃
+            task.cancel(false);
+            return;
+        }
+        if (task.isDone()) {
+            // 同步 executor 下任务可能已先行完成：清理登记，避免占位阻塞后续摘要
+            summarizationTasks.remove(conversationId, task);
+        }
     }
 
-    private void summarizeConversation(String conversationId) {
+    private void summarizeConversation(String conversationId, AtomicBoolean expired) {
         String key = buildKey(conversationId);
-        List<MessageRecord> latestRecords = getMessageRecords(key);
-        if (latestRecords.size() <= summaryKeepMessages + 1) {
+        List<MessageRecord> snapshot = getMessageRecords(key);
+        if (snapshot.size() <= summaryKeepMessages + 1) {
             return;
         }
 
-        int splitIndex = Math.max(1, latestRecords.size() - summaryKeepMessages);
-        List<MessageRecord> toSummarize = latestRecords.subList(0, splitIndex);
-        List<MessageRecord> toKeep = latestRecords.subList(splitIndex, latestRecords.size());
+        int splitIndex = Math.max(1, snapshot.size() - summaryKeepMessages);
+        List<MessageRecord> toSummarize = new ArrayList<>(snapshot.subList(0, splitIndex));
+        List<MessageRecord> toKeep = new ArrayList<>(snapshot.subList(splitIndex, snapshot.size()));
 
         String existingSummary = getSummaryContent(conversationId);
         String summaryInput = buildSummaryInput(existingSummary, toSummarize);
@@ -241,21 +266,49 @@ public class RedisChatMemory implements ChatMemory {
             summary = truncate(summaryInput);
         }
 
-        redisTemplate.opsForValue().set(buildSummaryKey(conversationId), summary, ttlDays, TimeUnit.DAYS);
-
-        try {
-            saveMessageRecords(key, toKeep);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to save trimmed messages after summary | conversationId={} | error={}",
-                    conversationId, e.getMessage());
+        // orTimeout 只是放弃等待，任务线程仍会继续执行：写回前必须检查标志，超时任务不得写回
+        if (expired.get()) {
+            log.debug("Conversation summary expired before write-back | conversationId={}", conversationId);
+            return;
         }
 
+        // 写回前校验快照一致性，防止用旧快照整体覆盖摘要期间新增的消息：
+        // - 列表未变：按快照尾部裁剪
+        // - 仅追加了新消息（快照为前缀）：保留所有未参与摘要的消息
+        // - 其他变更（并发裁剪/清空等）：放弃本轮摘要
+        List<MessageRecord> current = getMessageRecords(key);
+        final List<MessageRecord> kept;
+        if (current.equals(snapshot)) {
+            kept = toKeep;
+        } else if (current.size() > snapshot.size() && current.subList(0, snapshot.size()).equals(snapshot)) {
+            kept = new ArrayList<>(current.subList(toSummarize.size(), current.size()));
+        } else {
+            log.info("跳过本轮消息裁剪：对话消息已并发变更 | conversationId={}", conversationId);
+            return;
+        }
+
+        try {
+            redisTemplate.opsForValue().set(buildSummaryKey(conversationId), summary, ttlDays, TimeUnit.DAYS);
+        } catch (Exception e) {
+            // 摘要写失败则放弃裁剪，避免“摘要没存上、旧消息又被裁掉”的双重丢失
+            log.warn("保存对话摘要失败，跳过本轮消息裁剪 | conversationId={} | error={}", conversationId, e.getMessage());
+            return;
+        }
+        saveMessageRecords(key, kept);
+
         log.debug("Conversation summarized | conversationId={} | summarizedMessages={} | keptMessages={}",
-                conversationId, toSummarize.size(), toKeep.size());
+                conversationId, toSummarize.size(), kept.size());
     }
 
     private String getSummaryContent(String conversationId) {
-        String value = redisTemplate.opsForValue().get(buildSummaryKey(conversationId));
+        String value;
+        try {
+            value = redisTemplate.opsForValue().get(buildSummaryKey(conversationId));
+        } catch (Exception e) {
+            // Redis 故障静默降级：摘要读取失败按无摘要处理
+            log.warn("读取对话摘要失败 | conversationId={} | error={}", conversationId, e.getMessage());
+            return null;
+        }
         if (value == null || value.isBlank()) {
             return null;
         }

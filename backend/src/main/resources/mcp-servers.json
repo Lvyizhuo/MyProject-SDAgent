@@ -5,10 +5,7 @@
       "args": [
         "-y",
         "@amap/amap-maps-mcp-server"
-      ],
-      "env": {
-        "AMAP_MAPS_API_KEY": "203c9d4be734b35f81e795f3ebc15a25"
-      }
+      ]
     }
   }
 }

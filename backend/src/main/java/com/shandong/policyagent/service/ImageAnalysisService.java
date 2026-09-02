@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 图片分析服务。
@@ -22,6 +23,9 @@ import java.util.concurrent.Executor;
 @Service
 @RequiredArgsConstructor
 public class ImageAnalysisService {
+
+    /** 视觉模型单图耗时上限，防止池被占满/死锁时 join 无限等待挂死 Tomcat 请求线程 */
+    private static final long IMAGE_ANALYZE_TIMEOUT_SECONDS = 60;
 
     private final VisionService visionService;
     private final @Qualifier("chatAsyncTaskExecutor") Executor imageAnalysisExecutor;
@@ -51,7 +55,9 @@ public class ImageAnalysisService {
                 final int index = i;
                 futures.add(CompletableFuture.supplyAsync(
                         () -> visionService.analyzeBase64Image(imageBase64List.get(index), format, prompt),
-                        imageAnalysisExecutor));
+                        imageAnalysisExecutor)
+                        // 超时后 join 抛 TimeoutException，由既有外层 catch 兜底（整批返回 null，与原失败语义一致）
+                        .orTimeout(IMAGE_ANALYZE_TIMEOUT_SECONDS, TimeUnit.SECONDS));
             }
 
             StringBuilder combined = new StringBuilder();

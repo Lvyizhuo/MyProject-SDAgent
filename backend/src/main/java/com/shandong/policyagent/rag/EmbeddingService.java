@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -25,6 +26,13 @@ public class EmbeddingService {
     public static final String BUILT_IN_DEFAULT_MODEL_ID = "ollama:bge-m3";
     private static final int DEFAULT_OLLAMA_MAX_INPUT_CHARS = 900;
     private static final int DEFAULT_REMOTE_MAX_INPUT_CHARS = 6000;
+
+    /**
+     * 嵌入调用超时：JDK HttpURLConnection 默认无限等待，
+     * Ollama/DashScope 卡死会阻塞所有对话线程，故限制 connect 10s / read 30s。
+     */
+    private static final int EMBED_CONNECT_TIMEOUT_MILLIS = 10_000;
+    private static final int EMBED_READ_TIMEOUT_MILLIS = 30_000;
 
     private final EmbeddingModelConfig embeddingModelConfig;
     private final ObjectMapper objectMapper;
@@ -182,8 +190,23 @@ public class EmbeddingService {
             .orElse(null);
     }
 
+    /**
+     * 嵌入路径专用 requestFactory（connect 10s / read 30s）。
+     * Spring Boot 注入的 RestClient.Builder 为 prototype 作用域（每次注入独立实例），
+     * 仅在 embedWithOllama / embedWithDashScope 两处套用，不影响 ChatClient 等其他用途。
+     */
+    private static SimpleClientHttpRequestFactory buildEmbeddingRequestFactory() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(EMBED_CONNECT_TIMEOUT_MILLIS);
+        factory.setReadTimeout(EMBED_READ_TIMEOUT_MILLIS);
+        return factory;
+    }
+
     private List<float[]> embedWithOllama(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
-        RestClient restClient = restClientBuilder.baseUrl(modelConfig.getBaseUrl()).build();
+        RestClient restClient = restClientBuilder
+                .requestFactory(buildEmbeddingRequestFactory())
+                .baseUrl(modelConfig.getBaseUrl())
+                .build();
         List<float[]> embeddings = new ArrayList<>();
 
         for (String text : texts) {
@@ -239,7 +262,9 @@ public class EmbeddingService {
     }
 
     private List<float[]> embedWithDashScope(EmbeddingModelConfig.EmbeddingModel modelConfig, List<String> texts) {
-        RestClient restClient = restClientBuilder.build();
+        RestClient restClient = restClientBuilder
+                .requestFactory(buildEmbeddingRequestFactory())
+                .build();
         List<float[]> embeddings = new ArrayList<>();
         String apiKey = resolveApiKey(modelConfig.getApiKey());
         String embeddingUrl = buildDashScopeEmbeddingUrl(modelConfig.getBaseUrl());
