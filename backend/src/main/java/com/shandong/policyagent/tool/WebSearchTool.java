@@ -28,6 +28,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -81,10 +82,15 @@ public class WebSearchTool {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private StringRedisTemplate redisTemplate;
     private final Map<String, CompletableFuture<SearchResponse>> inFlightRequests = new ConcurrentHashMap<>();
-    private Executor chatAsyncTaskExecutor = Runnable::run;
+    /** 同步等待搜索结果的上限（约 Tavily 15s 超时 × 2 次重试），防止请求线程被搜索任务永久挂起 */
+    private static final long WEB_SEARCH_WAIT_TIMEOUT_SECONDS = 30;
+    /** 搜索专用池：与 chatAsyncTaskExecutor 解耦，避免"同池嵌套提交 + join"导致全池死锁 */
+    private Executor webSearchTaskExecutor = Runnable::run;
 
     @Autowired
-    public WebSearchTool(VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter,
+    // 显式 @Qualifier：项目中存在 auto-configured "vectorStore" 与 "runtimeRagVectorStore" 两个
+    // VectorStore bean，不能依赖参数名与 bean 名的隐式匹配（与 VectorStoreService 做法一致）
+    public WebSearchTool(@Qualifier("vectorStore") VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter,
                          ToolStateManager toolStateManager) {
         this.vectorStore = vectorStore;
         this.failurePolicyCenter = failurePolicyCenter != null ? failurePolicyCenter : new ToolFailurePolicyCenter();
@@ -100,9 +106,10 @@ public class WebSearchTool {
     }
 
     @Autowired(required = false)
-    public void setChatAsyncTaskExecutor(@Qualifier("chatAsyncTaskExecutor") Executor chatAsyncTaskExecutor) {
-        if (chatAsyncTaskExecutor != null) {
-            this.chatAsyncTaskExecutor = chatAsyncTaskExecutor;
+    public void setWebSearchTaskExecutor(@Qualifier("webSearchTaskExecutor") Executor webSearchTaskExecutor) {
+        // 必须显式 @Qualifier：项目已有 6 个 Executor bean，按类型含糊注入会导致启动失败
+        if (webSearchTaskExecutor != null) {
+            this.webSearchTaskExecutor = webSearchTaskExecutor;
         }
     }
 
@@ -218,13 +225,17 @@ public class WebSearchTool {
         CompletableFuture<SearchResponse> future = inFlightRequests.computeIfAbsent(requestKey, key ->
                 CompletableFuture.supplyAsync(
                                 () -> executeRemoteSearch(query, maxResults, staleFallback),
-                                chatAsyncTaskExecutor
+                                webSearchTaskExecutor
                         )
                         .whenComplete((ignored, throwable) -> inFlightRequests.remove(key))
         );
 
         try {
-            return future.join();
+            // 派生独立 future 再加超时：orTimeout 会原地完成 future，
+            // 若直接用在共享的 singleflight future 上，超时会连带把其他等待方一并置为失败
+            return future.thenApply(Function.identity())
+                    .orTimeout(WEB_SEARCH_WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .join();
         } catch (CompletionException exception) {
             Throwable cause = exception.getCause();
             if (cause instanceof RuntimeException runtimeException) {
@@ -266,7 +277,7 @@ public class WebSearchTool {
             if (asyncVectorCache) {
                 CompletableFuture.runAsync(
                         () -> cacheSearchResultToVectorStore(query, tavilyResponse, results),
-                        chatAsyncTaskExecutor
+                        webSearchTaskExecutor
                 ).exceptionally(exception -> {
                     log.debug("异步写入向量缓存失败 | query={} | error={}", query, exception.getMessage());
                     return null;
@@ -290,7 +301,7 @@ public class WebSearchTool {
             } catch (Exception exception) {
                 log.debug("异步刷新联网缓存失败 | query={} | error={}", query, exception.getMessage());
             }
-        }, chatAsyncTaskExecutor);
+        }, webSearchTaskExecutor);
     }
 
     private TavilyResponse callTavilyApi(String query, int maxResults) {

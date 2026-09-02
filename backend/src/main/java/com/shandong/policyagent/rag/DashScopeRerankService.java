@@ -14,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -25,6 +26,22 @@ public class DashScopeRerankService {
 
     @Value("${spring.ai.openai.api-key:}")
     private String apiKey;
+
+    /**
+     * Rerank 专用 HTTP 客户端：RestClient.create() 默认无任何超时，
+     * TEI/Xinference 悬挂会永久阻塞聊天线程，导致 catch 分支的"回退纯向量检索"降级永远无法触发。
+     */
+    private static final RestClient RERANK_HTTP_CLIENT = RestClient.builder()
+            .requestFactory(buildRerankRequestFactory())
+            .build();
+
+    private static SimpleClientHttpRequestFactory buildRerankRequestFactory() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        // rerank 属检索旁路：connect 2s / read 5s 快速失败，超时异常由 rerank() 的 catch 捕获后降级
+        factory.setConnectTimeout(2_000);
+        factory.setReadTimeout(5_000);
+        return factory;
+    }
 
     private final RagConfig ragConfig;
     private final ModelProviderService modelProviderService;
@@ -174,7 +191,7 @@ public class DashScopeRerankService {
             ));
         }
 
-        var requestSpec = RestClient.create()
+        var requestSpec = RERANK_HTTP_CLIENT
                 .post()
                 .uri(endpoint)
                 .header("Content-Type", "application/json");

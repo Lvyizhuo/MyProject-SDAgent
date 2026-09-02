@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
@@ -56,6 +57,8 @@ public class KnowledgeService {
     private final UrlImportItemRepository urlImportItemRepository;
     @Qualifier("knowledgeIngestTaskExecutor")
     private final Executor knowledgeIngestTaskExecutor;
+    // 用于批量删除时逐条开独立事务，避免外层大事务回滚后已物理删除的 MinIO 文件无法恢复
+    private final TransactionTemplate transactionTemplate;
 
     private final StorageService storageService;
     private final DocumentLoaderService documentLoaderService;
@@ -766,10 +769,9 @@ public class KnowledgeService {
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
 
         clearDocumentReferences(List.of(id));
-        deleteDocument(document);
+        deleteDocumentData(document);
     }
 
-    @Transactional
     public void batchDeleteDocuments(List<Long> ids) {
         List<Long> normalizedIds = ids == null ? List.of() : ids.stream()
                 .filter(Objects::nonNull)
@@ -783,9 +785,14 @@ public class KnowledgeService {
         if (documents.size() != normalizedIds.size()) {
             throw new IllegalArgumentException("部分文档不存在，无法批量删除");
         }
-        clearDocumentReferences(normalizedIds);
-        for (KnowledgeDocument document : documents) {
-            deleteDocument(document);
+        // why: 逐条独立事务删除，避免外层大事务中途失败回滚后，先前置删除的 MinIO 文件永久丢失
+        for (Long documentId : normalizedIds) {
+            transactionTemplate.executeWithoutResult(status -> {
+                KnowledgeDocument document = documentRepository.findById(documentId)
+                        .orElseThrow(() -> new IllegalArgumentException("部分文档不存在，无法批量删除"));
+                clearDocumentReferences(List.of(documentId));
+                deleteDocumentData(document);
+            });
         }
     }
 
@@ -830,14 +837,40 @@ public class KnowledgeService {
         }
     }
 
-    private void deleteDocument(KnowledgeDocument document) {
+    private void deleteDocumentData(KnowledgeDocument document) {
         if (document.getVectorTableName() != null && !document.getVectorTableName().isBlank()) {
             multiVectorStoreService.deleteDocumentChunks(document.getVectorTableName(), document.getId());
         }
 
-        storageService.deleteFile(document.getStoragePath());
-
         documentRepository.delete(document);
+
+        // why: 事务内只做向量/DB 删除，MinIO 物理删除推迟到事务成功提交后执行，回滚时文件不会被误删
+        deleteFileAfterCommit(document.getStoragePath());
+    }
+
+    private void deleteFileAfterCommit(String storagePath) {
+        if (storagePath == null || storagePath.isBlank()) {
+            return;
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    deleteMinioFileQuietly(storagePath);
+                }
+            });
+            return;
+        }
+        deleteMinioFileQuietly(storagePath);
+    }
+
+    private void deleteMinioFileQuietly(String storagePath) {
+        try {
+            storageService.deleteFile(storagePath);
+        } catch (Exception e) {
+            // why: 提交后删除失败不应让已生效的删除对外报错，残留对象可人工清理
+            log.warn("MinIO 文件删除失败，可能存在残留对象: path={}", storagePath, e);
+        }
     }
 
     private void clearDocumentReferences(List<Long> knowledgeDocumentIds) {

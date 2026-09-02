@@ -25,7 +25,8 @@ public class RagFailureDetector {
             "input length exceeds the context length",
             "/api/embed",
             "pgvector",
-            "vector_store"
+            "vector_store",
+            "failed to get embedding"
     );
 
     /**
@@ -84,7 +85,32 @@ public class RagFailureDetector {
             }
         }
 
+        // 增补：嵌入/向量链路的参数与配置异常（模型未找到、维度不匹配、provider 不支持等）
+        // 这类错误关闭 RAG 即可恢复对话；仅当消息明确指向 embedding/vector 时才判定，
+        // 避免误伤业务侧的 IllegalArgumentException（如政策参数解析失败）
+        if (t instanceof IllegalArgumentException || t instanceof IllegalStateException) {
+            if (matchesEmbeddingFailureMessage(t.getMessage())) {
+                log.debug("识别到嵌入/向量相关 IAE/ISE，判定为可恢复 RAG 故障: {}", className);
+                return true;
+            }
+        }
+
         return false;
+    }
+
+    /**
+     * 增补辅助：IAE/ISE 消息是否指向嵌入/向量链路。
+     * 裸词 "model" 过泛（会命中业务侧模型参数错误），故不参与匹配。
+     */
+    private boolean matchesEmbeddingFailureMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("embedding")
+                || normalized.contains("vector")
+                || normalized.contains("嵌入")
+                || normalized.contains("向量");
     }
 
     /**

@@ -16,6 +16,7 @@ import com.shandong.policyagent.service.KnowledgeArchiveService;
 import com.shandong.policyagent.service.UrlImportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -234,19 +236,15 @@ public class AdminKnowledgeController {
         return ResponseEntity.ok(result);
     }
 
-    @Operation(summary = "导出知识库归档", description = "将知识库全部数据导出为 ZIP 归档文件")
+    @Operation(summary = "导出知识库归档", description = "将知识库全部数据导出为 ZIP 归档文件（流式输出，避免大知识库导出占用内存）")
     @GetMapping("/archive/export")
-    public ResponseEntity<InputStreamResource> exportKnowledgeArchive() {
-        byte[] archiveBytes = knowledgeArchiveService.exportArchive();
-        InputStreamResource resource = new InputStreamResource(new java.io.ByteArrayInputStream(archiveBytes));
+    public void exportKnowledgeArchive(HttpServletResponse response) throws IOException {
         String fileName = "knowledge-archive-" + java.time.LocalDate.now() + ".zip";
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20"))
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .contentLength(archiveBytes.length)
-                .body(resource);
+        response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20"));
+        knowledgeArchiveService.exportArchive(response.getOutputStream());
     }
 
     @Operation(summary = "导入知识库归档", description = "上传 ZIP 归档文件恢复知识库数据")

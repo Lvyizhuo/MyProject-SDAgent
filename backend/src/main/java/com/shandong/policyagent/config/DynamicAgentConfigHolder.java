@@ -8,6 +8,8 @@ import com.shandong.policyagent.service.AgentConfigBindingSanitizer;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -35,6 +37,24 @@ public class DynamicAgentConfigHolder {
     /** 启动时从数据库加载最新配置 */
     @PostConstruct
     public void init() {
+        reload();
+    }
+
+    /**
+     * ApplicationReadyEvent 晚于所有 ApplicationRunner（含 AdminInitializer）。
+     * 全新数据库首启时 @PostConstruct 阶段尚无 agent_config 记录，此处回填一次，
+     * 避免重启前每轮对话注入空系统提示词、公开配置接口返回 null。
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onApplicationReady() {
+        // 早期加载已成功则跳过，避免重复查库与覆盖后续同步结果
+        if (currentConfig.get() != null) {
+            return;
+        }
+        reload();
+    }
+
+    private void reload() {
         agentConfigRepository.findFirstByOrderByIdAsc().ifPresentOrElse(
                 config -> {
                     AgentConfig sanitizedConfig = agentConfigBindingSanitizer.sanitizeAndPersistIfNeeded(config);
