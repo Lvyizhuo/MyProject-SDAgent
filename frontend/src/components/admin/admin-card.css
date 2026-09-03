@@ -499,7 +499,7 @@
     top: 0;
     right: 0;
     height: 100vh;
-    width: 640px;
+    width: 520px;
     max-width: 94vw;
     background: hsl(var(--color-bg-elevated));
     border-left: 1px solid hsl(var(--color-border));

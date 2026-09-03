@@ -1,5 +1,5 @@
 /* ──────────── 模态框 ──────────── */
-/* 遮罩采用低不透明度的蓝灰毛玻璃，避免背景发黑 */
+/* 遮罩全屏无宽度限制，轻毛玻璃浮于页面之上；弹窗本身保持紧凑尺寸 */
 .admin-modal-mask {
     position: fixed;
     inset: 0;
@@ -19,7 +19,7 @@
     border-radius: 16px;
     box-shadow: 0 32px 80px hsl(220 30% 25% / 0.16), 0 4px 16px hsl(220 30% 25% / 0.08);
     width: 100%;
-    max-width: 1080px;
+    max-width: 780px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -27,12 +27,12 @@
 }
 
 .admin-modal.wide {
-    max-width: 1320px;
+    max-width: 960px;
 }
 
 /* 确认类小对话框保留窄形态 */
 .admin-modal.narrow {
-    max-width: 480px;
+    max-width: 440px;
 }
 
 @keyframes admin-modal-fade-in {
