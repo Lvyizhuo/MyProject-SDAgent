@@ -483,11 +483,13 @@
 }
 
 /* ──────────── 抽屉 ──────────── */
+/* 遮罩与模态框保持一致的轻毛玻璃风格 */
 .admin-drawer-mask {
     position: fixed;
     inset: 0;
-    background: hsl(220 14% 12% / 0.45);
-    backdrop-filter: blur(2px);
+    background: hsl(215 28% 40% / 0.24);
+    backdrop-filter: blur(10px) saturate(1.15);
+    -webkit-backdrop-filter: blur(10px) saturate(1.15);
     z-index: 80;
     animation: admin-fade-in 0.18s ease-out;
 }
@@ -497,11 +499,11 @@
     top: 0;
     right: 0;
     height: 100vh;
-    width: 460px;
-    max-width: 92vw;
+    width: 640px;
+    max-width: 94vw;
     background: hsl(var(--color-bg-elevated));
     border-left: 1px solid hsl(var(--color-border));
-    box-shadow: -12px 0 32px hsl(220 14% 12% / 0.12);
+    box-shadow: -24px 0 64px hsl(220 30% 25% / 0.14);
     display: flex;
     flex-direction: column;
     z-index: 90;

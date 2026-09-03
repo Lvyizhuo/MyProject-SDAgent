@@ -1,9 +1,11 @@
 /* ──────────── 模态框 ──────────── */
+/* 遮罩采用低不透明度的蓝灰毛玻璃，避免背景发黑 */
 .admin-modal-mask {
     position: fixed;
     inset: 0;
-    background: hsl(220 14% 12% / 0.5);
-    backdrop-filter: blur(3px);
+    background: hsl(215 28% 40% / 0.24);
+    backdrop-filter: blur(10px) saturate(1.15);
+    -webkit-backdrop-filter: blur(10px) saturate(1.15);
     z-index: 100;
     display: flex;
     align-items: center;
@@ -14,10 +16,10 @@
 
 .admin-modal {
     background: hsl(var(--color-bg-elevated));
-    border-radius: 12px;
-    box-shadow: 0 24px 60px hsl(220 14% 12% / 0.2);
+    border-radius: 16px;
+    box-shadow: 0 32px 80px hsl(220 30% 25% / 0.16), 0 4px 16px hsl(220 30% 25% / 0.08);
     width: 100%;
-    max-width: 720px;
+    max-width: 1080px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
@@ -25,11 +27,12 @@
 }
 
 .admin-modal.wide {
-    max-width: 880px;
+    max-width: 1320px;
 }
 
+/* 确认类小对话框保留窄形态 */
 .admin-modal.narrow {
-    max-width: 460px;
+    max-width: 480px;
 }
 
 @keyframes admin-modal-fade-in {
@@ -93,8 +96,8 @@
     border-top: 1px solid hsl(var(--color-border));
     background: hsl(220 14% 97%);
     flex-shrink: 0;
-    border-bottom-left-radius: 12px;
-    border-bottom-right-radius: 12px;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
 }
 
 .admin-modal-grid {
@@ -217,6 +220,10 @@
 }
 
 @media (max-width: 600px) {
+    .admin-modal-mask {
+        padding: 12px;
+    }
+
     .admin-modal-grid {
         grid-template-columns: 1fr;
     }

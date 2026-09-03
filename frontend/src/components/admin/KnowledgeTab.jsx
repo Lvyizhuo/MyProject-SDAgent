@@ -613,7 +613,7 @@ const KnowledgeDetailDrawer = ({ folderId, folders, onClose, onRefresh, onNotify
     return (
         <>
             <div className="admin-drawer-mask" onClick={onClose} />
-            <aside className="admin-drawer" style={{ width: 580, maxWidth: '95vw' }}>
+            <aside className="admin-drawer">
                 <header className="admin-drawer-head">
                     <div className="admin-drawer-title-row">
                         <div className={`admin-card-icon ${tone}`} style={{ width: 36, height: 36 }}>
