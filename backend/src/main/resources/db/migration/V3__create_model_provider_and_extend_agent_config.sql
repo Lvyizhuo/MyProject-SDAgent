@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS model_provider (
     model_name VARCHAR(100) NOT NULL,
     temperature DECIMAL(3,2) DEFAULT 0.70,
     max_tokens INTEGER,
-    top_p DECIMAL(5,4),
+    topP DECIMAL(5,4),
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
     is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -24,4 +24,5 @@ ALTER TABLE agent_config
     ADD COLUMN IF NOT EXISTS llm_model_id BIGINT,
     ADD COLUMN IF NOT EXISTS vision_model_id BIGINT,
     ADD COLUMN IF NOT EXISTS audio_model_id BIGINT,
-    ADD COLUMN IF NOT EXISTS embedding_model_id BIGINT;
+    ADD COLUMN IF NOT EXISTS embedding_model_id BIGINT,
+    ADD COLUMN IF NOT EXISTS knowledge_base_folder_id BIGINT;

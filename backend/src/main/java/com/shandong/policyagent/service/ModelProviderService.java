@@ -235,16 +235,13 @@ public class ModelProviderService {
     }
 
     private List<ModelProviderResponse> prependBuiltInEmbedding(List<ModelProviderResponse> managedModels) {
-        // 如果数据库已有嵌入模型记录（由 ConsoleCardSeedService 初始化），
-        // 不再追加内置模型，避免重复显示
-        boolean hasRealEmbeddingModel = managedModels.stream()
-                .anyMatch(m -> m.getType() == ModelType.EMBEDDING && !Boolean.TRUE.equals(m.getBuiltIn()));
-        if (hasRealEmbeddingModel) {
-            return managedModels;
-        }
+        // 系统内置默认模型始终保留在最前；先剔除与内置同 code 的记录，避免重复
+        List<ModelProviderResponse> others = managedModels.stream()
+                .filter(m -> !BUILT_IN_EMBEDDING_ID.equals(m.getBuiltinCode()))
+                .toList();
 
         if (!embeddingService.hasModel(BUILT_IN_EMBEDDING_ID)) {
-            return managedModels;
+            return others;
         }
 
         EmbeddingModelConfig.EmbeddingModel builtInModel = embeddingService.getModelConfig(BUILT_IN_EMBEDDING_ID);
@@ -269,9 +266,7 @@ public class ModelProviderService {
 
         List<ModelProviderResponse> merged = new ArrayList<>();
         merged.add(builtInResponse);
-        merged.addAll(managedModels.stream()
-                .filter(model -> !Boolean.TRUE.equals(model.getBuiltIn()))
-                .toList());
+        merged.addAll(others);
         return merged;
     }
 
@@ -320,15 +315,14 @@ public class ModelProviderService {
     }
 
     private List<ModelOption> mergeBuiltInEmbeddingOption(List<ModelOption> managedOptions) {
-        // 如果数据库已有嵌入模型，跳过内置选项（避免重复）
-        boolean hasRealEmbeddingOption = managedOptions.stream()
-                .anyMatch(o -> !Boolean.TRUE.equals(o.getBuiltIn()));
-        if (hasRealEmbeddingOption) {
-            return managedOptions;
-        }
+        // 系统内置默认模型始终保留在最前；先剔除与内置同 code 的记录，避免重复。
+        // 不能因为库里存在自定义嵌入模型就整体跳过内置项，否则下拉选项与列表接口行为不一致。
+        List<ModelOption> others = managedOptions.stream()
+                .filter(o -> !BUILT_IN_EMBEDDING_ID.equals(o.getBuiltinCode()))
+                .toList();
 
         if (!embeddingService.hasModel(BUILT_IN_EMBEDDING_ID)) {
-            return managedOptions;
+            return others;
         }
 
         EmbeddingModelConfig.EmbeddingModel builtInDefaultModel = embeddingService.getModelConfig(BUILT_IN_EMBEDDING_ID);
@@ -343,7 +337,7 @@ public class ModelProviderService {
 
         List<ModelOption> result = new java.util.ArrayList<>();
         result.add(builtInOption);
-        result.addAll(managedOptions);
+        result.addAll(others);
         return result;
     }
 

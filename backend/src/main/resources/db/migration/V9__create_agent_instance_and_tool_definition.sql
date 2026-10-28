@@ -1,9 +1,7 @@
 -- V9__create_agent_instance_and_tool_definition.sql
 -- 多智能体 + 工具定义的卡片化支持表
 --
--- 注意：当前 backend 未集成 Flyway，本文件由 Hibernate (ddl-auto: update) 自动建表。
--- 后续如切换到 Flyway 管理 schema，可加入 flyway-core 依赖并启用 spring.flyway.enabled=true。
--- 本脚本作为「schema 文档」保留，确保人工迁移或 DBA 复核时字段定义一致。
+-- 注意：schema 由 Flyway 统一管理（V1-V9），Hibernate ddl-auto 已切换为 validate 仅做校验。
 
 CREATE TABLE IF NOT EXISTS agent_instance (
     id BIGSERIAL PRIMARY KEY,
@@ -17,9 +15,13 @@ CREATE TABLE IF NOT EXISTS agent_instance (
     version VARCHAR(50),
     daily_calls BIGINT DEFAULT 0,
     enabled_tools TEXT,
+    system_prompt TEXT,
+    greeting_message TEXT,
+    skills_json TEXT,
+    mcp_servers_config TEXT,
     knowledge_folder_id BIGINT,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by BIGINT
 );
 

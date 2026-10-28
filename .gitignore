@@ -1,47 +1,69 @@
-# Worktrees
-.worktrees/
-worktrees/
-
-# IDE
-.idea/
-*.iml
-.vscode/
-
-# Build
-backend/target/
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-
-# OS
+# ===================== 操作系统 =====================
 .DS_Store
 Thumbs.db
 
-# Temporary files
-*.tmp
-*.log
-*.swp
-.playwright-mcp/
+# ===================== IDE / 编辑器 =====================
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
 
-tmp/
-
-# Local dev logs
-logs/
-
-# Secrets
-.env
-**/.env
-!.env.example
-!**/.env.example
-
+# ===================== AI 编码工具（个人配置，不入库）=====================
+.agents/
+.claude/
+.cursor/
 .workbuddy/
+.playwright-mcp/
+# GitHub Copilot / IDE 的 Java 升级脚手架，属本地工具产物
+.github/modernize/
 
+# ===================== 构建产物 =====================
+# Java / Maven
+target/
+**/target/
+!.mvn/wrapper/maven-wrapper.jar
+# Node / 前端
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vite/
+**/.vite/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ===================== 日志 / 临时文件 =====================
+logs/
+*.log
+*.tmp
+*.swp
 tmp/
 
-node_modules
-dist
+# ===================== 密钥 / 环境变量 =====================
+# 忽略所有 .env 及其变体，仅保留 *.example 模板
+.env
+.env.*
+**/.env
+**/.env.*
+!**/*.example
+*.env.backup
+*.env.local
 
-./agent/
-./claude/
-./cursor/
+# ===================== 运行时数据 / 状态 =====================
+data/.rag-ingestion-state.json
+
+# ===================== Git Worktrees =====================
+.worktrees/
+worktrees/
+
+# ===================== 个人文档（不随项目入库）=====================
 docs/cv/
+docs/面经/

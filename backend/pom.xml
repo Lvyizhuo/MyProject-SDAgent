@@ -113,6 +113,17 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Flyway：数据库版本化迁移，替代 Hibernate ddl-auto 自动建表 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <!-- Flyway 10+ 需单独引入 PostgreSQL 支持模块 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
         <!-- Redis for ChatMemory -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

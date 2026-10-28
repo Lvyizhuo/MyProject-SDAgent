@@ -1,4 +1,6 @@
 -- 创建 agent_config 表
+-- 列名与 AgentConfig 实体字段保持一致：未显式 @Column(name=...) 的字段使用驼峰命名
+-- （PostgreSQL 无引号标识符折叠为小写，Hibernate 同样按小写匹配）
 CREATE TABLE IF NOT EXISTS agent_config (
     id BIGSERIAL PRIMARY KEY,
 
@@ -7,17 +9,17 @@ CREATE TABLE IF NOT EXISTS agent_config (
     description TEXT DEFAULT '用于山东省以旧换新补贴政策咨询',
 
     -- AI 模型配置
-    model_provider VARCHAR(50) NOT NULL DEFAULT 'dashscope',
-    api_key VARCHAR(255) DEFAULT '${DASHSCOPE_API_KEY}',
-    api_url VARCHAR(255) DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode',
-    model_name VARCHAR(100) NOT NULL DEFAULT 'qwen3.5-plus',
-    temperature DECIMAL(3,2) DEFAULT 0.70,
+    modelProvider VARCHAR(50) NOT NULL DEFAULT 'dashscope',
+    apiKey VARCHAR(255) DEFAULT '${DASHSCOPE_API_KEY}',
+    apiUrl VARCHAR(255) DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode',
+    modelName VARCHAR(100) NOT NULL DEFAULT 'qwen3.5-plus',
+    temperature DOUBLE PRECISION DEFAULT 0.70,
 
     -- 系统提示词
-    system_prompt TEXT NOT NULL,
+    systemPrompt TEXT NOT NULL,
 
     -- 开场白
-    greeting_message TEXT DEFAULT '您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。
+    greetingMessage TEXT DEFAULT '您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。
 
 **我可以帮您：**
 - 查询各类产品补贴金额
@@ -33,18 +35,18 @@ CREATE TABLE IF NOT EXISTS agent_config (
     }'::jsonb,
 
     -- MCP 服务器配置
-    mcp_servers_config JSONB DEFAULT '[]'::jsonb,
+    mcpServersConfig JSONB DEFAULT '[]'::jsonb,
 
     -- 时间戳
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP(6) NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP(6) NOT NULL DEFAULT NOW(),
 
     -- 唯一约束（确保只有一个配置）
     CONSTRAINT single_agent CHECK (id = 1)
 );
 
 -- 插入默认配置（仅当表为空时）
-INSERT INTO agent_config (id, name, description, model_provider, api_key, api_url, model_name, temperature, system_prompt, greeting_message, skills, mcp_servers_config)
+INSERT INTO agent_config (id, name, description, modelProvider, apiKey, apiUrl, modelName, temperature, systemPrompt, greetingMessage, skills, mcpServersConfig)
 SELECT 1,
     '政策问答智能体',
     '用于山东省以旧换新补贴政策咨询',

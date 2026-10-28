@@ -1,0 +1,26 @@
+# 构建上下文排除项：避免把本地产物/依赖/密钥送入构建上下文
+# 注意：nginx.conf 与 index.html、public/ 必须保留，Dockerfile 需要用到
+
+# 依赖与构建产物
+node_modules
+dist
+dist-ssr
+.vite
+
+# 版本控制与 IDE
+.git
+.gitignore
+.idea
+.vscode
+*.sw?
+
+# 环境变量与日志
+.env
+.env.*
+!.env.mobile.example
+*.log
+logs
+
+# 系统文件
+.DS_Store
+Thumbs.db

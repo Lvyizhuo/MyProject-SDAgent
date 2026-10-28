@@ -1,21 +1,28 @@
 # ===========================================
 # 前端 Dockerfile
+# 包管理器：pnpm（版本由 package.json 的 packageManager 字段锁定）
+# Node 版本与 CI 保持一致：22
 # ===========================================
 
 # 构建阶段
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# 安装依赖
-COPY package.json package-lock.json* ./
-RUN npm ci --legacy-peer-deps
+# 通过 Corepack 启用 pnpm，版本取 package.json -> packageManager
+# COREPACK_ENABLE_DOWNLOAD_PROMPT=0 避免构建时出现交互式下载确认
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
 
-# 复制源码并构建
-COPY . .
+# 先只复制依赖清单，最大化利用层缓存
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# 复制源码并构建（.dockerignore 已排除 node_modules/dist 等本地产物）
+COPY . ./
 # 生产环境需要设置 API 代理地址
 ENV VITE_DEV_PROXY_TARGET=http://backend:8080
-RUN npm run build
+RUN pnpm build
 
 # 运行阶段 - 使用 Nginx
 FROM nginx:alpine

@@ -23,11 +23,21 @@ spring:
   
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # Flyway 数据库版本化迁移：启动时执行 classpath:db/migration 下的 V*.sql
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    # 存量库（ddl-auto 建表且无 history 表）首次接入 Flyway 时自动 baseline，
+    # baseline 版本设为 0 而不是默认的 1，确保 V1 建表脚本不会被 baseline 记录吞掉。
+    baseline-version: 0
+    placeholder-replacement: false
 
   # Redis 配置 (用于 ChatMemory)
   data:
