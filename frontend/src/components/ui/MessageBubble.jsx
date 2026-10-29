@@ -78,7 +78,6 @@ const MessageBubble = ({
     images,
     meta,
     references,
-    activeRefId,
     expandedRefIds,
     onRefClick,
     onToggleRef
