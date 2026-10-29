@@ -5,7 +5,7 @@
 # ===========================================
 
 # 构建阶段
-FROM node:22-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
