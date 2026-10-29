@@ -22,7 +22,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/models")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @Tag(name = "模型管理", description = "模型提供者的增删改查、默认设置与连接测试")
 public class ModelProviderController {
 

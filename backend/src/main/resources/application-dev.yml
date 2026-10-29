@@ -1,0 +1,67 @@
+# ===========================================
+# 本地开发专用配置（dev profile）
+# 默认生效：application.yml 中 spring.profiles.default=dev
+# 与 MCP 组合使用：-Dspring-boot.run.profiles=dev,mcp
+# 生产环境请勿激活本 profile
+# ===========================================
+
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+  # 本地 Docker 依赖服务的连接信息（密码与 backend/docker-compose.yml 保持一致）
+  datasource:
+    url: jdbc:postgresql://localhost:5433/policy_agent
+    username: postgres
+    password: ${POSTGRES_PASSWORD:postgres}
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+# 开发期打开详细日志，便于排查
+logging:
+  level:
+    com.shandong.policyagent: DEBUG
+    org.springframework.ai: DEBUG
+
+# 开发期开启接口文档，方便 ApiFox 导入
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+app:
+  knowledge:
+    minio:
+      # 仅本地 MinIO 容器的默认账号，生产环境必须通过环境变量注入
+      access-key: ${MINIO_USER:minioadmin}
+      secret-key: ${MINIO_PASSWORD:minioadmin}
+
+  security:
+    cors:
+      # 本地前后端分离调试用：放行本机与常见内网网段
+      allowed-origin-patterns:
+        - "http://localhost:*"
+        - "http://127.0.0.1:*"
+        - "http://192.168.*.*:*"
+        - "http://10.*.*.*:*"
+        - "http://172.16.*.*:*"
+        - "http://172.17.*.*:*"
+        - "http://172.18.*.*:*"
+        - "http://172.19.*.*:*"
+        - "http://172.20.*.*:*"
+        - "http://172.21.*.*:*"
+        - "http://172.22.*.*:*"
+        - "http://172.23.*.*:*"
+        - "http://172.24.*.*:*"
+        - "http://172.25.*.*:*"
+        - "http://172.26.*.*:*"
+        - "http://172.27.*.*:*"
+        - "http://172.28.*.*:*"
+        - "http://172.29.*.*:*"
+        - "http://172.30.*.*:*"
+        - "http://172.31.*.*:*"

@@ -25,7 +25,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/auth")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @Tag(name = "管理员认证", description = "管理员登录与密码管理")
 public class AdminAuthController {
 

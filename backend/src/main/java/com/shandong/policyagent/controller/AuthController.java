@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @Tag(name = "用户认证", description = "用户注册、登录与信息查询")
 public class AuthController {
 

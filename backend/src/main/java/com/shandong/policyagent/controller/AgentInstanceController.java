@@ -22,7 +22,6 @@ import java.util.Map;
 @RequestMapping("/api/admin/agents")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-@CrossOrigin(origins = "*")
 @Tag(name = "智能体管理", description = "多智能体实例的增删改查、默认设置与复制")
 public class AgentInstanceController {
 

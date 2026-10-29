@@ -17,7 +17,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/conversations")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @Tag(name = "会话管理", description = "用户对话会话的创建、查询与删除")
 public class ConversationController {
 

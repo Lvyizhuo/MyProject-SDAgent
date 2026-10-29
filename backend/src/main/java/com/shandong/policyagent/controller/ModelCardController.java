@@ -19,7 +19,6 @@ import java.util.Map;
 @RequestMapping("/api/admin/models-card")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-@CrossOrigin(origins = "*")
 @Tag(name = "模型卡片视图", description = "模型卡片视图（只读 + 默认设置 + 连接测试）")
 public class ModelCardController {
 

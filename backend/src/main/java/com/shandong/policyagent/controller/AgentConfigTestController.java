@@ -27,7 +27,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/admin/agent-config")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @Tag(name = "智能体配置测试", description = "管理员验证智能体配置是否正常工作的测试接口")
 public class AgentConfigTestController {
 
