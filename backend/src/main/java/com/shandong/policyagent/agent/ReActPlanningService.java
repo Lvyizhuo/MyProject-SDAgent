@@ -1,6 +1,6 @@
 package com.shandong.policyagent.agent;
 
-import com.shandong.policyagent.config.AgentWorkflowProperties;
+import com.shandong.policyagent.config.properties.AgentWorkflowProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.SystemMessage;

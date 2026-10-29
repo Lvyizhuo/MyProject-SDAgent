@@ -13,12 +13,13 @@
 ├── backend/               # 后端：Spring Boot 3.4 + Spring AI (Java 21)
 │   └── src/main/java/com/shandong/policyagent/
 │       ├── advisor/       # Spring AI Advisors (安全、记忆、日志等)
-│       ├── agent/         # Agent 计划解析与意图分类 (AgentPlanParser/ToolIntentClassifier)
-│       ├── config/        # Spring 配置类
+│       ├── agent/         # Agent 计划解析、意图分类与 Agent 配置的运行时持有
+│       ├── bootstrap/     # 启动期任务 (ApplicationRunner：管理员初始化、约束同步)
+│       ├── config/        # Spring 配置装配类；@ConfigurationProperties 见 config/properties
 │       ├── controller/    # REST API 控制器 (含 admin 配置、知识库、模型管理、公开配置接口)
 │       ├── entity/        # JPA 实体类（含 AgentConfig / ModelProvider / ModelType）
 │       ├── exception/     # 全局异常处理器
-│       ├── ingestion/     # 多源知识导入（网站爬取/附件提取等）
+│       ├── ingestion/     # 多源知识导入（网站爬取适配器与页面模型）
 │       ├── model/         # 数据传输对象和领域模型
 │       ├── multimodal/    # 多模态能力 (ASR/视觉)
 │       ├── rag/           # RAG 相关服务 (文档加载、切片、检索、运行时嵌入模型路由)

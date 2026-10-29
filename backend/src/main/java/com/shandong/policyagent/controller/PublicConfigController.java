@@ -1,6 +1,6 @@
 package com.shandong.policyagent.controller;
 
-import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;

@@ -1,6 +1,6 @@
 package com.shandong.policyagent.agent;
 
-import com.shandong.policyagent.config.AgentWorkflowProperties;
+import com.shandong.policyagent.config.properties.AgentWorkflowProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

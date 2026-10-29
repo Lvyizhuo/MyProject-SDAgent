@@ -1,7 +1,7 @@
 package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.EmbeddingModelConfig;
-import com.shandong.policyagent.config.KnowledgeIngestProperties;
+import com.shandong.policyagent.config.properties.KnowledgeIngestProperties;
 import com.shandong.policyagent.config.MinioConfig;
 import com.shandong.policyagent.entity.*;
 import com.shandong.policyagent.model.dto.DocumentMetadataExtractResponse;

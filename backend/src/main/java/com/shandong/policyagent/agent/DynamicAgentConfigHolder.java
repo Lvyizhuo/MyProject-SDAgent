@@ -1,4 +1,4 @@
-package com.shandong.policyagent.config;
+package com.shandong.policyagent.agent;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

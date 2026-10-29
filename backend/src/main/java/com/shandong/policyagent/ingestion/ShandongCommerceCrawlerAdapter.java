@@ -1,4 +1,4 @@
-package com.shandong.policyagent.ingestion.crawler;
+package com.shandong.policyagent.ingestion;
 
 import com.shandong.policyagent.entity.UrlImportItemType;
 import com.shandong.policyagent.rag.DocumentLoaderService;

@@ -1,4 +1,4 @@
-package com.shandong.policyagent.ingestion.crawler;
+package com.shandong.policyagent.ingestion;
 
 import java.util.List;
 

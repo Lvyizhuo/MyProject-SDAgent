@@ -1,9 +1,9 @@
 package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.entity.*;
-import com.shandong.policyagent.ingestion.crawler.CrawledAttachment;
-import com.shandong.policyagent.ingestion.crawler.CrawledPage;
-import com.shandong.policyagent.ingestion.crawler.SiteCrawlerAdapter;
+import com.shandong.policyagent.ingestion.CrawledAttachment;
+import com.shandong.policyagent.ingestion.CrawledPage;
+import com.shandong.policyagent.ingestion.SiteCrawlerAdapter;
 import com.shandong.policyagent.model.dto.*;
 import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;

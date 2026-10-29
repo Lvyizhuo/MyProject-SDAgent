@@ -3,7 +3,7 @@ package com.shandong.policyagent.service;
 import com.shandong.policyagent.advisor.LoggingAdvisor;
 import com.shandong.policyagent.advisor.ReReadingAdvisor;
 import com.shandong.policyagent.advisor.SecurityAdvisor;
-import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.entity.ModelType;

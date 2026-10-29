@@ -1,6 +1,6 @@
 package com.shandong.policyagent.rag;
 
-import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.KnowledgeFolder;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;

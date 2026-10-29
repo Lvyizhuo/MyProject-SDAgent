@@ -1,6 +1,6 @@
 package com.shandong.policyagent.rag;
 
-import com.shandong.policyagent.config.KnowledgeIngestProperties;
+import com.shandong.policyagent.config.properties.KnowledgeIngestProperties;
 import com.shandong.policyagent.entity.DocumentStatus;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
 import lombok.RequiredArgsConstructor;

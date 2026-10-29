@@ -1,6 +1,6 @@
 package com.shandong.policyagent.service;
 
-import com.shandong.policyagent.ingestion.crawler.CrawledPage;
+import com.shandong.policyagent.ingestion.CrawledPage;
 import lombok.Builder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

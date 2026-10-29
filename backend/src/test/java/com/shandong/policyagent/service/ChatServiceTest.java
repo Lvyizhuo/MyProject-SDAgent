@@ -4,7 +4,7 @@ import com.shandong.policyagent.agent.AgentExecutionPlan;
 import com.shandong.policyagent.agent.PlannedToolExecutor;
 import com.shandong.policyagent.agent.ReActPlanningService;
 import com.shandong.policyagent.agent.ToolIntentClassifier;
-import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
 import com.shandong.policyagent.model.ChatRequest;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.multimodal.service.VisionService;

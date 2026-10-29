@@ -1,7 +1,7 @@
 package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.advisor.SecurityAdvisor;
-import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.ModelType;
 import org.junit.jupiter.api.BeforeEach;

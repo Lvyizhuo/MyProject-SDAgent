@@ -1,7 +1,7 @@
 package com.shandong.policyagent.rag;
 
 import com.shandong.policyagent.config.EmbeddingModelConfig;
-import com.shandong.policyagent.config.KnowledgeMigrationProperties;
+import com.shandong.policyagent.config.properties.KnowledgeMigrationProperties;
 import com.shandong.policyagent.entity.DocumentStatus;
 import com.shandong.policyagent.entity.KnowledgeDocument;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
