@@ -1,6 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-sentence-transformers==3.3.1
+sentence-transformers==6.2.0
 # 保持 pip 默认源，自动选 CPU/GPU 版 wheel。
 # 注意：rerank 场景 CPU 完全够用（5-50ms/请求），无需 GPU。
 torch==2.5.1
