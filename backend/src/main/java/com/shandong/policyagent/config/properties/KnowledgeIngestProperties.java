@@ -1,4 +1,4 @@
-package com.shandong.policyagent.config;
+package com.shandong.policyagent.config.properties;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

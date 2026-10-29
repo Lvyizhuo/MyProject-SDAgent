@@ -1,5 +1,6 @@
-package com.shandong.policyagent.config;
+package com.shandong.policyagent.bootstrap;
 
+import com.shandong.policyagent.agent.DefaultAgentConfigLoader;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.Role;
 import com.shandong.policyagent.entity.User;

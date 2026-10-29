@@ -1,4 +1,4 @@
-package com.shandong.policyagent.config;
+package com.shandong.policyagent.bootstrap;
 
 import java.util.Arrays;
 import java.util.stream.Collectors;

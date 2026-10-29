@@ -1,6 +1,6 @@
 package com.shandong.policyagent.tool;
 
-import com.shandong.policyagent.config.DynamicAgentConfigHolder;
+import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
