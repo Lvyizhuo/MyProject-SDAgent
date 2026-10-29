@@ -34,9 +34,9 @@ jobs:
           java-version: '21'
           cache: maven
 
-      # enforcer 校验 JDK/Maven 版本；jacoco 生成覆盖率并在低于阈值时失败
-      - name: Run unit tests with coverage gate
-        run: ./mvnw -B clean test
+      # enforcer 校验 JDK/Maven 版本；jacoco 生成覆盖率并在 verify 阶段校验阈值
+      - name: Build and run tests with coverage gate
+        run: ./mvnw -B clean verify
 
       - name: Upload coverage report
         if: always()
