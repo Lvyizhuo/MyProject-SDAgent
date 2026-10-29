@@ -8,11 +8,17 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: policy-agent-postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     environment:
       POSTGRES_DB: policy_agent
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # 必填：缺失时 compose 直接报错退出，避免静默使用弱口令
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未在 .env 中设置}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "127.0.0.1:5433:5432"
@@ -28,6 +34,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: policy-agent-redis
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
@@ -44,14 +55,19 @@ services:
   minio:
     image: minio/minio:latest
     container_name: policy-agent-minio
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_USER:?MINIO_USER 未在 .env 中设置}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD 未在 .env 中设置}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - minio_data:/data
@@ -64,6 +80,11 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: policy-agent-ollama
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     ports:
       - "127.0.0.1:11434:11434"
@@ -88,6 +109,11 @@ services:
     # 即使拉取失败也返回成功（exit 0），应用启动后由 fallback 兜底
     image: ollama/ollama:latest
     container_name: policy-agent-ollama-init
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: "no"
     environment:
       OLLAMA_HOST: http://ollama:11434
@@ -104,6 +130,11 @@ services:
       context: ../rerank-service
       dockerfile: Dockerfile
     container_name: policy-agent-reranker
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     ports:
       - "127.0.0.1:8989:80"
@@ -136,6 +167,11 @@ services:
       context: ../backend
       dockerfile: Dockerfile
     container_name: policy-agent-backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
@@ -145,23 +181,24 @@ services:
       # 高德地图 MCP Server 的 API Key：mcp-servers.json 已不含明文，
       # 由 npx 子进程从进程环境变量 AMAP_MAPS_API_KEY 读取
       AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
-      APP_JWT_SECRET: ${APP_JWT_SECRET}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET 未在 .env 中设置}
       APP_MODEL_PROVIDER_ENCRYPTION_SECRET: ${APP_MODEL_PROVIDER_ENCRYPTION_SECRET:-}
       APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS: ${APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS:-}
       APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS:-http://mmgg.dpdns.org,https://mmgg.dpdns.org}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/policy_agent
       SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未在 .env 中设置}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       APP_KNOWLEDGE_MINIO_ENDPOINT: http://minio:9000
-      APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
-      APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
+      APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER 未在 .env 中设置}
+      APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD 未在 .env 中设置}
       APP_EMBEDDING_OLLAMA_BASE_URL: http://ollama:11434
       APP_RAG_RERANK_PROVIDER: tei
       APP_RAG_RERANK_MODEL: bge-reranker-v2-m3
       APP_RAG_RERANK_ENDPOINT: http://reranker:80/rerank
-      SPRING_PROFILES_ACTIVE: mcp
+      # prod：关闭接口文档、日志回落到 INFO；mcp：启用 MCP 客户端
+      SPRING_PROFILES_ACTIVE: prod,mcp
       APP_KNOWLEDGE_MIGRATION_ENABLED: "true"
       APP_KNOWLEDGE_MIGRATION_TARGET_MODEL: ollama:bge-m3
       TZ: ${TZ:-Asia/Shanghai}
@@ -189,6 +226,11 @@ services:
       context: ../frontend
       dockerfile: Dockerfile
     container_name: policy-agent-frontend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     ports:
       - "127.0.0.1:5173:80"

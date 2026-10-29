@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/admin/agent-config")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @Tag(name = "智能体配置", description = "运行时智能体配置的查询、更新与重置")
 public class AgentConfigController {
 

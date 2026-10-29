@@ -17,9 +17,9 @@ FRONTEND_DIR="$PROJECT_ROOT/frontend"
 ENV_FILE="$BACKEND_DIR/.env.local"
 LOG_DIR="$PROJECT_ROOT/logs"
 
-# Java 21（Homebrew 安装路径）
-export JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
-export PATH="$JAVA_HOME/bin:$PATH"
+# Java 21（通过 SDKMAN 管理，项目根目录 .sdkmanrc 锁定版本）
+export SDKMAN_DIR="$HOME/.sdkman"
+[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
 
 # 确保脚本在项目根目录运行
 cd "$PROJECT_ROOT"
@@ -134,7 +134,7 @@ set -a
 source "$ENV_FILE"
 set +a
 
-./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp < /dev/null > $LOG_DIR/backend.log 2>&1 &
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,mcp < /dev/null > $LOG_DIR/backend.log 2>&1 &
 BACKEND_PID=$!
 disown "$BACKEND_PID" 2>/dev/null || true
 echo "  ✓ 后端启动中 (PID: $BACKEND_PID，日志: tail -f $LOG_DIR/backend.log)"

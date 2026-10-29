@@ -6,6 +6,11 @@ spring:
   application:
     name: policy-agent
 
+  # 未显式激活 profile 时默认使用 dev（本地开发开箱即用）。
+  # 生产环境由 deploy/docker-compose.yml 显式指定 SPRING_PROFILES_ACTIVE=prod,mcp。
+  profiles:
+    default: dev
+
   # Multipart 上传限制
   servlet:
     multipart:
@@ -15,10 +20,9 @@ spring:
       max-request-size: 30MB
 
   # PostgreSQL + PgVector 配置
+  # 连接信息一律来自环境变量（SPRING_DATASOURCE_*），仓库内不保存任何明文凭据；
+  # 本地开发的默认值见 application-dev.yml。
   datasource:
-    url: jdbc:postgresql://localhost:5433/policy_agent
-    username: postgres
-    password: postgres
     driver-class-name: org.postgresql.Driver
   
   jpa:
@@ -82,13 +86,14 @@ server:
   port: 8080
 
 # OpenAPI 文档（springdoc，ApiFox 可通过 /v3/api-docs 导入）
+# 默认关闭，仅本地开发（dev profile）开启，避免生产环境暴露接口清单
 springdoc:
   api-docs:
     path: /v3/api-docs
-    enabled: ${SPRINGDOC_ENABLED:true}
+    enabled: ${SPRINGDOC_ENABLED:false}
   swagger-ui:
     path: /swagger-ui.html
-    enabled: ${SPRINGDOC_ENABLED:true}
+    enabled: ${SPRINGDOC_ENABLED:false}
   info:
     title: AI 政策通·智能体服务平台 API
     description: 山东省以旧换新政策咨询系统 - RAG 检索增强 + 多智能体架构
@@ -108,8 +113,9 @@ management:
 # 日志配置
 logging:
   level:
-    com.shandong.policyagent: DEBUG
-    org.springframework.ai: DEBUG
+    root: INFO
+    com.shandong.policyagent: ${APP_LOG_LEVEL:INFO}
+    org.springframework.ai: ${APP_LOG_LEVEL_SPRING_AI:INFO}
 
 # DashScope 多模态配置
 dashscope:
@@ -177,10 +183,11 @@ app:
       max-concurrent: 2
       max-per-minute: 30
     minio:
-      endpoint: http://localhost:9000
-      access-key: minioadmin
-      secret-key: minioadmin
-      bucket-name: policy-documents
+      endpoint: ${APP_KNOWLEDGE_MINIO_ENDPOINT:http://localhost:9000}
+      # 凭据不写默认值：缺失时启动即失败，避免静默使用公开的示例账号
+      access-key: ${APP_KNOWLEDGE_MINIO_ACCESS_KEY:}
+      secret-key: ${APP_KNOWLEDGE_MINIO_SECRET_KEY:}
+      bucket-name: ${APP_KNOWLEDGE_MINIO_BUCKET:policy-documents}
 
     embedding:
       default-model: ${APP_KNOWLEDGE_EMBEDDING_DEFAULT_MODEL:ollama:bge-m3}
@@ -287,29 +294,9 @@ app:
     prefetch-await-max-seconds: 1
     prefetch-await-poll-millis: 200
 
-  security:
-    cors:
-      allowed-origin-patterns:
-        - "http://localhost:*"
-        - "http://127.0.0.1:*"
-        - "http://192.168.*.*:*"
-        - "http://10.*.*.*:*"
-        - "http://172.16.*.*:*"
-        - "http://172.17.*.*:*"
-        - "http://172.18.*.*:*"
-        - "http://172.19.*.*:*"
-        - "http://172.20.*.*:*"
-        - "http://172.21.*.*:*"
-        - "http://172.22.*.*:*"
-        - "http://172.23.*.*:*"
-        - "http://172.24.*.*:*"
-        - "http://172.25.*.*:*"
-        - "http://172.26.*.*:*"
-        - "http://172.27.*.*:*"
-        - "http://172.28.*.*:*"
-        - "http://172.29.*.*:*"
-        - "http://172.30.*.*:*"
-        - "http://172.31.*.*:*"
+  # CORS 允许来源：生产环境通过环境变量 APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS（逗号分隔）注入；
+  # 本地开发白名单见 application-dev.yml。此处刻意不定义该键——若定义为空占位符，
+  # Spring 会绑定成空列表从而拒绝所有来源；不定义时 SecurityConfig 才能回退到内置安全默认集合。
 
   tools:
     retry:

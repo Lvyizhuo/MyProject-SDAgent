@@ -1,0 +1,23 @@
+# ===========================================
+# 生产环境配置（prod profile）
+# 激活方式：环境变量 SPRING_PROFILES_ACTIVE=prod,mcp
+# 生产凭据一律通过环境变量注入，本文件不保存任何密钥
+# ===========================================
+
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+logging:
+  level:
+    root: INFO
+    com.shandong.policyagent: INFO
+    org.springframework.ai: INFO
+
+# 生产环境关闭接口文档，避免暴露内部接口清单
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

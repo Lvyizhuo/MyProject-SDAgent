@@ -21,7 +21,6 @@ import java.util.Map;
 @RequestMapping("/api/admin/tools")
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
-@CrossOrigin(origins = "*")
 @Tag(name = "工具管理", description = "LLM 可调用工具的定义、启停与测试")
 public class ToolDefinitionController {
 

@@ -31,7 +31,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/chat")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*")
 @Tag(name = "对话服务", description = "标准对话接口（流式已下线）")
 public class ChatController {
 
