@@ -1,7 +1,10 @@
 version: 2
 
 # 依赖与基础镜像的自动升级巡检。
-# 说明：不配置自动合并，PR 仍走 CI + 人工合并，避免供应链风险静默进入主干。
+# 说明：
+#   1. 不配置自动合并，PR 仍走 CI + 人工合并，避免供应链风险静默进入主干。
+#   2. 大版本升级（semver-major）一律不自动提 PR——包括 JDK/Node 等基础镜像
+#      的运行时大版本，这类变更需要人工评估兼容性，不能由机器人直接开 PR。
 updates:
   # 后端 Maven 依赖
   - package-ecosystem: maven
@@ -12,6 +15,10 @@ updates:
       time: '09:00'
       timezone: Asia/Shanghai
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
     commit-message:
       prefix: 'chore(deps)'
     groups:
@@ -36,6 +43,10 @@ updates:
       time: '09:00'
       timezone: Asia/Shanghai
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
     commit-message:
       prefix: 'chore(deps)'
     groups:
@@ -63,18 +74,27 @@ updates:
       time: '09:00'
       timezone: Asia/Shanghai
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
     commit-message:
       prefix: 'chore(deps)'
     labels:
       - dependencies
       - rerank-service
 
-  # 容器基础镜像
+  # 容器基础镜像：只跟进 patch，运行时大版本必须人工评估
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     commit-message:
       prefix: 'chore(deps)'
     labels:
@@ -86,6 +106,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
     commit-message:
       prefix: 'chore(deps)'
     labels:
@@ -98,6 +123,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
     commit-message:
       prefix: 'chore(ci)'
     labels:
