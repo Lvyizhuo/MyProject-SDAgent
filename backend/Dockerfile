@@ -28,7 +28,7 @@ COPY lombok.config ./
 RUN rm -rf target && mvn clean package -DskipTests -B -Dmaven.compiler.useIncrementalCompilation=false
 
 # 运行阶段
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 WORKDIR /app
 
