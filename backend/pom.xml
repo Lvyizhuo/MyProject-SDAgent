@@ -279,10 +279,12 @@
                             <goal>report</goal>
                         </goals>
                     </execution>
-                    <!-- 阈值在第二批引入，基线取自当前实测值，后续只允许上调 -->
+                    <!-- 阈值基线取自当前实测值，后续只允许上调。
+                         绑定在 verify 阶段而非 test：本地只想跑单个测试类时
+                         （mvn test -Dtest=Xxx）不应因为整体覆盖率不足而被拦。 -->
                     <execution>
                         <id>check-coverage</id>
-                        <phase>test</phase>
+                        <phase>verify</phase>
                         <goals>
                             <goal>check</goal>
                         </goals>
