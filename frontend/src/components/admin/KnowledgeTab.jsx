@@ -473,7 +473,7 @@ const KnowledgeTab = () => {
 /* ============================================================
    KnowledgeDetailDrawer — 知识库详情抽屉
    ============================================================ */
-const KnowledgeDetailDrawer = ({ folderId, folders, onClose, onRefresh, onNotify }) => {
+const KnowledgeDetailDrawer = ({ folderId, folders, onClose, onNotify }) => {
     const { confirm } = useAdminConsole();
     const folder = folders.find((f) => f.id === folderId);
     const [documents, setDocuments] = useState([]);
@@ -923,7 +923,7 @@ const WebImportModal = ({ folders, onClose, onNotify }) => {
 /* ============================================================
    TaskListModal — 任务列表
    ============================================================ */
-const TaskListModal = ({ onClose, onNotify, jobs, candidates, onRefresh }) => {
+const TaskListModal = ({ onClose, jobs, candidates, onRefresh }) => {
     const [selectedTaskId, setSelectedTaskId] = useState(jobs[0]?.id || null);
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -937,7 +937,7 @@ const TaskListModal = ({ onClose, onNotify, jobs, candidates, onRefresh }) => {
         try {
             const data = await adminKnowledgeApi.listDocuments({ importJobId: taskId, page: 0, size: 50 });
             setDocuments(data.content || []);
-        } catch (err) {
+        } catch {
             setDocuments([]);
         } finally {
             setLoading(false);

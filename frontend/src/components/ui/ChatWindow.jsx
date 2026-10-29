@@ -39,7 +39,6 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const [location, setLocation] = useState(null);
     const [activeReferenceKey, setActiveReferenceKey] = useState(null);
     const [expandedReferenceMap, setExpandedReferenceMap] = useState({});
-    const [inputText, setInputText] = useState('');
     const messagesEndRef = useRef(null);
     const messagesListRef = useRef(null);
     const statusTimerRef = useRef(null);
@@ -153,7 +152,7 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
         }
     }, [messages, sessionId, onSessionUpdate, hasTransientMessage]);
 
-    const handleSend = async (text, files = [], options = {}) => {
+    const handleSend = async (text, files = []) => {
         if (!text.trim() && files.length === 0) return;
 
         const imageFiles = files.filter((f) => f.type === 'image');

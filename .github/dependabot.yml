@@ -1,0 +1,105 @@
+version: 2
+
+# 依赖与基础镜像的自动升级巡检。
+# 说明：不配置自动合并，PR 仍走 CI + 人工合并，避免供应链风险静默进入主干。
+updates:
+  # 后端 Maven 依赖
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      spring:
+        patterns:
+          - 'org.springframework*'
+      test:
+        patterns:
+          - 'org.junit*'
+          - 'org.mockito*'
+          - 'org.assertj*'
+    labels:
+      - dependencies
+      - backend
+
+  # 前端 npm 依赖
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+    groups:
+      react:
+        patterns:
+          - 'react'
+          - 'react-dom'
+          - 'react-router-dom'
+      tooling:
+        patterns:
+          - 'vite'
+          - '@vitejs/*'
+          - 'eslint*'
+          - '@eslint/*'
+    labels:
+      - dependencies
+      - frontend
+
+  # 重排序微服务 Python 依赖
+  - package-ecosystem: pip
+    directory: /rerank-service
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'chore(deps)'
+    labels:
+      - dependencies
+      - rerank-service
+
+  # 容器基础镜像
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'chore(deps)'
+    labels:
+      - dependencies
+      - docker
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'chore(deps)'
+    labels:
+      - dependencies
+      - docker
+
+  # CI 使用的 GitHub Actions 版本
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'chore(ci)'
+    labels:
+      - dependencies
+      - ci
