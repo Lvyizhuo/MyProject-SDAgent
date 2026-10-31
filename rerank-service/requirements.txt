@@ -1,4 +1,4 @@
-fastapi==0.115.6
+fastapi==0.162.0
 uvicorn[standard]==0.34.0
 sentence-transformers==3.3.1
 # 保持 pip 默认源，自动选 CPU/GPU 版 wheel。
