@@ -24,7 +24,7 @@
              原因：Lombok 1.18.42 + JDK 21 + maven-compiler-plugin 3.13.0 三者组合
              会导致 Lombok 注解处理器完全不启动，产生 100+ "cannot find symbol" 错误
              （包括 @Slf4j log、@Data getter、@Builder builder 全部找不到） -->
-        <maven-compiler-plugin.version>3.14.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
     </properties>
 
     <dependencies>
