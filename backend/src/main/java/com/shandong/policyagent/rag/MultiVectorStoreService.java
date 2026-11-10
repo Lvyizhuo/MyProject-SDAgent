@@ -85,11 +85,27 @@ public class MultiVectorStoreService {
                                            String chunkLevel,
                                            double similarityThreshold) {
         EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(modelId);
+        float[] queryEmbedding = embeddingService.embedTexts(modelId, List.of(query)).get(0);
+        return similaritySearch(modelId, queryEmbedding, topK, folderPath, chunkLevel, similarityThreshold);
+    }
+
+    /**
+     * 使用预先计算好的查询向量做相似度检索。
+     *
+     * <p>用于让「语义化检索缓存」复用同一份查询向量：缓存匹配与向量召回共用一次嵌入计算，
+     * 不额外增加一次 Ollama 调用。
+     */
+    public List<Document> similaritySearch(String modelId,
+                                           float[] queryEmbedding,
+                                           int topK,
+                                           String folderPath,
+                                           String chunkLevel,
+                                           double similarityThreshold) {
+        EmbeddingModelConfig.EmbeddingModel modelConfig = embeddingService.getModelConfig(modelId);
         initializeVectorTable(modelConfig.getVectorTable(), modelConfig.getDimensions());
 
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         String safeTableName = sanitizeTableName(modelConfig.getVectorTable());
-        float[] queryEmbedding = embeddingService.embedTexts(modelId, List.of(query)).get(0);
         String embeddingStr = "[" + arrayToString(queryEmbedding) + "]";
 
         String normalizedFolderPath = normalizeFolderPath(folderPath);
@@ -492,42 +508,94 @@ public class MultiVectorStoreService {
     }
 
     public String loadChunkExcerpt(String tableName, Long documentId, Integer chunkIndex, int radius) {
-        if (tableName == null || documentId == null || chunkIndex == null || chunkIndex < 1) {
-            return null;
+        Map<Long, String> batch = loadChunkExcerpts(tableName, List.of(new ExcerptQuery(documentId, chunkIndex)), radius);
+        return batch.get(documentId);
+    }
+
+    /**
+     * 批量加载多个 (文档, chunk) 的原文片段。
+     *
+     * <p>用于消除引用构建阶段的 N+1 查询：原先每条引用都要
+     * 「1 次 information_schema 表存在检查 + 1 次 SELECT」，最多 8 次 SQL；
+     * 现在同一张向量表只做 1 次表存在检查 + 1 次带 OR 条件的 SELECT。
+     *
+     * @param tableName 向量表名
+     * @param queries   (文档ID, chunkIndex) 列表
+     * @param radius    chunk 前后扩展半径
+     * @return documentId → 拼接后的原文片段
+     */
+    public Map<Long, String> loadChunkExcerpts(String tableName,
+                                                List<ExcerptQuery> queries,
+                                                int radius) {
+        if (tableName == null || queries == null || queries.isEmpty()) {
+            return Map.of();
         }
 
         String safeTableName = sanitizeTableName(tableName);
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         if (!tableExists(jdbcTemplate, safeTableName)) {
-            return null;
+            return Map.of();
         }
 
         int safeRadius = Math.max(radius, 0);
-        int startIndex = Math.max(1, chunkIndex - safeRadius);
-        int endIndex = chunkIndex + safeRadius;
+        StringBuilder where = new StringBuilder();
+        List<Object> params = new ArrayList<>();
+        for (ExcerptQuery query : queries) {
+            if (query.documentId() == null || query.chunkIndex() == null || query.chunkIndex() < 1) {
+                continue;
+            }
+            if (where.length() > 0) {
+                where.append(" OR ");
+            }
+            where.append("(metadata->>'knowledgeDocumentId' = ? AND COALESCE((metadata->>'chunkIndex')::int, 2147483647) BETWEEN ? AND ?)");
+            params.add(String.valueOf(query.documentId()));
+            params.add(Math.max(1, query.chunkIndex() - safeRadius));
+            params.add(query.chunkIndex() + safeRadius);
+        }
+        if (where.isEmpty()) {
+            return Map.of();
+        }
 
         String querySql = String.format("""
-                SELECT content
+                SELECT metadata->>'knowledgeDocumentId' AS doc_id,
+                       COALESCE((metadata->>'chunkIndex')::int, 2147483647) AS chunk_index,
+                       content
                 FROM %s
-                WHERE metadata->>'knowledgeDocumentId' = ?
-                  AND COALESCE((metadata->>'chunkIndex')::int, 2147483647) BETWEEN ? AND ?
-                ORDER BY COALESCE((metadata->>'chunkIndex')::int, 2147483647), id
-                """, safeTableName);
+                WHERE %s
+                ORDER BY doc_id, chunk_index, id
+                """, safeTableName, where);
 
-        List<String> contents = jdbcTemplate.query(
-                querySql,
-                (rs, rowNum) -> rs.getString("content"),
-                String.valueOf(documentId),
-                startIndex,
-                endIndex
-        );
-        if (contents.isEmpty()) {
-            return null;
-        }
-        return contents.stream()
-                .filter(content -> content != null && !content.isBlank())
-                .reduce((left, right) -> left + "\n\n" + right)
-                .orElse(null);
+        Map<Long, List<String>> grouped = new LinkedHashMap<>();
+        jdbcTemplate.query(querySql, rs -> {
+            String docId = rs.getString("doc_id");
+            if (docId == null || docId.isBlank()) {
+                return;
+            }
+            try {
+                grouped.computeIfAbsent(Long.parseLong(docId), key -> new ArrayList<>())
+                        .add(rs.getString("content"));
+            } catch (NumberFormatException ignored) {
+                // 非数字文档 ID 直接跳过
+            }
+        }, params.toArray());
+
+        Map<Long, String> result = new LinkedHashMap<>();
+        grouped.forEach((documentId, contents) -> {
+            String merged = contents.stream()
+                    .filter(content -> content != null && !content.isBlank())
+                    .reduce((left, right) -> left + "\n\n" + right)
+                    .orElse(null);
+            if (merged != null) {
+                result.put(documentId, merged);
+            }
+        });
+        return result;
+    }
+
+    /**
+     * 原文片段查询参数：(文档ID, chunkIndex)。
+     */
+    public record ExcerptQuery(Long documentId, Integer chunkIndex) {
     }
 
     public List<Document> loadParentChunkWindow(String tableName,

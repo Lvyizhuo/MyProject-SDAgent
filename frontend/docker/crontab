@@ -1,0 +1,8 @@
+# busybox crond 任务表（/etc/crontabs/root）
+#
+# 每日 00:05 让 nginx reopen 日志文件：
+#   nginx 的 access_log 路径含 $log_date（当天日期），只有 reopen 时才重新求值，
+#   reopen 后会用新日期另开一个文件，前一天的文件保持 frontend-<昨天日期>.log。
+#   00:05 而非 00:00，是为了让 00:00~00:05 的少量日志仍落在前一天的文件里，
+#   保证"文件名 = 文件内容的日期"严格成立。
+5 0 * * * /usr/local/bin/log-rotate.sh

@@ -1,7 +1,6 @@
 package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.multimodal.service.VisionService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -21,14 +20,28 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ImageAnalysisService {
 
     /** 视觉模型单图耗时上限，防止池被占满/死锁时 join 无限等待挂死 Tomcat 请求线程 */
     private static final long IMAGE_ANALYZE_TIMEOUT_SECONDS = 60;
 
     private final VisionService visionService;
-    private final @Qualifier("chatAsyncTaskExecutor") Executor imageAnalysisExecutor;
+    private final Executor imageAnalysisExecutor;
+
+    /**
+     * 显式构造器（不用 Lombok @RequiredArgsConstructor）。
+     *
+     * <p>原因：项目里有 7 个 Executor 类型的 Bean（chatAsync / agentPlanner / knowledgeIngest /
+     * urlImport / mvc / webSearch / taskScheduler），按类型注入无法消歧义。
+     * 而 {@code @Qualifier} 写在字段上时，Lombok 生成的构造参数<b>不会</b>携带该注解，
+     * Spring 依旧会报 "required a single bean, but 7 were found"，
+     * 只有把 {@code @Qualifier} 放在构造参数上才生效。</p>
+     */
+    public ImageAnalysisService(VisionService visionService,
+                                @Qualifier("chatAsyncTaskExecutor") Executor imageAnalysisExecutor) {
+        this.visionService = visionService;
+        this.imageAnalysisExecutor = imageAnalysisExecutor;
+    }
 
     /**
      * 分析用户上传的 Base64 图片列表，提取设备/家电结构化信息。

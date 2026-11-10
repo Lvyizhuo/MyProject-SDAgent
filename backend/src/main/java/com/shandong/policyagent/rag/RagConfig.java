@@ -84,7 +84,7 @@ public class RagConfig {
         /**
          * 检索返回的最大文档数
          */
-        private int topK = 3;
+        private int topK = 2;
 
         /**
          * 相似度阈值（0-1）
@@ -94,7 +94,7 @@ public class RagConfig {
         /**
          * 向量召回候选数量（重排前）
          */
-        private int candidateTopK = 20;
+        private int candidateTopK = 6;
 
         /**
          * 是否启用 rerank 重排序
@@ -119,7 +119,7 @@ public class RagConfig {
         /**
          * 发送给 rerank 的单条文档最大字符数
          */
-        private int rerankMaxDocChars = 3000;
+        private int rerankMaxDocChars = 800;
 
         /**
          * 注入到最终对话提示词中的单条知识库文档最大字符数
@@ -130,7 +130,27 @@ public class RagConfig {
          * 检索结果级缓存 TTL（分钟），0 或负数表示禁用缓存。
          * 缓存键由 query + embeddingModelId + folderPath + topK + rerank 配置组合计算 SHA-256。
          */
-        private int cacheTtlMinutes = 10;
+        private int cacheTtlMinutes = 30;
+
+        /**
+         * 是否启用语义化检索缓存：按查询向量做近似匹配，让改写问法也能命中缓存。
+         */
+        private boolean semanticCacheEnabled = false;
+
+        /**
+         * 语义化缓存的余弦相似度阈值，低于该值视为不同问题。
+         */
+        private double semanticCacheThreshold = 0.92;
+
+        /**
+         * 是否在启动后预热高频政策问法的检索缓存。
+         */
+        private boolean warmupEnabled = false;
+
+        /**
+         * 预热延迟（秒），避免与启动期的模型加载抢资源。
+         */
+        private long warmupDelaySeconds = 20;
     }
 
     @Data

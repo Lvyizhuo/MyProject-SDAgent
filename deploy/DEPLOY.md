@@ -59,16 +59,16 @@ vi .env
 ## 4. 一键启动整套容器（推荐）
 
 ```bash
-cd /opt/MyProject-SDAgent/deploy
-./deploy.sh
+cd /opt/MyProject-SDAgent
+./scripts/deploy.sh up
 ```
 
 关键说明：
-- `deploy.sh` 会自动执行 `docker compose up -d --build --remove-orphans`
-- `deploy.sh` 会等待 `postgres / redis / minio / ollama / reranker / backend / frontend` 全部就绪
-- `deploy.sh` 会检查 `bge-m3` 是否已拉取
-- `deploy.sh` 会检查 `reranker` 容器健康状态（模型加载完成才视为就绪）
-- `deploy.sh` 会检查 `/actuator/health` 中 `knowledgeMigration=UP`，确认知识库迁移和重入库已完成
+- `scripts/deploy.sh` 会自动执行 `docker compose up -d --remove-orphans`（含镜像构建）
+- `scripts/deploy.sh` 会等待 `postgres / redis / minio / ollama / reranker / backend / frontend` 全部就绪
+- `scripts/deploy.sh` 会检查 `bge-m3` 是否已拉取
+- `scripts/deploy.sh` 会检查 `reranker` 容器健康状态（模型加载完成才视为就绪）
+- `scripts/deploy.sh` 会检查 `/actuator/health` 中 `knowledgeMigration=UP`，确认知识库迁移和重入库已完成
 - 如果任何一步失败，脚本会自动打印 `ollama-init / reranker / backend / frontend` 的关键日志并退出非 0
 - `ollama-init` 会自动执行 `ollama pull bge-m3 && ollama pull nomic-embed-text:latest`
 - `reranker` 容器启动时会从 HuggingFace 下载 `BAAI/bge-reranker-v2-m3` 模型（首次启动需数分钟）
@@ -127,7 +127,7 @@ curl https://mmgg.dpdns.org/actuator/health
 ## 8. 验收清单
 
 ```bash
-# 如果 deploy.sh 成功返回，这三项应该已经成立
+# 如果 scripts/deploy.sh 成功返回，这三项应该已经成立
 docker compose ps
 curl http://127.0.0.1:8080/actuator/health
 curl http://mmgg.dpdns.org/actuator/health
@@ -139,33 +139,32 @@ curl http://mmgg.dpdns.org/actuator/health
 ## 9. 运维命令
 
 ```bash
-cd /opt/MyProject-SDAgent/deploy
+cd /opt/MyProject-SDAgent
 
 # 首次部署 / 改代码后重建镜像
-./deploy.sh up
+./scripts/deploy.sh up
 
 # 仅重启后端 + 前端（不重建镜像，秒级生效）
-./deploy.sh restart
+./scripts/deploy.sh restart
 
 # 查看所有容器状态 + 健康检查
-./deploy.sh status
+./scripts/deploy.sh status
 
 # 跟踪指定服务日志
-./deploy.sh logs backend
-./deploy.sh logs frontend
-./deploy.sh logs ollama
-./deploy.sh logs reranker
-
-# 直接看容器 ps
-docker compose ps
+./scripts/deploy.sh logs backend
+./scripts/deploy.sh logs frontend
+./scripts/deploy.sh logs ollama
+./scripts/deploy.sh logs reranker
 
 # 停止（保留数据卷）
-./deploy.sh down
-# 或：docker compose down
+./scripts/deploy.sh down
 
-# 强制重建某服务
-docker compose up -d --build backend
+# 重新生成配置文件（会重置数据库密码，注意已有数据卷）
+./scripts/deploy.sh init
 ```
+
+> 脚本用法详见同目录 [`README.md`](README.md)。
+> 本地开发请用另一套入口：`./scripts/dev.sh`（与本方式四重隔离，可同时运行）。
 
 注意：
 - `docker compose down -v` 会删除数据库、对象存储、Ollama 模型等卷数据。

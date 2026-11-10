@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,9 +19,6 @@ import static org.mockito.Mockito.when;
 class DynamicChatClientFactoryTest {
 
     @Mock
-    private OpenAiChatModel openAiChatModel;
-
-    @Mock
     private DynamicAgentConfigHolder dynamicAgentConfigHolder;
 
     @Mock
@@ -31,25 +27,15 @@ class DynamicChatClientFactoryTest {
     @Mock
     private SecurityAdvisor securityAdvisor;
 
-    private DynamicChatClientFactory factory;
+    private RuntimeChatModelProvider provider;
 
     @BeforeEach
     void setUp() {
-        factory = new DynamicChatClientFactory(
-                openAiChatModel,
-                dynamicAgentConfigHolder,
-                modelProviderService,
-                securityAdvisor,
-                null,
-                null,
-                null,
-                null,
-                java.util.List.of()
-        );
-        ReflectionTestUtils.setField(factory, "defaultBaseUrl", "https://dashscope.aliyuncs.com/compatible-mode");
-        ReflectionTestUtils.setField(factory, "defaultApiKey", "fallback-api-key");
-        ReflectionTestUtils.setField(factory, "defaultModelName", "qwen3.5-plus");
-        ReflectionTestUtils.setField(factory, "defaultTemperature", 0.7D);
+        provider = new RuntimeChatModelProvider(null, dynamicAgentConfigHolder, modelProviderService);
+        ReflectionTestUtils.setField(provider, "defaultBaseUrl", "https://dashscope.aliyuncs.com/compatible-mode");
+        ReflectionTestUtils.setField(provider, "defaultApiKey", "fallback-api-key");
+        ReflectionTestUtils.setField(provider, "defaultModelName", "qwen3.5-plus");
+        ReflectionTestUtils.setField(provider, "defaultTemperature", 0.7D);
     }
 
     @Test
@@ -66,7 +52,7 @@ class DynamicChatClientFactoryTest {
         when(modelProviderService.getModelEntityForRuntime(eq(17L), eq(ModelType.LLM)))
                 .thenThrow(new IllegalStateException("API Key 解密失败"));
 
-        DynamicChatClientFactory.ResolvedChatModelConfig runtimeConfig = factory.resolveRuntimeConfig();
+        RuntimeChatModelProvider.ResolvedChatModelConfig runtimeConfig = provider.resolveRuntimeConfig();
 
         assertEquals("https://manual.example.com/compatible-mode", runtimeConfig.baseUrl());
         assertEquals("manual-api-key", runtimeConfig.apiKey());
@@ -88,11 +74,51 @@ class DynamicChatClientFactoryTest {
         when(modelProviderService.getModelEntityForRuntime(eq(17L), eq(ModelType.LLM)))
                 .thenThrow(new IllegalStateException("API Key 解密失败"));
 
-        DynamicChatClientFactory.ResolvedChatModelConfig runtimeConfig = factory.resolveRuntimeConfig();
+        RuntimeChatModelProvider.ResolvedChatModelConfig runtimeConfig = provider.resolveRuntimeConfig();
 
         assertEquals("https://dashscope.aliyuncs.com/compatible-mode", runtimeConfig.baseUrl());
         assertEquals("fallback-api-key", runtimeConfig.apiKey());
         assertEquals("qwen3.5-plus", runtimeConfig.modelName());
         assertEquals(0.7D, runtimeConfig.temperature());
+    }
+
+    @Test
+    void shouldFallbackToDefaultConfigWhenManualApiKeyIsOnlyPlaceholder() {
+        // 占位符形式 ${ENV} 在环境变量缺失时无法解析为真实 Key，
+        // 因此手工配置不可用，应回退到系统默认配置
+        AgentConfig config = AgentConfig.builder()
+                .llmModelId(null)
+                .apiUrl("https://manual.example.com/compatible-mode")
+                .apiKey("${SOME_ENV_NOT_EXIST_FOR_TEST}")
+                .modelName("manual-model")
+                .temperature(0.2D)
+                .build();
+
+        when(dynamicAgentConfigHolder.get()).thenReturn(config);
+
+        RuntimeChatModelProvider.ResolvedChatModelConfig runtimeConfig = provider.resolveRuntimeConfig();
+
+        assertEquals("https://dashscope.aliyuncs.com/compatible-mode", runtimeConfig.baseUrl());
+        assertEquals("fallback-api-key", runtimeConfig.apiKey());
+        assertEquals("qwen3.5-plus", runtimeConfig.modelName());
+    }
+
+    @Test
+    void shouldUseManualConfigWhenApiKeyIsConcrete() {
+        AgentConfig config = AgentConfig.builder()
+                .llmModelId(null)
+                .apiUrl("https://manual.example.com/compatible-mode")
+                .apiKey("concrete-api-key")
+                .modelName("manual-model")
+                .temperature(0.2D)
+                .build();
+
+        when(dynamicAgentConfigHolder.get()).thenReturn(config);
+
+        RuntimeChatModelProvider.ResolvedChatModelConfig runtimeConfig = provider.resolveRuntimeConfig();
+
+        assertEquals("https://manual.example.com/compatible-mode", runtimeConfig.baseUrl());
+        assertEquals("concrete-api-key", runtimeConfig.apiKey());
+        assertEquals("manual-model", runtimeConfig.modelName());
     }
 }

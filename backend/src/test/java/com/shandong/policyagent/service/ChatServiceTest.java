@@ -83,6 +83,12 @@ class ChatServiceTest {
     @Mock
     private KnowledgeReferenceService knowledgeReferenceService;
 
+    @Mock
+    private RuntimeChatModelProvider runtimeChatModelProvider;
+
+    @Mock
+    private com.shandong.policyagent.support.ChatMetrics chatMetrics;
+
     private ChatService chatService;
     private PricePrefetchCoordinator realPricePrefetchCoordinator;
 
@@ -97,12 +103,14 @@ class ChatServiceTest {
                 visionService, mock(java.util.concurrent.Executor.class));
         ExecutionFallbackChain realExecutionFallbackChain = new ExecutionFallbackChain(
                 dynamicChatClientFactory,
+                runtimeChatModelProvider,
                 dynamicAgentConfigHolder,
                 modelProviderService,
                 toolFailurePolicyCenter,
                 ragFailureDetector,
                 knowledgeReferenceService,
-                realExecutionPromptBuilder
+                realExecutionPromptBuilder,
+                chatMetrics
         );
 
         chatService = new ChatService(
@@ -116,7 +124,8 @@ class ChatServiceTest {
                 realPricePrefetchCoordinator,
                 realExecutionPromptBuilder,
                 realImageAnalysisService,
-                realExecutionFallbackChain
+                realExecutionFallbackChain,
+                chatMetrics
         );
         // PricePrefetchCoordinator 的 @Value 默认值
         setField(realPricePrefetchCoordinator, "prefetchAwaitEnabled", false);

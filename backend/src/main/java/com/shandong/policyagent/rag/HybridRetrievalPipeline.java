@@ -4,6 +4,7 @@ import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.KnowledgeFolder;
 import com.shandong.policyagent.repository.KnowledgeFolderRepository;
+import com.shandong.policyagent.support.StageTimer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -19,6 +20,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,7 +39,12 @@ public class HybridRetrievalPipeline {
     private static final int DEFAULT_RRF_K = 60;
     private static final double VECTOR_RRF_WEIGHT = 0.65;
     private static final double KEYWORD_RRF_WEIGHT = 0.35;
-    private static final int PARENT_EXPAND_RADIUS = 1;
+    /**
+     * Parent 扩展半径：命中的 child chunk 向前后各取 N 个 sibling chunk 拼成完整段落。
+     * 1→0：单轮 RAG 上下文从 ~4700 token 降到 ~3100（top-k 2 + 不扩展），
+     * 代价是上下文少了相邻段落的衔接，命中片段本身的完整度不受影响。
+     */
+    private static final int PARENT_EXPAND_RADIUS = 0;
     private static final Pattern YEAR_PATTERN = Pattern.compile("(?<!\\d)(20\\d{2})(?!\\d)");
 
     private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
@@ -45,6 +55,32 @@ public class HybridRetrievalPipeline {
     private final DashScopeRerankService rerankService;
     private final RagConfig ragConfig;
     private final RetrievalResultCache retrievalResultCache;
+    private final SemanticRetrievalCache semanticRetrievalCache;
+    private final com.shandong.policyagent.support.ChatMetrics chatMetrics;
+
+    /**
+     * 检索并行执行器：向量召回与关键词召回共用。
+     * 独立小池，避免与对话线程池（chatAsyncTaskExecutor）争抢 CPU。
+     */
+    private final Executor retrievalExecutor = Executors.newFixedThreadPool(4, runnable -> {
+        Thread thread = new Thread(runnable, "rag-retrieval-" + THREAD_COUNTER.incrementAndGet());
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    private static final AtomicInteger THREAD_COUNTER = new AtomicInteger();
+
+    /**
+     * 等待并行任务结果；异常时降级为空列表（关键词召回失败不影响主链路）。
+     */
+    private List<Document> joinQuietly(CompletableFuture<List<Document>> future) {
+        try {
+            return future.join();
+        } catch (Exception e) {
+            log.warn("检索子任务异常 | error={}", e.getMessage());
+            return List.of();
+        }
+    }
 
     // ==================== 检索上下文解析（从 RuntimeRagVectorStore 迁入） ====================
 
@@ -102,22 +138,72 @@ public class HybridRetrievalPipeline {
         int candidateTopK = Math.max(finalTopK, retrievalConfig.getCandidateTopK());
         double effectiveThreshold = similarityThreshold > 0 ? similarityThreshold : 0;
 
+        StageTimer timer = new StageTimer("ragRetrieve", chatMetrics.observer("ragRetrieve"));
+
+        // 检索 query 是被 ExecutionPromptBuilder 增强过的完整用户消息（2000~4000 字符），
+        // 直接拿它做嵌入与缓存键会被模板噪声主导。这里先抽出真实用户问题：
+        //   · 嵌入只用真实问题 → 检索更准、嵌入更快（实测 140ms vs 2700ms 波动）
+        //   · 缓存键/语义注册只用真实问题 → 改写问法才能命中语义缓存
+        String rawQuery = RawQueryExtractor.extract(query);
+        String cacheQuery = RawQueryExtractor.extractForCache(query, 200);
+
         // 检索结果级缓存：优先读缓存，命中后直接返回（跳过管线）
         if (retrievalConfig.getCacheTtlMinutes() > 0) {
             String cacheKey = retrievalResultCache.buildKey(
-                    query, context.embeddingModelId(), context.folderPath(), finalTopK, effectiveThreshold);
-            var cached = retrievalResultCache.get(cacheKey);
+                    cacheQuery, context.embeddingModelId(), context.folderPath(), finalTopK, effectiveThreshold);
+            var cached = timer.time("cacheGet", () -> retrievalResultCache.get(cacheKey));
             if (cached.isPresent()) {
+                chatMetrics.recordCache("hit");
+                timer.logSummary("ragRetrieve", "cacheHit");
                 return cached.get();
             }
+
+            // 语义化缓存：政策咨询的措辞差异极大，纯文本键命中率≈0。
+            // 这里用「与向量召回共用」的查询向量做近似匹配，命中即复用当时的检索结果。
+            float[] queryEmbedding = timer.time("embedQuery", () -> embedQuery(context.embeddingModelId(), rawQuery));
+            if (queryEmbedding != null) {
+                var similarKey = timer.time("semanticCacheGet",
+                        () -> semanticRetrievalCache.findSimilarKey(queryEmbedding));
+                if (similarKey.isPresent()) {
+                    var semanticCached = timer.time("semanticCacheLoad",
+                            () -> retrievalResultCache.get(similarKey.get()));
+                    if (semanticCached.isPresent()) {
+                        chatMetrics.recordCache("semantic_hit");
+                        timer.logSummary("ragRetrieve", "semanticCacheHit");
+                        return semanticCached.get();
+                    }
+                }
+                chatMetrics.recordCache("semantic_miss");
+            }
+
             // 缓存未命中，执行管线后将结果回写缓存
-            List<Document> results = executePipeline(query, context, retrievalConfig, finalTopK, candidateTopK, effectiveThreshold);
-            retrievalResultCache.put(cacheKey, results);
+            List<Document> results = executePipeline(rawQuery, context, retrievalConfig, finalTopK, candidateTopK,
+                    effectiveThreshold, timer, queryEmbedding);
+            timer.time("cachePut", () -> retrievalResultCache.put(cacheKey, results));
+            if (queryEmbedding != null) {
+                timer.time("semanticCacheRegister",
+                        () -> semanticRetrievalCache.register(cacheQuery, queryEmbedding, cacheKey));
+            }
+            chatMetrics.recordCache("miss");
+            timer.logSummary("ragRetrieve", "cacheMiss");
             return results;
         }
 
         // 缓存禁用时直接执行管线
-        return executePipeline(query, context, retrievalConfig, finalTopK, candidateTopK, effectiveThreshold);
+        return executePipeline(query, context, retrievalConfig, finalTopK, candidateTopK, effectiveThreshold, timer, null);
+    }
+
+    /**
+     * 计算查询向量（供语义缓存匹配与向量召回共用，避免重复调用嵌入模型）。
+     */
+    private float[] embedQuery(String embeddingModelId, String query) {
+        try {
+            List<float[]> embeddings = embeddingService.embedTexts(embeddingModelId, List.of(query));
+            return embeddings.isEmpty() ? null : embeddings.get(0);
+        } catch (Exception e) {
+            log.debug("计算查询向量失败，跳过语义化缓存 | error={}", e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -128,70 +214,101 @@ public class HybridRetrievalPipeline {
                                            RagConfig.Retrieval retrievalConfig,
                                            int finalTopK,
                                            int candidateTopK,
-                                           double effectiveThreshold) {
+                                           double effectiveThreshold,
+                                           StageTimer timer,
+                                           float[] precomputedEmbedding) {
         String expandedQuery = expandQueryForSynonyms(query);
 
-        // 1. 向量召回
-        List<Document> vectorCandidates = multiVectorStoreService.similaritySearch(
-                context.embeddingModelId(),
-                expandedQuery,
-                candidateTopK,
-                context.folderPath(),
-                "child",
-                effectiveThreshold
-        );
+        // 1. 向量召回 与 2. 关键词召回 互不依赖，并行执行
+        //    （各自 1 次嵌入 + 1 次 pgvector 查询，实测向量 ~620ms、关键词 ~90ms，
+        //      串行改为并行后 RAG 检索阶段约省 90ms）
+        final float[] queryEmbedding = precomputedEmbedding;
+        CompletableFuture<List<Document>> vectorFuture = CompletableFuture.supplyAsync(
+                () -> {
+                    if (queryEmbedding != null) {
+                        return multiVectorStoreService.similaritySearch(
+                                context.embeddingModelId(),
+                                queryEmbedding,
+                                candidateTopK,
+                                context.folderPath(),
+                                "child",
+                                effectiveThreshold
+                        );
+                    }
+                    return multiVectorStoreService.similaritySearch(
+                            context.embeddingModelId(),
+                            expandedQuery,
+                            candidateTopK,
+                            context.folderPath(),
+                            "child",
+                            effectiveThreshold
+                    );
+                }, retrievalExecutor);
+
+        CompletableFuture<List<Document>> keywordFuture = CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        return multiVectorStoreService.keywordSearch(
+                                context.embeddingModelId(),
+                                expandedQuery,
+                                candidateTopK,
+                                context.folderPath(),
+                                "child"
+                        );
+                    } catch (Exception e) {
+                        log.warn("关键词检索异常，降级为纯向量检索 | query={} | error={}",
+                                truncateQuery(query), e.getMessage());
+                        return List.<Document>of();
+                    }
+                }, retrievalExecutor);
+
+        List<Document> vectorCandidates = timer.time("vectorRecall", () -> joinQuietly(vectorFuture));
 
         if (vectorCandidates.isEmpty()) {
-            vectorCandidates = multiVectorStoreService.similaritySearch(
-                    context.embeddingModelId(),
-                    expandedQuery,
-                    candidateTopK,
-                    context.folderPath(),
-                    null,
-                    effectiveThreshold
-            );
+            vectorCandidates = timer.time("vectorRecallFallback",
+                    () -> multiVectorStoreService.similaritySearch(
+                            context.embeddingModelId(),
+                            expandedQuery,
+                            candidateTopK,
+                            context.folderPath(),
+                            null,
+                            effectiveThreshold
+                    ));
         }
 
-        // 2. 关键词召回（带降级）
-        List<Document> keywordCandidates;
-        try {
-            keywordCandidates = multiVectorStoreService.keywordSearch(
-                    context.embeddingModelId(),
-                    expandedQuery,
-                    candidateTopK,
-                    context.folderPath(),
-                    "child"
-            );
-        } catch (Exception e) {
-            log.warn("关键词检索异常，降级为纯向量检索 | query={} | error={}",
-                    truncateQuery(query), e.getMessage());
-            keywordCandidates = List.of();
-        }
+        List<Document> keywordCandidates = timer.time("keywordRecall", () -> joinQuietly(keywordFuture));
 
         // 3. RRF 融合
-        List<Document> fusedCandidates = fuseByRrf(vectorCandidates, keywordCandidates, candidateTopK);
+        List<Document> vectorForFuse = vectorCandidates;
+        List<Document> keywordForFuse = keywordCandidates;
+        List<Document> fusedCandidates = timer.time("rrfFuse",
+                () -> fuseByRrf(vectorForFuse, keywordForFuse, candidateTopK));
 
         // 4. Rerank 重排序（内置回退纯向量）
-        List<Document> reranked = rerankService.rerank(
-                expandedQuery,
-                fusedCandidates,
-                finalTopK,
-                context.rerankModelId(),
-                context.rerankModelName()
-        );
+        List<Document> reranked = timer.time("rerank",
+                () -> rerankService.rerank(
+                        expandedQuery,
+                        fusedCandidates,
+                        finalTopK,
+                        context.rerankModelId(),
+                        context.rerankModelName()
+                ));
 
         // 5. Rerank 分数阈值过滤
-        List<Document> thresholdFiltered = applyRerankThreshold(
-                reranked,
-                knowledgeService.resolveRerankScoreThreshold(),
-                finalTopK
-        );
+        List<Document> thresholdFiltered = timer.time("thresholdFilter",
+                () -> applyRerankThreshold(
+                        reranked,
+                        knowledgeService.resolveRerankScoreThreshold(),
+                        finalTopK
+                ));
 
         // 6. Parent-child 扩展
-        List<Document> expanded = expandChildHitsToParent(context.vectorTableName(), thresholdFiltered, finalTopK);
+        List<Document> expanded = timer.time("parentExpand",
+                () -> expandChildHitsToParent(context.vectorTableName(), thresholdFiltered, finalTopK));
 
         // 7. 政策年份偏好排序
-        List<Document> ordered = preferLatestPolicyDocuments(expanded, finalTopK);
+        List<Document> ordered = timer.time("yearSort",
+                () -> preferLatestPolicyDocuments(expanded, finalTopK));
 
         log.debug("检索完成 | query={} | vector={} | keyword={} | fused={} | reranked={} | expanded={}",
                 truncateQuery(query),

@@ -31,15 +31,18 @@ public class LoggingAdvisor implements CallAdvisor, StreamAdvisor {
     private final int order;
     private final boolean logTokenUsage;
     private final boolean logRetrievedDocs;
+    private final com.shandong.policyagent.support.ChatMetrics chatMetrics;
 
     public LoggingAdvisor() {
-        this(DEFAULT_ORDER, true, true);
+        this(DEFAULT_ORDER, true, true, null);
     }
 
-    public LoggingAdvisor(int order, boolean logTokenUsage, boolean logRetrievedDocs) {
+    public LoggingAdvisor(int order, boolean logTokenUsage, boolean logRetrievedDocs,
+                          com.shandong.policyagent.support.ChatMetrics chatMetrics) {
         this.order = order;
         this.logTokenUsage = logTokenUsage;
         this.logRetrievedDocs = logRetrievedDocs;
+        this.chatMetrics = chatMetrics;
     }
 
     @Override
@@ -71,6 +74,9 @@ public class LoggingAdvisor implements CallAdvisor, StreamAdvisor {
             Duration duration = Duration.between(startTime, Instant.now());
             log.error("[Chat] 请求处理失败 | conversationId={} | duration={}ms | error={}",
                     conversationId, duration.toMillis(), e.getMessage());
+            if (chatMetrics != null) {
+                chatMetrics.recordLlmCall("failure");
+            }
             throw e;
         }
     }
@@ -116,6 +122,13 @@ public class LoggingAdvisor implements CallAdvisor, StreamAdvisor {
                     usage.getPromptTokens(),
                     usage.getCompletionTokens(),
                     usage.getTotalTokens());
+            if (chatMetrics != null) {
+                chatMetrics.recordTokens("prompt", usage.getPromptTokens() == null ? 0 : usage.getPromptTokens());
+                chatMetrics.recordTokens("completion", usage.getCompletionTokens() == null ? 0 : usage.getCompletionTokens());
+                chatMetrics.recordLlmCall("success");
+            }
+        } else if (chatMetrics != null) {
+            chatMetrics.recordLlmCall("success");
         }
 
         log.info("[Chat] 请求处理完成 | conversationId={} | duration={}ms", conversationId, duration.toMillis());
@@ -187,6 +200,7 @@ public class LoggingAdvisor implements CallAdvisor, StreamAdvisor {
         private int order = DEFAULT_ORDER;
         private boolean logTokenUsage = true;
         private boolean logRetrievedDocs = true;
+        private com.shandong.policyagent.support.ChatMetrics chatMetrics;
 
         public Builder order(int order) {
             this.order = order;
@@ -203,8 +217,13 @@ public class LoggingAdvisor implements CallAdvisor, StreamAdvisor {
             return this;
         }
 
+        public Builder chatMetrics(com.shandong.policyagent.support.ChatMetrics chatMetrics) {
+            this.chatMetrics = chatMetrics;
+            return this;
+        }
+
         public LoggingAdvisor build() {
-            return new LoggingAdvisor(order, logTokenUsage, logRetrievedDocs);
+            return new LoggingAdvisor(order, logTokenUsage, logRetrievedDocs, chatMetrics);
         }
     }
 }

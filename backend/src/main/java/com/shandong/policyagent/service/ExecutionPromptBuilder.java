@@ -65,7 +65,7 @@ public class ExecutionPromptBuilder {
             prompt += "\n\n" + buildPreExecutedToolsSection(toolOutcome);
         }
 
-        if (isPolicyPriceMixedQuestion(userMessage)) {
+        if (isPolicyPriceMixedQuestion(userMessage) && !isExplicitSearchRequest(userMessage)) {
             return prompt + "\n\n【混合问法补充策略】\n"
                     + "1. 先输出山东本地政策口径与适用边界。\n"
                     + "2. 若暂缺实时价格证据，不要编造最新价格；引导用户补充品牌+型号后再执行 webSearch。\n"
@@ -166,7 +166,8 @@ public class ExecutionPromptBuilder {
         if (plan == null || !requiresRealtimeSearch(userMessage)) {
             return plan;
         }
-        if (isPolicyPriceMixedQuestion(userMessage)) {
+        // 显式联网请求不受"政策+价格混合"压制（用户的显式指令优先）
+        if (isPolicyPriceMixedQuestion(userMessage) && !isExplicitSearchRequest(userMessage)) {
             return plan;
         }
         if (containsToolHint(plan, AgentExecutionPlan.TOOL_HINT_CALCULATE_SUBSIDY) || isSubsidyQuestion(userMessage)) {
@@ -205,7 +206,8 @@ public class ExecutionPromptBuilder {
             return false;
         }
         String normalized = userMessage.toLowerCase();
-        if (isPolicyPriceMixedQuestion(normalized)) {
+        // 显式联网请求不受"政策+价格混合"压制（用户的显式指令优先）
+        if (isPolicyPriceMixedQuestion(normalized) && !isExplicitSearchRequest(normalized)) {
             return false;
         }
         return QueryIntentRules.containsAny(normalized, QueryIntentRules.REALTIME_SEARCH_KEYWORDS);
@@ -220,6 +222,17 @@ public class ExecutionPromptBuilder {
         }
         String normalized = userMessage.toLowerCase(Locale.ROOT);
         return QueryIntentRules.isPolicyPriceMixed(normalized);
+    }
+
+    /**
+     * 判断用户是否显式要求联网检索（"联网搜索/上网查/搜一下"）。
+     */
+    public boolean isExplicitSearchRequest(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return false;
+        }
+        String normalized = userMessage.toLowerCase(Locale.ROOT);
+        return QueryIntentRules.isExplicitSearchRequest(normalized);
     }
 
     /**

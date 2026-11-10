@@ -89,8 +89,13 @@ public class WebSearchTool {
 
     @Autowired
     // 显式 @Qualifier：项目中存在 auto-configured "vectorStore" 与 "runtimeRagVectorStore" 两个
-    // VectorStore bean，不能依赖参数名与 bean 名的隐式匹配（与 VectorStoreService 做法一致）
-    public WebSearchTool(@Qualifier("vectorStore") VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter,
+    // VectorStore bean，不能依赖参数名与 bean 名的隐式匹配（与 VectorStoreService 做法一致）。
+    //
+    // 必须用 runtimeRagVectorStore：auto-configured 的 "vectorStore" 绑定的是 spring.ai.openai.embedding
+    // （固定 DASHSCOPE_API_KEY），该 Key 已失效 → 每次写入搜索结果都抛 HTTP 401 invalid_api_key，
+    // 导致「搜索结果缓存到向量数据库」这个能力实际上从未生效过。
+    // runtimeRagVectorStore 走运行时配置的嵌入模型（ollama:bge-m3），与知识库主表一致。
+    public WebSearchTool(@Qualifier("runtimeRagVectorStore") VectorStore vectorStore, ToolFailurePolicyCenter failurePolicyCenter,
                          ToolStateManager toolStateManager) {
         this.vectorStore = vectorStore;
         this.failurePolicyCenter = failurePolicyCenter != null ? failurePolicyCenter : new ToolFailurePolicyCenter();
@@ -468,7 +473,38 @@ public class WebSearchTool {
                 .replaceAll("\\s+", " ")
                 .trim();
 
+        normalized = stripSearchInstruction(normalized);
+
         return normalized.length() > 180 ? normalized.substring(0, 180) : normalized;
+    }
+
+    /**
+     * 剥离搜索指令性前缀，让检索关键词聚焦到实际检索实体。
+     *
+     * <p>用户常把指令和检索词写在一起（"你联网搜索一下价格，iPhone17标准版256GB"），
+     * 原样送进 Tavily 会稀释检索意图、降低召回质量。这里只剥离前缀性指令，
+     * 保留"价格/报价"等描述查询维度的词（它们对检索电商报价确有帮助）。</p>
+     */
+    private String stripSearchInstruction(String query) {
+        if (query == null || query.isBlank()) {
+            return "";
+        }
+        String stripped = query;
+        for (String prefix : List.of(
+                "请你联网搜索一下", "你联网搜索一下", "联网搜索一下", "联网搜索下",
+                "帮我联网搜索一下", "帮我搜索一下", "帮我搜一下", "帮我查一下",
+                "上网搜索一下", "上网搜索", "上网查一下", "上网查",
+                "网上搜索一下", "网上搜一下", "网上查一下",
+                "联网搜索", "联网查一下", "联网查", "联网搜一下",
+                "搜索一下", "搜一下", "查一下", "请帮我搜", "请搜索")) {
+            if (stripped.startsWith(prefix)) {
+                stripped = stripped.substring(prefix.length()).trim();
+                break;
+            }
+        }
+        // 去掉首尾标点
+        stripped = stripped.replaceAll("^[，,。.、：:；;\\s]+", "").trim();
+        return stripped.isBlank() ? query : stripped;
     }
 
     private String buildSummary(String query, TavilyResponse tavilyResponse, List<SearchResult> results) {

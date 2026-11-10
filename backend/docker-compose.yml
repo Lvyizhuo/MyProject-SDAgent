@@ -1,20 +1,34 @@
 # ===========================================
-# 山东省智能政策咨询助手 - Docker Compose（后端 + 依赖）
-# 本地开发 / 单机部署用。生产环境请用 deploy/docker-compose.yml
+# 【方式二】本地开发 —— 仅中间件（后端/前端跑在宿主机热重载）
+#
+# 由 scripts/dev.sh 调用（COMPOSE_PROJECT_NAME=policy-agent-dev）
+# 只启动依赖服务：postgres / redis / minio / ollama / ollama-init / reranker
+# 后端与前端由 scripts/dev.sh 在宿主机以开发模式启动（热重载）
+#
+# 与【方式一】一键部署（deploy/docker-compose.yml）完全隔离：
+#   项目名   policy-agent-dev  vs  policy-agent
+#   端口段   15433/16379/19000/19001/211434/18989  vs  5433/6379/9000/9001/11434/8989
+#   数据卷   policy-agent-dev_*  vs  policy-agent_*
+#   因此两种方式可在同一台机器上同时运行，互不抢占端口与数据
 # ===========================================
 
 services:
+
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: policy-agent-postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     environment:
       POSTGRES_DB: policy_agent
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未配置}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${DEV_POSTGRES_PORT:-15433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
@@ -26,12 +40,16 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: policy-agent-redis
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:${DEV_REDIS_PORT:-16379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -42,15 +60,19 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: policy-agent-minio
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:${DEV_MINIO_PORT:-19000}:9000"
+      - "127.0.0.1:${DEV_MINIO_CONSOLE_PORT:-19001}:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_USER:?MINIO_USER 未配置}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD 未配置}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - minio_data:/data
@@ -62,10 +84,14 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: policy-agent-ollama
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:11434:11434"
+      - "127.0.0.1:${DEV_OLLAMA_PORT:-21434}:11434"
     volumes:
       - ollama_data:/root/.ollama
     environment:
@@ -86,7 +112,11 @@ services:
     # 启动时拉取默认嵌入模型：bge-m3 (1024 维) + nomic-embed-text 备用 (768 维)
     # 拉取失败不阻塞启动（应用启动时再去 try 拉取）
     image: ollama/ollama:latest
-    container_name: policy-agent-ollama-init
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: "no"
     environment:
       OLLAMA_HOST: http://ollama:11434
@@ -102,18 +132,25 @@ services:
     build:
       context: ../rerank-service
       dockerfile: Dockerfile
-    container_name: policy-agent-reranker
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8989:80"
+      - "127.0.0.1:${DEV_RERANKER_PORT:-18989}:80"
     volumes:
       - huggingface_cache:/root/.cache/huggingface
     environment:
       RERANK_MODEL_ID: ${RERANK_MODEL_ID:-BAAI/bge-reranker-v2-m3}
       PORT: "80"
       TZ: ${TZ:-Asia/Shanghai}
-      HF_ENDPOINT: https://hf-mirror.com
+      # ⚠️ 不设 HF_ENDPOINT，走官方 huggingface.co。
+      # 历史教训：hf-mirror.com 返回 308 重定向，huggingface_hub
+      # 在 HEAD 请求时不跟随重定向就放弃，导致模型永远下载失败。
       HF_HUB_DOWNLOAD_TIMEOUT: "300"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request, json; r=urllib.request.urlopen('http://localhost:80/health'); d=json.loads(r.read()); exit(0 if d.get('status')=='ok' else 1)\" || exit 1"]
       interval: 30s
@@ -121,58 +158,18 @@ services:
       start_period: 600s
       retries: 30
 
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: policy-agent-backend
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:8080"
-    environment:
-      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
-      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
-      APP_JWT_SECRET: ${APP_JWT_SECRET}
-      APP_MODEL_PROVIDER_ENCRYPTION_SECRET: ${APP_MODEL_PROVIDER_ENCRYPTION_SECRET:-}
-      APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS: ${APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS:-}
-      APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:5173,http://127.0.0.1:5173}
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/policy_agent
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      APP_KNOWLEDGE_MINIO_ENDPOINT: http://minio:9000
-      APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
-      APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
-      APP_EMBEDDING_OLLAMA_BASE_URL: http://ollama:11434
-      APP_RAG_RERANK_PROVIDER: tei
-      APP_RAG_RERANK_MODEL: bge-reranker-v2-m3
-      APP_RAG_RERANK_ENDPOINT: http://reranker:80/rerank
-      SPRING_PROFILES_ACTIVE: mcp
-      APP_KNOWLEDGE_MIGRATION_ENABLED: "true"
-      APP_KNOWLEDGE_MIGRATION_TARGET_MODEL: ollama:bge-m3
-      TZ: ${TZ:-Asia/Shanghai}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      ollama-init:
-        condition: service_completed_successfully
-      reranker:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 240s
-
 volumes:
+  # 卷名显式指定，默认与项目名一致（policy-agent-dev_*）
   postgres_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent-dev}_postgres_data
   redis_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent-dev}_redis_data
   minio_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent-dev}_minio_data
   ollama_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent-dev}_ollama_data
   huggingface_cache:
+    # 与一键部署实例共用同一份 HF 模型缓存（模型文件只读共享安全）。
+    # 默认指向 policy-agent 命名空间下的缓存卷，避免重复下载 568MB 模型；
+    # 如需完全隔离，把 HF_CACHE_VOLUME 设为 policy-agent-dev_huggingface_cache。
+    name: ${HF_CACHE_VOLUME:-policy-agent_huggingface_cache}

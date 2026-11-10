@@ -104,18 +104,34 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       # 不对外暴露健康检查细节，避免泄露组件拓扑与连接信息
       show-details: never
+  metrics:
+    tags:
+      application: policy-agent
 
 # 日志配置
+#
+# 详细规则见 backend/src/main/resources/logback-spring.xml：
+#   格式  复用 Spring Boot 内置 CONSOLE_LOG_PATTERN / FILE_LOG_PATTERN，
+#         控制台与文件逐行同构（仅控制台带 ANSI 颜色）。
+#   命名  活动文件 = <组件名>-<日期>.log，例：backend-2026-11-10.log
+#   切分  纯按容量切分（100MB），不压缩，方便直接查看/grep/tail
+#   保留  30 天，由启动脚本 / 容器 entrypoint 清理过期文件
+#
+# 这里只保留"日志级别"与"目录"两个需要在 yml 里声明的项；
+# 文件名、日期、容量切分等全部在 logback-spring.xml 中定义。
 logging:
   level:
     root: INFO
     com.shandong.policyagent: ${APP_LOG_LEVEL:INFO}
     org.springframework.ai: ${APP_LOG_LEVEL_SPRING_AI:INFO}
+  # 日志目录（相对进程工作目录；容器内由 compose 注入绝对路径 /app/logs）
+  file:
+    path: ${LOGGING_FILE_PATH:logs}
 
 # DashScope 多模态配置
 dashscope:
@@ -133,6 +149,13 @@ dashscope:
 
 # 应用配置
 app:
+  log:
+    # 日志日期：环境变量 LOG_DATE（由 dev.sh / 容器 entrypoint 注入当天日期）
+    # 未注入时兜底为 unknown，文件名为 backend-unknown.log
+    date: ${LOG_DATE:unknown}
+    # 组件名（决定日志文件名前缀），默认 backend
+    name: ${LOG_APP_NAME:backend}
+
   chat:
     mode: sync-only # sync-only | dual
 
@@ -158,19 +181,34 @@ app:
       auto-load-on-startup: false
     # 注意：当前 RAG 检索链路读取的是 app.rag.retrieval（RagConfig）
     retrieval:
-      top-k: 3
+      # 最终返回的文档数。3→2：单轮 RAG 上下文从 ~4700 token 降到 ~3100，
+      # 配合 parent 扩展半径归零后收益更明显（实测 top-3 命中率高，top-2 仍覆盖主诉求）。
+      top-k: 2
       similarity-threshold: 0.5
-      candidate-top-k: 20
+      # 送入 rerank 的候选数。20→10→6：rerank 在 CPU 上约 380~670ms/候选（实测真实政策
+      # chunk 约 420 字/条），是 RAG 阶段 90%+ 的耗时来源；候选减半后检索质量基本不变
+      # （RRF 融合后头部排序稳定），但检索阶段耗时近似线性下降。
+      candidate-top-k: 6
       rerank-enabled: true
       rerank-provider: ${APP_RAG_RERANK_PROVIDER:tei}
       rerank-model: ${APP_RAG_RERANK_MODEL:bge-reranker-v2-m3}
       rerank-endpoint: ${APP_RAG_RERANK_ENDPOINT:http://localhost:8989/rerank}
-      rerank-max-doc-chars: 3000
+      # 送入 rerank 的单条最大字符数。3000→800：rerank 耗时与 token 数成正比，
+      # 而真实 chunk 均长约 420 字（最大 768），800 已能覆盖绝大多数，
+      # 避免个别超长片段把整批推理时间拉高（实测 10 条候选 3.8s → 6.8s 的波动主因）。
+      rerank-max-doc-chars: 800
       # 检索结果级缓存 TTL（分钟），0 表示禁用。
       # 缓存键：SHA-256(query|embeddingModelId|folderPath|topK|similarityThreshold|rerank配置)
       # 缓存值：完整 Document 列表（JSON 序列化，含 id/text/metadata）
       # Redis 不可用或序列化失败时静默降级为不缓存，不影响主链路。
-      cache-ttl-minutes: 10
+      cache-ttl-minutes: 30
+      # 语义化缓存：改写问法也能命中（政策咨询类问题的措辞差异极大，纯文本键命中率≈0）。
+      # 开启后按 query 嵌入向量做近似匹配，相似度低于 semantic-threshold 视为不同问题。
+      semantic-cache-enabled: true
+      semantic-cache-threshold: 0.92
+      # 预热：启动后后台把常见政策问法的检索结果灌入缓存
+      warmup-enabled: true
+      warmup-delay-seconds: 20
 
   # Knowledge Base 配置 (新方式)
   knowledge:

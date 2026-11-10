@@ -1,5 +1,7 @@
 package com.shandong.policyagent.rag;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.entity.ModelType;
 import com.shandong.policyagent.service.ModelProviderService;
@@ -27,6 +29,8 @@ public class DashScopeRerankService {
     @Value("${spring.ai.openai.api-key:}")
     private String apiKey;
 
+    private final ObjectMapper objectMapper;
+
     /**
      * Rerank 专用 HTTP 客户端：RestClient.create() 默认无任何超时，
      * TEI/Xinference 悬挂会永久阻塞聊天线程，导致 catch 分支的"回退纯向量检索"降级永远无法触发。
@@ -37,9 +41,11 @@ public class DashScopeRerankService {
 
     private static SimpleClientHttpRequestFactory buildRerankRequestFactory() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        // rerank 属检索旁路：connect 2s / read 5s 快速失败，超时异常由 rerank() 的 catch 捕获后降级
+        // rerank 属检索旁路：connect 2s 快速失败；read 30s 足够覆盖
+        // bge-reranker-v2-m3 在 CPU 上对 10 条真实政策 chunk 的推理耗时（实测约 3.5s）。
+        // 原先 read 只有 5s，推理稍慢即超时 → rerank 静默失效并降级为纯向量检索。
         factory.setConnectTimeout(2_000);
-        factory.setReadTimeout(5_000);
+        factory.setReadTimeout(30_000);
         return factory;
     }
 
@@ -77,10 +83,12 @@ public class DashScopeRerankService {
                 return shrink(documents, topK);
             }
 
-            log.debug("发起 Rerank 调用 | model={} | endpoint={} | docs={} | topK={}",
+            int totalChars = docTexts.stream().mapToInt(String::length).sum();
+            log.info("发起 Rerank 调用 | model={} | endpoint={} | docs={} | totalChars={} | topK={}",
                     runtime.modelName(),
                     runtime.endpoint(),
                     docTexts.size(),
+                    totalChars,
                     Math.min(topK, documents.size()));
 
             Object response = callRerankEndpoint(runtime.endpoint(), runtime, query, docTexts, topK);
@@ -201,12 +209,34 @@ public class DashScopeRerankService {
             requestSpec = requestSpec.header("Authorization", "Bearer " + runtime.apiKey());
         }
 
-        // TEI 返回顶层数组，DashScope/Xinference 返回 Map，用 Object 统一接收
-        Object response = requestSpec
+        // TEI 返回顶层数组，DashScope/Xinference 返回 Map。
+        // ⚠️ 不能用 .body(Object.class)：Spring 会选 ObjectHttpMessageConverter，
+        // 它只支持 application/octet-stream，解析 JSON 数组/对象必然抛
+        // "Error while extracting response for type [java.lang.Object]"，
+        // 导致每次 rerank 都失败并静默降级为纯向量检索（历史故障根因）。
+        // 这里统一取原始字符串再按需解析：顶层数组 → List<Map>，对象 → Map。
+        String raw = requestSpec
                 .body(body)
                 .retrieve()
-                .body(Object.class);
-        return response == null ? Map.of() : response;
+                .body(String.class);
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("[")) {
+            try {
+                return objectMapper.readValue(trimmed, new TypeReference<List<Map<String, Object>>>() { });
+            } catch (Exception e) {
+                log.warn("Rerank 响应解析失败（数组） | error={}", e.getMessage());
+                return Map.of();
+            }
+        }
+        try {
+            return objectMapper.readValue(trimmed, new TypeReference<Map<String, Object>>() { });
+        } catch (Exception e) {
+            log.warn("Rerank 响应解析失败（对象） | error={}", e.getMessage());
+            return Map.of();
+        }
     }
 
     private RerankRuntime resolveRuntime(Long rerankModelId, String rerankModelName) {

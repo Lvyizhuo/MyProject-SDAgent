@@ -115,6 +115,8 @@
 
 ## 快速开始
 
+本项目提供两套独立的启动方式，详见 [`deploy/README.md`](deploy/README.md)。
+
 ### 环境要求
 
 - Java 21+
@@ -122,45 +124,67 @@
 - Docker & Docker Compose
 - pnpm（前端包管理器）
 
-### 1. 设置环境变量
+### 方式一：服务器 / 新机器一键部署
+
+全新机器上只需一条命令，自动装依赖、构建、启动、健康校验：
 
 ```bash
-export DASHSCOPE_API_KEY=your_dashscope_api_key
-export TAVILY_API_KEY=your_tavily_api_key   # 可选，联网搜索工具
-export APP_JWT_SECRET=your_base64_jwt_secret
-export APP_MODEL_PROVIDER_ENCRYPTION_SECRET=your_model_provider_secret   # 可选但推荐，启用模型管理时建议配置
+./scripts/deploy.sh up
 ```
 
-### 2. 启动基础设施
+首次建议先初始化配置：
 
 ```bash
+./scripts/deploy.sh init    # 交互式生成 deploy/.env（密钥自动生成）
+vi deploy/.env              # 按需修改域名等
+./scripts/deploy.sh up
+```
+
+### 方式二：本地开发
+
+中间件跑在 Docker，前后端跑在宿主机（热重载）：
+
+```bash
+./scripts/dev.sh
+```
+
+前后端可独立启停：
+
+```bash
+./scripts/dev.sh start backend     # 只启动后端
+./scripts/dev.sh start frontend    # 只启动前端
+./scripts/dev.sh stop frontend     # 只停前端，后端继续跑
+./scripts/dev.sh stop              # 停掉全部
+```
+
+### 手动分步启动（可选）
+
+```bash
+# 1. 中间件
+cd backend && docker compose up -d postgres redis minio ollama ollama-init reranker
+
+# 2. 后端（需 JDK 21）
 cd backend
-docker compose up -d
-```
+source .env.local
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev,mcp
 
-### 3. 启动后端
-
-```bash
-cd backend
-./mvnw spring-boot:run
-
-# mcp profile
-./mvnw spring-boot:run -Dspring-boot.run.profiles=mcp
-```
-
-### 4. 启动前端
-
-```bash
+# 3. 前端
 cd frontend
-pnpm install
-pnpm run dev
+pnpm install && pnpm run dev
 ```
 
 ## 服务器部署（宝塔 + Docker Compose）
 
-推荐在 Linux 服务器使用 `deploy/` 目录一键部署（包含前后端 + PostgreSQL + Redis + MinIO + Ollama + Reranker）。
+推荐在 Linux 服务器使用一键部署脚本（包含前后端 + PostgreSQL + Redis + MinIO + Ollama + Reranker）。
+
+```bash
+cd /www/wwwroot/MyProject-SDAgent
+./scripts/deploy.sh up
+```
 
 ### 1. 准备部署配置
+
+脚本会在 `deploy/.env` 不存在时引导生成；也可手动准备：
 
 ```bash
 cd /www/wwwroot/MyProject-SDAgent
@@ -278,19 +302,22 @@ curl -f http://mmgg.dpdns.org/api/chat/health
 ```bash
 cd /www/wwwroot/MyProject-SDAgent
 git pull
-cd deploy
-./deploy.sh
+./scripts/deploy.sh up
 ```
+
+> 部署与本地开发的完整说明见 [`deploy/README.md`](deploy/README.md)。
+> 本项目只有两套启动方式：**服务器一键部署**（`scripts/deploy.sh`）与
+> **本地开发**（`scripts/dev.sh`），二者通过 Compose 项目名、端口段、数据卷、配置文件四重隔离，可同时运行。
 
 
 ## 常见排障
 
-- 查看后端日志：`docker compose logs -f backend`
-- 查看最近错误：`docker compose logs --tail=200 backend`
-- 查看容器状态：`docker compose ps`
-- 查看后端健康状态：`docker inspect -f '{{.State.Health.Status}}' policy-agent-backend`
+- 查看后端日志：`./scripts/deploy.sh logs backend`
+- 查看最近错误：`docker compose -f deploy/docker-compose.yml logs --tail=200 backend`
+- 查看容器状态：`./scripts/deploy.sh status`
+- 查看后端健康状态：`curl http://127.0.0.1:8080/actuator/health`
 - 若知识库模型列表为空或上传失败，先检查 `backend` 日志是否有 `EmbeddingService` 相关报错，再核对 `APP_EMBEDDING_OLLAMA_BASE_URL`。
-- 若管理员登录时报 `Illegal base64 character`：检查 `.env` 中 `APP_JWT_SECRET` 是否仍是占位符或非标准 Base64，修正后执行 `docker compose up -d --force-recreate backend`。
+- 若管理员登录时报 `Illegal base64 character`：检查 `deploy/.env` 中 `APP_JWT_SECRET` 是否仍是占位符或非标准 Base64，修正后执行 `./scripts/deploy.sh up`。
 
 ## 访问地址
 

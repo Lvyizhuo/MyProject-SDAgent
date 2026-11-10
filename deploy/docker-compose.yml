@@ -1,13 +1,19 @@
 # ===========================================
-# 完整 Docker Compose (宝塔反向代理 + Docker 容器)
-# 适用：阿里云 / 其他 Linux 服，绑定 127.0.0.1 仅本机访问
-# 外部 Nginx (宝塔) 反代到 127.0.0.1:5173 (前端) + 127.0.0.1:8080 (后端)
+# 【方式一】服务器 / 新机器 一键部署 —— 全栈编排
+#
+# 由 scripts/deploy.sh 调用（COMPOSE_PROJECT_NAME=policy-agent）
+# 全部服务跑在容器内，端口绑定 127.0.0.1 供本机 Nginx（宝塔）反代
+#
+# 与【方式二】本地开发（backend/docker-compose.yml）完全隔离：
+#   项目名 policy-agent vs policy-agent-dev
+#   端口段 5433/6379/9000/8989/8080/5173 vs 15433/16379/19000/18989
+#   数据卷 policy-agent_* vs policy-agent-dev_*
 # ===========================================
 
 services:
+
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: policy-agent-postgres
     logging:
       driver: json-file
       options:
@@ -18,10 +24,10 @@ services:
       POSTGRES_DB: policy_agent
       POSTGRES_USER: postgres
       # 必填：缺失时 compose 直接报错退出，避免静默使用弱口令
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未在 .env 中设置}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未配置}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../backend/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
@@ -33,7 +39,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: policy-agent-redis
     logging:
       driver: json-file
       options:
@@ -43,7 +48,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -54,7 +59,6 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: policy-agent-minio
     logging:
       driver: json-file
       options:
@@ -63,11 +67,11 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_USER:?MINIO_USER 未在 .env 中设置}
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD 未在 .env 中设置}
+      MINIO_ROOT_USER: ${MINIO_USER:?MINIO_USER 未配置}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:?MINIO_PASSWORD 未配置}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - minio_data:/data
@@ -79,7 +83,6 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: policy-agent-ollama
     logging:
       driver: json-file
       options:
@@ -87,7 +90,7 @@ services:
         max-file: "3"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:11434:11434"
+      - "127.0.0.1:${OLLAMA_HOST_PORT:-11434}:11434"
     volumes:
       - ollama_data:/root/.ollama
     environment:
@@ -108,7 +111,6 @@ services:
     # 启动时拉取默认嵌入模型：bge-m3 (1024 维) + nomic-embed-text 备用 (768 维)
     # 即使拉取失败也返回成功（exit 0），应用启动后由 fallback 兜底
     image: ollama/ollama:latest
-    container_name: policy-agent-ollama-init
     logging:
       driver: json-file
       options:
@@ -129,7 +131,6 @@ services:
     build:
       context: ../rerank-service
       dockerfile: Dockerfile
-    container_name: policy-agent-reranker
     logging:
       driver: json-file
       options:
@@ -137,7 +138,7 @@ services:
         max-file: "3"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8989:80"
+      - "127.0.0.1:${RERANKER_HOST_PORT:-8989}:80"
     volumes:
       # HuggingFace 模型缓存，跨容器重启持久化（避免每次重新下载 568MB 模型）
       - huggingface_cache:/root/.cache/huggingface
@@ -145,6 +146,8 @@ services:
       RERANK_MODEL_ID: ${RERANK_MODEL_ID:-BAAI/bge-reranker-v2-m3}
       PORT: "80"
       TZ: ${TZ:-Asia/Shanghai}
+      # 日志：统一走容器内部 /app/logs，按天归档（与后端同一套命名与保留策略）
+      RERANK_LOG_DIR: ${RERANK_LOG_DIR:-/app/logs}
       # ⚠️ 不设 HF_ENDPOINT，走官方 huggingface.co。
       # 历史教训：hf-mirror.com 返回 308 重定向，huggingface_hub
       # 在 HEAD 请求时不跟随重定向就放弃，导致模型永远下载失败。
@@ -154,11 +157,10 @@ services:
       # /health 端点：
       #   - status=starting/loading: 200 OK（模型后台加载中）
       #   - status=ok: 200 OK（模型就绪）
-      # urllib.request.urlopen 收到 200 就视为 healthy
       test: ["CMD-SHELL", "python -c \"import urllib.request, json; r=urllib.request.urlopen('http://localhost:80/health'); d=json.loads(r.read()); exit(0 if d.get('status')=='ok' else 1)\" || exit 1"]
       interval: 30s
       timeout: 10s
-      # 留 10 分钟给首次模型下载（hf-mirror.com 大约 3-5 分钟）
+      # 留 10 分钟给首次模型下载
       start_period: 600s
       retries: 30
 
@@ -166,7 +168,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    container_name: policy-agent-backend
     logging:
       driver: json-file
       options:
@@ -174,25 +175,25 @@ services:
         max-file: "3"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8080}:8080"
     environment:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       # 高德地图 MCP Server 的 API Key：mcp-servers.json 已不含明文，
       # 由 npx 子进程从进程环境变量 AMAP_MAPS_API_KEY 读取
       AMAP_MAPS_API_KEY: ${AMAP_MAPS_API_KEY:-}
-      APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET 未在 .env 中设置}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:?APP_JWT_SECRET 未配置}
       APP_MODEL_PROVIDER_ENCRYPTION_SECRET: ${APP_MODEL_PROVIDER_ENCRYPTION_SECRET:-}
       APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS: ${APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS:-}
-      APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS:-http://mmgg.dpdns.org,https://mmgg.dpdns.org}
+      APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS:-}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/policy_agent
       SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未在 .env 中设置}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未配置}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       APP_KNOWLEDGE_MINIO_ENDPOINT: http://minio:9000
-      APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER 未在 .env 中设置}
-      APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD 未在 .env 中设置}
+      APP_KNOWLEDGE_MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER 未配置}
+      APP_KNOWLEDGE_MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD 未配置}
       APP_EMBEDDING_OLLAMA_BASE_URL: http://ollama:11434
       APP_RAG_RERANK_PROVIDER: tei
       APP_RAG_RERANK_MODEL: bge-reranker-v2-m3
@@ -202,6 +203,13 @@ services:
       APP_KNOWLEDGE_MIGRATION_ENABLED: "true"
       APP_KNOWLEDGE_MIGRATION_TARGET_MODEL: ollama:bge-m3
       TZ: ${TZ:-Asia/Shanghai}
+      # 显式指定端口：防止宿主机环境变量（如某些 IDE 注入的 SERVER__PORT）
+      # 经 Spring Boot 的 relaxed binding 覆盖 server.port，导致容器内绑错端口。
+      SERVER_PORT: "8080"
+      # 日志目录：活动文件 /app/logs/backend-<日期>.log（日期由 entrypoint.sh 注入）
+      LOGGING_FILE_PATH: /app/logs
+      # 日志保留天数（entrypoint.sh 启动时清理过期文件）
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
     depends_on:
       postgres:
         condition: service_healthy
@@ -218,14 +226,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      # 给 Flyway V9 迁移 + knowledge 迁移 + 5 agent seed 留够时间
+      # 给 Flyway 迁移 + knowledge 迁移 + agent seed 留够时间
       start_period: 240s
 
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
-    container_name: policy-agent-frontend
     logging:
       driver: json-file
       options:
@@ -233,7 +240,11 @@ services:
         max-file: "3"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5173:80"
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:80"
+    environment:
+      # 时区：nginx 的 $time_iso8601 取容器本地时区。
+      # 不设 TZ 会输出 UTC(+00:00)，与后端/重排服务的 +08:00 不一致，跨组件对时会出现偏差。
+      TZ: ${TZ:-Asia/Shanghai}
     depends_on:
       backend:
         condition: service_healthy
@@ -245,8 +256,19 @@ services:
       start_period: 30s
 
 volumes:
+  # 卷名显式指定，默认与项目名一致（policy-agent_*）。
+  # 从旧部署（deploy_*）升级时，可通过 .env 里的 COMPOSE_VOLUME_PREFIX=deploy
+  # 复用旧卷，避免数据卷改名导致"数据丢失"的错觉。
   postgres_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent}_postgres_data
   redis_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent}_redis_data
   minio_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent}_minio_data
   ollama_data:
+    name: ${COMPOSE_VOLUME_PREFIX:-policy-agent}_ollama_data
   huggingface_cache:
+    # HF 模型缓存卷：内容寻址、只读共享是安全的。
+    # 可用 HF_CACHE_VOLUME 指向其他实例的缓存卷，避免重复下载 568MB 模型
+    # （容器网络访问 huggingface.co 不畅时，这个复用尤其重要）。
+    name: ${HF_CACHE_VOLUME:-${COMPOSE_VOLUME_PREFIX:-policy-agent}_huggingface_cache}

@@ -1659,3 +1659,47 @@
         gap: var(--ui-sp-2);
     }
 }
+
+/* ===========================================
+   流式输出光标（SSE 增量渲染）
+   =========================================== */
+.ui-stream-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    background: currentColor;
+    opacity: 0.6;
+    animation: ui-stream-cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes ui-stream-cursor-blink {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 0; }
+}
+
+/* ===========================================
+   停止生成按钮（SSE 流式中断）
+   =========================================== */
+.ui-stop-zone {
+    display: flex;
+    justify-content: center;
+    padding: var(--ui-sp-2, 8px) 0 0;
+}
+
+.ui-stop-button {
+    padding: 6px 18px;
+    font-size: 13px;
+    color: var(--ui-text-secondary, #666);
+    background: transparent;
+    border: 1px solid var(--ui-border, #ddd);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.ui-stop-button:hover {
+    color: var(--ui-text-primary, #333);
+    border-color: var(--ui-text-secondary, #999);
+}

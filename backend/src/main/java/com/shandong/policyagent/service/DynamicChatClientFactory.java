@@ -3,99 +3,83 @@ package com.shandong.policyagent.service;
 import com.shandong.policyagent.advisor.LoggingAdvisor;
 import com.shandong.policyagent.advisor.ReReadingAdvisor;
 import com.shandong.policyagent.advisor.SecurityAdvisor;
-import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
-import com.shandong.policyagent.entity.AgentConfig;
-import com.shandong.policyagent.entity.ModelProvider;
-import com.shandong.policyagent.entity.ModelType;
+import com.shandong.policyagent.advisor.TimingAdvisor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
-import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.ai.openai.api.OpenAiApi;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * 动态 ChatClient 工厂。
+ *
+ * <p>配置解析已下沉到 {@link RuntimeChatModelProvider}（同时被 RedisChatMemory /
+ * ReActPlanningService 复用，保证三处用的是同一套运行时模型配置）。
+ *
+ * <p><b>Client 复用</b>：ChatClient 按 (运行时模型配置, 是否启用工具, 是否启用 RAG) 缓存。
+ * 原实现每次请求都 new 一个 {@code OpenAiApi}，意味着每次都要重新建连池 + TLS 握手
+ * （实测约 40ms），高并发下还会放大文件描述符压力。
+ */
 @Slf4j
 @Component
 public class DynamicChatClientFactory {
 
-    private final OpenAiChatModel openAiChatModel;
-    private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
-    private final ModelProviderService modelProviderService;
+    private final RuntimeChatModelProvider runtimeChatModelProvider;
     private final SecurityAdvisor securityAdvisor;
     private final MessageChatMemoryAdvisor messageChatMemoryAdvisor;
     private final ReReadingAdvisor reReadingAdvisor;
     private final QuestionAnswerAdvisor questionAnswerAdvisor;
     private final LoggingAdvisor loggingAdvisor;
+    private final TimingAdvisor timingAdvisor;
     private final List<ToolCallbackProvider> toolCallbackProviders;
+
+    /** ChatClient 缓存：key = 模型配置指纹 + 工具开关 + RAG 开关。 */
+    private final ConcurrentHashMap<String, ChatClient> clientCache = new ConcurrentHashMap<>();
 
     /**
      * 容器使用：MCP 彻底关闭（spring.ai.mcp.client.enabled=false）时无 ToolCallbackProvider 候选，
      * List 集合注入零候选会启动失败（NoSuchBeanDefinitionException），
      * 故以 ObjectProvider 注入并 getIfAvailable(List::of) 空集兜底。
      */
-    @Autowired
-    public DynamicChatClientFactory(OpenAiChatModel openAiChatModel,
-                                    DynamicAgentConfigHolder dynamicAgentConfigHolder,
-                                    ModelProviderService modelProviderService,
+    @org.springframework.beans.factory.annotation.Autowired
+    public DynamicChatClientFactory(RuntimeChatModelProvider runtimeChatModelProvider,
                                     SecurityAdvisor securityAdvisor,
                                     MessageChatMemoryAdvisor messageChatMemoryAdvisor,
                                     ReReadingAdvisor reReadingAdvisor,
                                     QuestionAnswerAdvisor questionAnswerAdvisor,
                                     LoggingAdvisor loggingAdvisor,
+                                    TimingAdvisor timingAdvisor,
                                     ObjectProvider<List<ToolCallbackProvider>> toolCallbackProviders) {
-        this(openAiChatModel, dynamicAgentConfigHolder, modelProviderService, securityAdvisor,
-                messageChatMemoryAdvisor, reReadingAdvisor, questionAnswerAdvisor, loggingAdvisor,
+        this(runtimeChatModelProvider, securityAdvisor, messageChatMemoryAdvisor, reReadingAdvisor,
+                questionAnswerAdvisor, loggingAdvisor, timingAdvisor,
                 toolCallbackProviders.getIfAvailable(List::of));
     }
 
-    public DynamicChatClientFactory(OpenAiChatModel openAiChatModel,
-                                    DynamicAgentConfigHolder dynamicAgentConfigHolder,
-                                    ModelProviderService modelProviderService,
+    public DynamicChatClientFactory(RuntimeChatModelProvider runtimeChatModelProvider,
                                     SecurityAdvisor securityAdvisor,
                                     MessageChatMemoryAdvisor messageChatMemoryAdvisor,
                                     ReReadingAdvisor reReadingAdvisor,
                                     QuestionAnswerAdvisor questionAnswerAdvisor,
                                     LoggingAdvisor loggingAdvisor,
+                                    TimingAdvisor timingAdvisor,
                                     List<ToolCallbackProvider> toolCallbackProviders) {
-        this.openAiChatModel = openAiChatModel;
-        this.dynamicAgentConfigHolder = dynamicAgentConfigHolder;
-        this.modelProviderService = modelProviderService;
+        this.runtimeChatModelProvider = runtimeChatModelProvider;
         this.securityAdvisor = securityAdvisor;
         this.messageChatMemoryAdvisor = messageChatMemoryAdvisor;
         this.reReadingAdvisor = reReadingAdvisor;
         this.questionAnswerAdvisor = questionAnswerAdvisor;
         this.loggingAdvisor = loggingAdvisor;
+        this.timingAdvisor = timingAdvisor;
         this.toolCallbackProviders = toolCallbackProviders;
     }
-
-    @Value("${app.model-provider.openai.connect-timeout-seconds:10}")
-    private int connectTimeoutSeconds;
-
-    @Value("${app.model-provider.openai.read-timeout-seconds:45}")
-    private int readTimeoutSeconds;
-
-    @Value("${spring.ai.openai.base-url:https://dashscope.aliyuncs.com/compatible-mode}")
-    private String defaultBaseUrl;
-
-    @Value("${spring.ai.openai.api-key:}")
-    private String defaultApiKey;
-
-    @Value("${spring.ai.openai.chat.options.model:qwen3.5-plus}")
-    private String defaultModelName;
-
-    @Value("${spring.ai.openai.chat.options.temperature:0.7}")
-    private Double defaultTemperature;
 
     public ChatClient create() {
         return create(true, true);
@@ -106,33 +90,15 @@ public class DynamicChatClientFactory {
     }
 
     public ChatClient create(boolean enableTools, boolean enableRag) {
-        ResolvedChatModelConfig runtimeConfig = resolveRuntimeConfig();
+        RuntimeChatModelProvider.ResolvedChatModelConfig runtimeConfig =
+                runtimeChatModelProvider.resolveRuntimeConfig();
+        String cacheKey = cacheKey(runtimeConfig, enableTools, enableRag);
+        return clientCache.computeIfAbsent(cacheKey, key -> buildClient(runtimeConfig, enableTools, enableRag));
+    }
 
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(connectTimeoutSeconds * 1000);
-        requestFactory.setReadTimeout(readTimeoutSeconds * 1000);
-
-        OpenAiApi api = OpenAiApi.builder()
-                .baseUrl(normalizeOpenAiBaseUrl(runtimeConfig.baseUrl()))
-                .apiKey(runtimeConfig.apiKey())
-            .restClientBuilder(org.springframework.web.client.RestClient.builder().requestFactory(requestFactory))
-                .build();
-
-        OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
-                .model(runtimeConfig.modelName())
-                .temperature(runtimeConfig.temperature());
-        if (runtimeConfig.maxTokens() != null) {
-            optionsBuilder.maxTokens(runtimeConfig.maxTokens());
-        }
-        if (runtimeConfig.topP() != null) {
-            optionsBuilder.topP(runtimeConfig.topP().doubleValue());
-        }
-
-        OpenAiChatModel chatModel = openAiChatModel.mutate()
-                .openAiApi(api)
-                .defaultOptions(optionsBuilder.build())
-                .build();
-
+    private ChatClient buildClient(RuntimeChatModelProvider.ResolvedChatModelConfig runtimeConfig,
+                                   boolean enableTools,
+                                   boolean enableRag) {
         List<Advisor> advisors = new ArrayList<>();
         advisors.add(securityAdvisor);
         advisors.add(messageChatMemoryAdvisor);
@@ -140,139 +106,49 @@ public class DynamicChatClientFactory {
         if (enableRag) {
             advisors.add(questionAnswerAdvisor);
         }
+        // 计时 Advisor 放在最后一位（order 85 < LoggingAdvisor 的 90），
+        // 用于把「RAG/记忆等前置开销」与「模型调用本身」分开计量
+        advisors.add(timingAdvisor);
         advisors.add(loggingAdvisor);
 
-        ChatClient.Builder builder = ChatClient.builder(chatModel)
+        ChatClient.Builder builder = ChatClient.builder(runtimeChatModelProvider.buildChatModel(runtimeConfig))
                 .defaultAdvisors(advisors.toArray(Advisor[]::new));
 
         if (enableTools) {
             builder.defaultToolCallbacks(toolCallbackProviders.toArray(ToolCallbackProvider[]::new));
+            log.info("ChatClient 已装配工具回调 | providers={} | tools={}",
+                    toolCallbackProviders.size(),
+                    toolCallbackProviders.stream()
+                            .flatMap(provider -> Arrays.stream(provider.getToolCallbacks()))
+                            .map(callback -> callback.getToolDefinition().name())
+                            .toList());
         }
 
         return builder.build();
     }
 
+    private String cacheKey(RuntimeChatModelProvider.ResolvedChatModelConfig config,
+                            boolean enableTools,
+                            boolean enableRag) {
+        return String.join("|",
+                String.valueOf(config.baseUrl()),
+                String.valueOf(config.modelName()),
+                String.valueOf(config.temperature()),
+                String.valueOf(config.maxTokens()),
+                String.valueOf(config.topP()),
+                "tools=" + enableTools,
+                "rag=" + enableRag);
+    }
+
+    /**
+     * 清空 Client 缓存。管理员修改模型配置后必须调用，否则旧配置的实例会一直被复用。
+     */
+    public void invalidateCache() {
+        clientCache.clear();
+        runtimeChatModelProvider.invalidateCache();
+    }
+
     // 模型侧工具调用失败的兜底 processor 已迁移至 config/ToolFailureConfig：
     // 若定义在本类（构造注入 OpenAiChatModel），会形成
     // openAiChatModel → toolCallingManager → processor → 本类 → openAiChatModel 的循环依赖。
-
-    ResolvedChatModelConfig resolveRuntimeConfig() {
-        AgentConfig config = dynamicAgentConfigHolder.get();
-        if (config == null) {
-            return defaultRuntimeConfig();
-        }
-
-        if (config.getLlmModelId() != null) {
-            try {
-                ModelProvider provider = modelProviderService.getModelEntityForRuntime(config.getLlmModelId(), ModelType.LLM);
-                log.debug("使用管理员已配置模型执行对话: modelId={}, name={}", provider.getId(), provider.getName());
-                return managedRuntimeConfig(provider, config);
-            } catch (Exception ex) {
-                if (hasManualRuntimeConfig(config)) {
-                    log.warn("管理员已配置模型不可用，回退到手工模型配置 | modelId={} | error={}",
-                            config.getLlmModelId(), ex.getMessage());
-                    return manualRuntimeConfig(config);
-                }
-
-                log.warn("管理员已配置模型不可用，回退到默认模型配置 | modelId={} | error={}",
-                        config.getLlmModelId(), ex.getMessage());
-                return defaultRuntimeConfig();
-            }
-        }
-
-        if (hasManualRuntimeConfig(config)) {
-            return manualRuntimeConfig(config);
-        }
-
-        return defaultRuntimeConfig();
-    }
-
-    private double safeTemperature(Double temperature) {
-        return temperature != null ? temperature : 0.7D;
-    }
-
-    private ResolvedChatModelConfig managedRuntimeConfig(ModelProvider provider, AgentConfig config) {
-        return new ResolvedChatModelConfig(
-                provider.getApiUrl(),
-                provider.getApiKey(),
-                provider.getModelName(),
-                provider.getTemperature() != null ? provider.getTemperature().doubleValue() : safeTemperature(config.getTemperature()),
-                provider.getMaxTokens(),
-                provider.getTopP()
-        );
-    }
-
-    private ResolvedChatModelConfig manualRuntimeConfig(AgentConfig config) {
-        return new ResolvedChatModelConfig(
-                config.getApiUrl(),
-                resolveApiKey(config.getApiKey()),
-                config.getModelName(),
-                safeTemperature(config.getTemperature()),
-                null,
-                null
-        );
-    }
-
-    private ResolvedChatModelConfig defaultRuntimeConfig() {
-        return new ResolvedChatModelConfig(
-                defaultBaseUrl,
-                resolveApiKey(defaultApiKey),
-                defaultModelName,
-                safeTemperature(defaultTemperature),
-                null,
-                null
-        );
-    }
-
-    private boolean hasManualRuntimeConfig(AgentConfig config) {
-        String resolvedApiKey = resolveApiKey(config.getApiKey());
-        return hasText(config.getApiUrl())
-                && hasText(config.getModelName())
-                && hasText(resolvedApiKey)
-                && !isPlaceholder(resolvedApiKey);
-    }
-
-    private String resolveApiKey(String apiKey) {
-        if (isPlaceholder(apiKey)) {
-            String envVar = apiKey.substring(2, apiKey.length() - 1);
-            String value = System.getenv(envVar);
-            if (hasText(value)) {
-                return value;
-            }
-        }
-        return apiKey;
-    }
-
-    private boolean isPlaceholder(String value) {
-        return value != null && value.startsWith("${") && value.endsWith("}");
-    }
-
-    private boolean hasText(String value) {
-        return value != null && !value.isBlank();
-    }
-
-    private String normalizeOpenAiBaseUrl(String baseUrl) {
-        if (baseUrl == null || baseUrl.isBlank()) {
-            return baseUrl;
-        }
-
-        String normalized = baseUrl.trim();
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        if (normalized.endsWith("/v1")) {
-            normalized = normalized.substring(0, normalized.length() - 3);
-        }
-        return normalized;
-    }
-
-    record ResolvedChatModelConfig(
-            String baseUrl,
-            String apiKey,
-            String modelName,
-            Double temperature,
-            Integer maxTokens,
-            java.math.BigDecimal topP
-    ) {
-    }
 }

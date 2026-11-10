@@ -43,7 +43,7 @@ class WebSearchToolTest {
         ToolFailurePolicyCenter failurePolicyCenter = new ToolFailurePolicyCenter();
 
         // Create mock ToolStateManager that always returns true for enabled checks
-        ToolStateManager toolStateManager = new ToolStateManager(null) {
+        ToolStateManager toolStateManager = new ToolStateManager(null, null) {
             @Override
             public boolean isEnabled(String skillKey) {
                 return true;

@@ -11,8 +11,7 @@ import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.ai.chat.prompt.Prompt;import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 @Slf4j
 public class RedisChatMemory implements ChatMemory {
@@ -55,6 +55,12 @@ public class RedisChatMemory implements ChatMemory {
     private final int summaryMaxChars;
     private final int summaryTimeoutSeconds;
     private final ChatModel chatModel;
+    /**
+     * 运行时模型提供者：摘要必须使用管理员当前配置的模型，
+     * 而非 Spring 默认的 {@code ChatModel} Bean（那把 Key 是固定的 DASHSCOPE_API_KEY，
+     * 管理员改模型后会稳定 401）。为 null 时回退到固定的 {@link #chatModel}。
+     */
+    private final Supplier<ChatModel> chatModelSupplier;
     private final Executor summaryExecutor;
     private final Map<String, CompletableFuture<Void>> summarizationTasks = new ConcurrentHashMap<>();
 
@@ -87,6 +93,24 @@ public class RedisChatMemory implements ChatMemory {
                            int summaryTimeoutSeconds,
                            ChatModel chatModel,
                            Executor summaryExecutor) {
+        this(redisTemplate, objectMapper, ttlDays, maxMessages, maxMessageChars, summaryEnabled,
+                summaryTriggerMessages, summaryKeepMessages, summaryMaxChars, summaryTimeoutSeconds,
+                chatModel, null, summaryExecutor);
+    }
+
+    public RedisChatMemory(StringRedisTemplate redisTemplate,
+                           ObjectMapper objectMapper,
+                           long ttlDays,
+                           int maxMessages,
+                           int maxMessageChars,
+                           boolean summaryEnabled,
+                           int summaryTriggerMessages,
+                           int summaryKeepMessages,
+                           int summaryMaxChars,
+                           int summaryTimeoutSeconds,
+                           ChatModel chatModel,
+                           Supplier<ChatModel> chatModelSupplier,
+                           Executor summaryExecutor) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
         this.ttlDays = ttlDays;
@@ -98,6 +122,7 @@ public class RedisChatMemory implements ChatMemory {
         this.summaryMaxChars = Math.max(300, summaryMaxChars);
         this.summaryTimeoutSeconds = Math.max(3, summaryTimeoutSeconds);
         this.chatModel = chatModel;
+        this.chatModelSupplier = chatModelSupplier;
         this.summaryExecutor = summaryExecutor == null ? Runnable::run : summaryExecutor;
     }
 
@@ -212,7 +237,10 @@ public class RedisChatMemory implements ChatMemory {
     }
 
     private void triggerSummaryIfNeeded(String conversationId, int currentMessageCount) {
-        if (!summaryEnabled || chatModel == null || currentMessageCount < summaryTriggerMessages) {
+        if (!summaryEnabled || currentMessageCount < summaryTriggerMessages) {
+            return;
+        }
+        if (chatModelSupplier == null && chatModel == null) {
             return;
         }
 
@@ -342,11 +370,16 @@ public class RedisChatMemory implements ChatMemory {
     }
 
     private String generateSummary(String input) {
+        ChatModel model = resolveChatModel();
+        if (model == null) {
+            log.warn("未配置摘要模型，跳过本轮对话摘要");
+            return "";
+        }
         Prompt prompt = new Prompt(List.of(
                 new SystemMessage(SUMMARY_SYSTEM_PROMPT),
                 new UserMessage(input)
         ));
-        String content = chatModel.call(prompt).getResult().getOutput().getText();
+        String content = model.call(prompt).getResult().getOutput().getText();
         if (content == null) {
             return "";
         }
@@ -355,6 +388,21 @@ public class RedisChatMemory implements ChatMemory {
             return normalized;
         }
         return normalized.substring(0, summaryMaxChars).trim();
+    }
+
+    /**
+     * 取用于摘要的模型：优先使用运行时模型提供者（管理员当前配置的模型），
+     * 回退到构造时传入的固定模型。
+     */
+    private ChatModel resolveChatModel() {
+        if (chatModelSupplier != null) {
+            try {
+                return chatModelSupplier.get();
+            } catch (Exception e) {
+                log.warn("解析运行时摘要模型失败，回退到固定模型 | error={}", e.getMessage());
+            }
+        }
+        return chatModel;
     }
 
     private record MessageRecord(String type, String content, Map<String, Object> metadata) {}
@@ -375,6 +423,7 @@ public class RedisChatMemory implements ChatMemory {
         private int summaryMaxChars = DEFAULT_SUMMARY_MAX_CHARS;
         private int summaryTimeoutSeconds = DEFAULT_SUMMARY_TIMEOUT_SECONDS;
         private ChatModel chatModel;
+        private Supplier<ChatModel> chatModelSupplier;
         private Executor summaryExecutor = Runnable::run;
 
         public Builder redisTemplate(StringRedisTemplate redisTemplate) {
@@ -432,6 +481,14 @@ public class RedisChatMemory implements ChatMemory {
             return this;
         }
 
+        /**
+         * 设置运行时模型提供者：摘要时按当前生效的模型配置构建，避免使用失效的默认 Key。
+         */
+        public Builder chatModelSupplier(Supplier<ChatModel> chatModelSupplier) {
+            this.chatModelSupplier = chatModelSupplier;
+            return this;
+        }
+
         public Builder summaryExecutor(Executor summaryExecutor) {
             this.summaryExecutor = summaryExecutor;
             return this;
@@ -453,6 +510,7 @@ public class RedisChatMemory implements ChatMemory {
                     summaryMaxChars,
                     summaryTimeoutSeconds,
                     chatModel,
+                    chatModelSupplier,
                     summaryExecutor
             );
         }

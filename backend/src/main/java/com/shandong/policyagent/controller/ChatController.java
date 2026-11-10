@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.Base64;
 import java.util.List;
@@ -85,19 +86,51 @@ public class ChatController {
     }
 
     /**
-     * 流式对话接口 - SSE 推送（已下线，始终返回 410）
+     * 流式对话接口 - SSE 推送。
+     *
+     * <p>事件协议：
+     * <ul>
+     *   <li>{@code stage} —— 阶段进度：analyzing / planning / tool / retrieving / generating</li>
+     *   <li>{@code delta} —— 增量文本片段</li>
+     *   <li>{@code done} —— 最终结果（id / conversationId / content / references）</li>
+     *   <li>{@code error} —— 失败信息</li>
+     * </ul>
      */
-    @Operation(summary = "流式对话接口（已下线）", description = "SSE 流式接口已禁用，统一走 /api/chat 同步接口，访问返回 410")
-    @PostMapping("/stream")
-    public ResponseEntity<?> chatStream(
+    @Operation(summary = "发送对话消息（流式 SSE）", description = "以 SSE 推送增量回复，用户可在首字出现时即刻看到内容")
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter chatStream(
             @AuthenticationPrincipal User user,
             @Valid @RequestBody ChatRequest request) {
-        return ResponseEntity.status(HttpStatus.GONE)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of(
-                        "code", "STREAM_ENDPOINT_REMOVED",
-                        "message", "流式接口已下线，请改用 /api/chat 非流式接口"
-                ));
+        validateImageRequest(request);
+
+        String conversationId = request.getConversationId();
+        if (conversationId == null || conversationId.isBlank()) {
+            conversationId = UUID.randomUUID().toString();
+            request.setConversationId(conversationId);
+        }
+        Long userId = user != null ? user.getId() : null;
+        conversationService.getOrCreateSession(userId, conversationId);
+
+        ChatMessage userMessage = ChatMessage.builder()
+                .id(UUID.randomUUID().toString())
+                .role("user")
+                .content(request.getMessage())
+                .timestamp(System.currentTimeMillis())
+                .build();
+        conversationService.addMessage(conversationId, userMessage);
+
+        // 超时由业务侧控制：模型单次调用最长 90s，整体给 180s
+        SseEmitter emitter = new SseEmitter(180_000L);
+        final String streamConversationId = conversationId;
+        emitter.onTimeout(() -> {
+            log.warn("流式对话超时 | conversationId={}", streamConversationId);
+            emitter.complete();
+        });
+        emitter.onError(error -> log.warn("流式对话异常 | conversationId={} | error={}",
+                streamConversationId, error.getMessage()));
+
+        chatService.chatStream(request, emitter);
+        return emitter;
     }
 
     @Operation(summary = "对话服务健康检查", hidden = true)

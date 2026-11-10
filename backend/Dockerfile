@@ -41,8 +41,14 @@ RUN addgroup -g 1000 appgroup && adduser -u 1000 -G appgroup -s /bin/sh -D appus
 # 复制构建产物
 COPY --from=builder /app/target/*.jar app.jar
 
-# 创建数据目录
-RUN mkdir -p /app/data && chown -R appuser:appgroup /app
+# 创建数据目录与日志目录
+# /app/logs 由 logback 写入（活动文件 backend-<日期>.log），
+# 必须提前创建并交给 appuser，否则非 root 启动时无法建目录。
+RUN mkdir -p /app/data /app/logs && chown -R appuser:appgroup /app
+
+# 启动脚本：注入当天日期、注入日志目录、清理过期日志
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # 切换到非 root 用户
 USER appuser
@@ -54,5 +60,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=10 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
 
-# 启动应用
-ENTRYPOINT ["java", "-jar", "-Xms512m", "-Xmx1024m", "app.jar"]
+# 启动应用（entrypoint.sh 负责注入 LOG_DATE / LOGGING_FILE_PATH 并清理过期日志）
+ENTRYPOINT ["/app/entrypoint.sh"]

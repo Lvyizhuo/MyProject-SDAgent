@@ -166,6 +166,11 @@ const MessageBubble = ({
                         onClick={handleContentClick}
                     />
 
+                    {/* 流式输出中的光标提示 */}
+                    {meta?.streaming && (
+                        <span className="ui-stream-cursor" aria-hidden="true" />
+                    )}
+
                     {mapCards.length > 0 && (
                         <div className="ui-map-card-grid">
                             {mapCards.map((card) => (

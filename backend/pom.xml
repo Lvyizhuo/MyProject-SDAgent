@@ -46,6 +46,14 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- 指标暴露：把各阶段耗时以 Micrometer 指标形式暴露，
+             便于用 Prometheus/Grafana 持续评估链路耗时与优化效果。
+             指标清单见 support/ChatMetrics。 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- Spring AI Core (1.0.3 naming convention) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

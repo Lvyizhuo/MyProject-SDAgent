@@ -1,6 +1,13 @@
 -- 创建 agent_config 表
--- 列名与 AgentConfig 实体字段保持一致：未显式 @Column(name=...) 的字段使用驼峰命名
--- （PostgreSQL 无引号标识符折叠为小写，Hibernate 同样按小写匹配）
+-- 列名与 AgentConfig 实体保持一致：AgentConfig 未对 modelProvider / apiKey 等字段
+-- 显式声明 @Column(name=...)，Hibernate 6 默认使用 CamelCaseToUnderscoresNamingStrategy，
+-- 因此物理列名必须是下划线形态（model_provider / api_key / ...）。
+-- 注意：PostgreSQL 对未加引号的标识符折叠为小写，modelProvider 会被折叠成
+-- "modelprovider"（无下划线），与 Hibernate 期望的 "model_provider" 不一致，
+-- 导致 ddl-auto=validate 报 missing column。
+-- 历史库（曾用 ddl-auto=update 建表）已经是下划线形态，本脚本的 CREATE TABLE
+-- 会被 IF NOT EXISTS 跳过，INSERT 也必须用下划线列名才不报
+-- "column does not exist"。两者统一为下划线形态后，新建库与存量库行为一致。
 CREATE TABLE IF NOT EXISTS agent_config (
     id BIGSERIAL PRIMARY KEY,
 
@@ -9,17 +16,17 @@ CREATE TABLE IF NOT EXISTS agent_config (
     description TEXT DEFAULT '用于山东省以旧换新补贴政策咨询',
 
     -- AI 模型配置
-    modelProvider VARCHAR(50) NOT NULL DEFAULT 'dashscope',
-    apiKey VARCHAR(255) DEFAULT '${DASHSCOPE_API_KEY}',
-    apiUrl VARCHAR(255) DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode',
-    modelName VARCHAR(100) NOT NULL DEFAULT 'qwen3.5-plus',
+    model_provider VARCHAR(50) NOT NULL DEFAULT 'dashscope',
+    api_key VARCHAR(255) DEFAULT '${DASHSCOPE_API_KEY}',
+    api_url VARCHAR(255) DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode',
+    model_name VARCHAR(100) NOT NULL DEFAULT 'qwen3.5-plus',
     temperature DOUBLE PRECISION DEFAULT 0.70,
 
     -- 系统提示词
-    systemPrompt TEXT NOT NULL,
+    system_prompt TEXT NOT NULL,
 
     -- 开场白
-    greetingMessage TEXT DEFAULT '您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。
+    greeting_message TEXT DEFAULT '您好！我是山东省以旧换新政策咨询智能助手。您可以问我关于汽车、家电、数码产品等的补贴标准和申请流程。
 
 **我可以帮您：**
 - 查询各类产品补贴金额
@@ -35,7 +42,7 @@ CREATE TABLE IF NOT EXISTS agent_config (
     }'::jsonb,
 
     -- MCP 服务器配置
-    mcpServersConfig JSONB DEFAULT '[]'::jsonb,
+    mcp_servers_config JSONB DEFAULT '[]'::jsonb,
 
     -- 时间戳
     created_at TIMESTAMP(6) NOT NULL DEFAULT NOW(),
@@ -46,7 +53,7 @@ CREATE TABLE IF NOT EXISTS agent_config (
 );
 
 -- 插入默认配置（仅当表为空时）
-INSERT INTO agent_config (id, name, description, modelProvider, apiKey, apiUrl, modelName, temperature, systemPrompt, greetingMessage, skills, mcpServersConfig)
+INSERT INTO agent_config (id, name, description, model_provider, api_key, api_url, model_name, temperature, system_prompt, greeting_message, skills, mcp_servers_config)
 SELECT 1,
     '政策问答智能体',
     '用于山东省以旧换新补贴政策咨询',
@@ -55,7 +62,7 @@ SELECT 1,
     'https://dashscope.aliyuncs.com/compatible-mode',
     'qwen3.5-plus',
     0.70,
-    '你是一个专业的山东省以旧换新补贴政策咨询助手。你的任务是：
+    '你是一个专业的山东省以旧换新政策咨询助手。你的任务是：
 
 1. 准确理解用户关于补贴政策的咨询问题
 2. 基于提供的政策文档内容回答问题

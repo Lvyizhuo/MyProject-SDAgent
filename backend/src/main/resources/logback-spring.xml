@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================
+  后端日志配置
+  ============================================================
+  1) 格式：直接复用 Spring Boot 内置的 CONSOLE_LOG_PATTERN / FILE_LOG_PATTERN，
+     控制台带 ANSI 颜色、文件不带，除颜色外两者逐行同构。
+  2) 命名：活动文件 = <组件名>-<日期>.log（例：backend-2026-11-10.log）
+     日期由启动时注入的 LOG_DATE 决定（dev.sh / 容器 entrypoint 注入当天日期），
+     进程重启即切换到新日期文件。
+  3) 切分：纯按容量切分（默认 100MB），不压缩，便于直接查看/grep/tail。
+     切分后为 <组件名>-<日期>.1.log / .2.log ...（最多保留 30 个分片）。
+     跨天不会改名（进程连续运行超过一天时，日志继续写入启动日那个文件）。
+  4) 保留：超过 30 天的文件由启动脚本 / 容器 entrypoint 清理
+     （本文件只负责容量切分，不做按天删除）。
+
+  为什么不用内置的 SizeAndTimeBasedRollingPolicy：
+  它强制要求 fileNamePattern 里带 %d 日期占位符，而 %d 取的是"滚动触发那一刻"的日期，
+  于是 11-11 00:00 触发滚动时归档名会是 2026-11-11，装进去的却是 11-10 的内容 ——
+  文件名与内容错位一天。这里改用 FixedWindowRollingPolicy（只按序号切分，不带日期维度）
+  + 纯容量触发策略，行为完全可预期。
+  ============================================================
+-->
+<configuration>
+    <!-- 引入 Spring Boot 内置属性：CONSOLE_LOG_PATTERN / FILE_LOG_PATTERN / 转换规则 -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- 组件名：默认 backend（与容器名、dev.sh 的日志命名保持一致），可用 app.log.name 覆盖 -->
+    <springProperty scope="context" name="APP_NAME" source="app.log.name" defaultValue="backend"/>
+    <!-- 日志目录：容器内 /app/logs，本地 <repo>/logs -->
+    <springProperty scope="context" name="LOG_DIR" source="logging.file.path" defaultValue="logs"/>
+    <!-- 日期：环境变量 LOG_DATE（由启动脚本 / entrypoint 注入当天日期） -->
+    <springProperty scope="context" name="LOG_DATE" source="app.log.date" defaultValue="unknown"/>
+
+    <property name="LOG_FILE" value="${LOG_DIR}/${APP_NAME}-${LOG_DATE}.log"/>
+
+    <!-- 控制台：与文件同格式（仅去掉 ANSI 颜色） -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+            <charset>${CONSOLE_LOG_CHARSET}</charset>
+        </encoder>
+    </appender>
+
+    <!-- 文件：按容量切分，不压缩，便于直接查看/grep/tail -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+
+        <!-- 归档规则：只按序号切分，不带日期维度（日期已在活动文件名里） -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/${APP_NAME}-${LOG_DATE}.%i.log</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>30</maxIndex>
+        </rollingPolicy>
+
+        <!-- 触发条件：纯按文件大小，超过 100MB 才切分（不做按天判定，避免日期错位） -->
+        <triggeringPolicy class="com.shandong.policyagent.support.logging.SizeOnlyTriggeringPolicy">
+            <maxFileSize>100MB</maxFileSize>
+        </triggeringPolicy>
+
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>${FILE_LOG_CHARSET}</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

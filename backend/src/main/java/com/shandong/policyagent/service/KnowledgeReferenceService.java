@@ -7,6 +7,7 @@ import com.shandong.policyagent.rag.MultiVectorStoreService;
 import com.shandong.policyagent.repository.KnowledgeDocumentRepository;
 import com.shandong.policyagent.repository.KnowledgeDocumentSourceRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class KnowledgeReferenceService {
@@ -50,13 +52,16 @@ public class KnowledgeReferenceService {
 
         Map<Long, KnowledgeDocument> documentMapping = loadDocumentMapping(retrievedDocuments);
         Map<Long, KnowledgeDocumentSource> sourceMapping = loadSourceMapping(documentMapping.keySet());
+        Map<Long, String> excerptMapping = loadExcerpts(retrievedDocuments, documentMapping);
         LinkedHashMap<String, ChatResponse.Reference> references = new LinkedHashMap<>();
 
         for (Document retrievedDocument : retrievedDocuments) {
+            Long documentId = getLongValue(retrievedDocument.getMetadata().get("knowledgeDocumentId"));
             ChatResponse.Reference reference = toReference(
                     retrievedDocument,
-                    documentMapping.get(getLongValue(retrievedDocument.getMetadata().get("knowledgeDocumentId"))),
-                    sourceMapping.get(getLongValue(retrievedDocument.getMetadata().get("knowledgeDocumentId")))
+                    documentMapping.get(documentId),
+                    sourceMapping.get(documentId),
+                    excerptMapping.get(documentId)
             );
             if (reference == null) {
                 continue;
@@ -88,6 +93,50 @@ public class KnowledgeReferenceService {
                 .collect(LinkedHashMap::new, (map, document) -> map.put(document.getId(), document), Map::putAll);
     }
 
+    /**
+     * 批量加载引用片段原文。
+     *
+     * <p>原先每条引用单独调用 {@code loadChunkExcerpt}，每次都要
+     * 「1 次 information_schema 表存在检查 + 1 次 SELECT」，最多 8 次 SQL（N+1）。
+     * 这里按向量表分组后批量查询，最多 2 次 SQL。
+     */
+    private Map<Long, String> loadExcerpts(List<Document> retrievedDocuments,
+                                           Map<Long, KnowledgeDocument> documentMapping) {
+        Map<String, List<MultiVectorStoreService.ExcerptQuery>> groupedByTable = new LinkedHashMap<>();
+        Map<Long, String> tableByDocument = new LinkedHashMap<>();
+
+        for (Document document : retrievedDocuments) {
+            Long documentId = getLongValue(document.getMetadata().get("knowledgeDocumentId"));
+            if (documentId == null) {
+                continue;
+            }
+            KnowledgeDocument knowledgeDocument = documentMapping.get(documentId);
+            if (knowledgeDocument == null) {
+                continue;
+            }
+            Integer chunkIndex = getIntValue(document.getMetadata().get("chunkIndex"));
+            if (chunkIndex == null) {
+                continue;
+            }
+            String tableName = knowledgeDocument.getVectorTableName();
+            groupedByTable
+                    .computeIfAbsent(tableName, key -> new ArrayList<>())
+                    .add(new MultiVectorStoreService.ExcerptQuery(documentId, chunkIndex));
+            tableByDocument.put(documentId, tableName);
+        }
+
+        Map<Long, String> result = new LinkedHashMap<>();
+        groupedByTable.forEach((tableName, queries) -> {
+            try {
+                result.putAll(multiVectorStoreService.loadChunkExcerpts(tableName, queries, CONTEXT_RADIUS));
+            } catch (Exception e) {
+                // 片段加载失败不影响引用构建（会回退到检索文本本身）
+                log.debug("批量加载原文片段失败，回退到检索文本 | table={} | error={}", tableName, e.getMessage());
+            }
+        });
+        return result;
+    }
+
     private Map<Long, KnowledgeDocumentSource> loadSourceMapping(Collection<Long> documentIds) {
         if (documentIds == null || documentIds.isEmpty()) {
             return Map.of();
@@ -101,7 +150,8 @@ public class KnowledgeReferenceService {
 
     private ChatResponse.Reference toReference(Document retrievedDocument,
                                                KnowledgeDocument knowledgeDocument,
-                                               KnowledgeDocumentSource sourceMapping) {
+                                               KnowledgeDocumentSource sourceMapping,
+                                               String preloadedExcerpt) {
         Map<String, Object> metadata = retrievedDocument.getMetadata();
         String title = defaultString(
                 knowledgeDocument != null ? knowledgeDocument.getTitle() : null,
@@ -113,7 +163,7 @@ public class KnowledgeReferenceService {
 
         Long documentId = knowledgeDocument != null ? knowledgeDocument.getId() : getLongValue(metadata.get("knowledgeDocumentId"));
         Integer chunkIndex = getIntValue(metadata.get("chunkIndex"));
-        String snippet = resolveSnippet(retrievedDocument, knowledgeDocument, chunkIndex);
+        String snippet = resolveSnippet(retrievedDocument, knowledgeDocument, chunkIndex, preloadedExcerpt);
         String url = resolveSourceUrl(sourceMapping);
         String sourceSite = defaultString(
                 sourceMapping != null ? sourceMapping.getSourceSite() : null,
@@ -151,9 +201,11 @@ public class KnowledgeReferenceService {
 
     private String resolveSnippet(Document retrievedDocument,
                                   KnowledgeDocument knowledgeDocument,
-                                  Integer chunkIndex) {
-        String excerpt = null;
-        if (knowledgeDocument != null) {
+                                  Integer chunkIndex,
+                                  String preloadedExcerpt) {
+        String excerpt = preloadedExcerpt;
+        if ((excerpt == null || excerpt.isBlank()) && knowledgeDocument != null) {
+            // 批量加载未命中时按单条兜底（例如 chunkIndex 缺失导致未纳入批量查询）
             excerpt = multiVectorStoreService.loadChunkExcerpt(
                     knowledgeDocument.getVectorTableName(),
                     knowledgeDocument.getId(),

@@ -1,10 +1,12 @@
 package com.shandong.policyagent.service;
 
 import com.shandong.policyagent.agent.DynamicAgentConfigHolder;
+import com.shandong.policyagent.advisor.TimingAdvisor;
 import com.shandong.policyagent.entity.AgentConfig;
 import com.shandong.policyagent.entity.ModelProvider;
 import com.shandong.policyagent.model.ChatResponse;
 import com.shandong.policyagent.rag.RagFailureDetector;
+import com.shandong.policyagent.support.StageTimer;
 import com.shandong.policyagent.tool.SubsidyCalculatorTool;
 import com.shandong.policyagent.tool.ToolFailurePolicyCenter;
 import com.shandong.policyagent.tool.WebSearchTool;
@@ -12,9 +14,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 执行降级链。
@@ -37,27 +42,33 @@ import java.util.List;
 public class ExecutionFallbackChain {
 
     private final DynamicChatClientFactory dynamicChatClientFactory;
+    private final RuntimeChatModelProvider runtimeChatModelProvider;
     private final DynamicAgentConfigHolder dynamicAgentConfigHolder;
     private final ModelProviderService modelProviderService;
     private final ToolFailurePolicyCenter toolFailurePolicyCenter;
     private final RagFailureDetector ragFailureDetector;
     private final KnowledgeReferenceService knowledgeReferenceService;
     private final ExecutionPromptBuilder executionPromptBuilder;
+    private final com.shandong.policyagent.support.ChatMetrics chatMetrics;
 
     public ExecutionFallbackChain(DynamicChatClientFactory dynamicChatClientFactory,
+                                   RuntimeChatModelProvider runtimeChatModelProvider,
                                    DynamicAgentConfigHolder dynamicAgentConfigHolder,
                                    ModelProviderService modelProviderService,
                                    ToolFailurePolicyCenter toolFailurePolicyCenter,
                                    RagFailureDetector ragFailureDetector,
                                    KnowledgeReferenceService knowledgeReferenceService,
-                                   ExecutionPromptBuilder executionPromptBuilder) {
+                                   ExecutionPromptBuilder executionPromptBuilder,
+                                   com.shandong.policyagent.support.ChatMetrics chatMetrics) {
         this.dynamicChatClientFactory = dynamicChatClientFactory;
+        this.runtimeChatModelProvider = runtimeChatModelProvider;
         this.dynamicAgentConfigHolder = dynamicAgentConfigHolder;
         this.modelProviderService = modelProviderService;
         this.toolFailurePolicyCenter = toolFailurePolicyCenter;
         this.ragFailureDetector = ragFailureDetector;
         this.knowledgeReferenceService = knowledgeReferenceService;
         this.executionPromptBuilder = executionPromptBuilder;
+        this.chatMetrics = chatMetrics;
     }
 
     /**
@@ -87,16 +98,33 @@ public class ExecutionFallbackChain {
                                                         String conversationId,
                                                         boolean enableToolCallbacks,
                                                         boolean enableRag) {
+        StageTimer timer = new StageTimer("agentChain", chatMetrics.observer("agentChain"));
         try {
-            return executePrompt(dynamicChatClientFactory.create(enableToolCallbacks, enableRag),
-                    userMessage, conversationId);
+            ChatClient chatClient = timer.time("clientCreate",
+                    () -> dynamicChatClientFactory.create(enableToolCallbacks, enableRag));
+            return executePrompt(chatClient, userMessage, conversationId, timer);
         } catch (Exception exception) {
             if (enableRag && ragFailureDetector.isRecoverable(exception)) {
                 log.warn("RAG 检索链路异常，关闭知识库增强后重试 | conversationId={} | error={}",
                         conversationId, exception.getMessage());
                 try {
-                    return executePrompt(dynamicChatClientFactory.create(enableToolCallbacks, false),
-                            userMessage, conversationId);
+                    ChatClient chatClient = timer.time("clientCreateRetry",
+                            () -> dynamicChatClientFactory.create(enableToolCallbacks, false));
+                    return executePrompt(chatClient, userMessage, conversationId, timer);
+                } catch (Exception degradedException) {
+                    return fallbackToUnifiedDirectRest(degradedException, userMessage, conversationId);
+                }
+            }
+
+            // 工具侧故障（工具未绑定 / 工具回调解析失败）：关闭工具回调重试，
+            // 让模型基于已有上下文（RAG + 会话记忆）作答，而不是整轮 500。
+            if (enableToolCallbacks && isToolResolutionFailure(exception)) {
+                log.warn("工具回调不可用，关闭工具后重试 | conversationId={} | error={}",
+                        conversationId, exception.getMessage());
+                try {
+                    ChatClient chatClient = timer.time("clientCreateNoTool",
+                            () -> dynamicChatClientFactory.create(false, enableRag));
+                    return executePrompt(chatClient, userMessage, conversationId, timer);
                 } catch (Exception degradedException) {
                     return fallbackToUnifiedDirectRest(degradedException, userMessage, conversationId);
                 }
@@ -107,20 +135,148 @@ public class ExecutionFallbackChain {
     }
 
     /**
+     * 判断异常是否为「工具回调解析失败」。
+     *
+     * <p>典型场景：模型请求了 MCP 工具（工具列表里可见），但执行期在回调注册表中找不到对应回调，
+     * Spring AI 抛 {@code IllegalStateException: No ToolCallback found for tool name: xxx}。
+     * 该异常不是 {@code ToolExecutionException}，不会被
+     * {@code ToolFailureConfig} 里的 processor 兜住，会一路冒泡成 500。
+     */
+    public boolean isToolResolutionFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof org.springframework.ai.tool.execution.ToolExecutionException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase();
+                if (normalized.contains("no toolcallback found")
+                        || normalized.contains("toolcallback")
+                        || normalized.contains("tool execution")
+                        || normalized.contains("failed to execute tool")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    /**
      * 通过 ChatClient 执行一次模型调用并提取结果。
      */
     public ChatExecutionResult executePrompt(ChatClient chatClient, String userMessage, String conversationId) {
+        return executePrompt(chatClient, userMessage, conversationId, new StageTimer());
+    }
+
+    private ChatExecutionResult executePrompt(ChatClient chatClient,
+                                               String userMessage,
+                                               String conversationId,
+                                               StageTimer timer) {
         ChatClientResponse response = chatClient.prompt()
                 .system(dynamicAgentConfigHolder.getSystemPrompt())
                 .user(userMessage)
                 .advisors(advisorSpec -> advisorSpec
-                        .param("chat_memory_conversation_id", conversationId))
+                        .param("chat_memory_conversation_id", conversationId)
+                        .param(TimingAdvisor.TIMER_KEY, timer))
                 .call()
                 .chatClientResponse();
+        List<ChatResponse.Reference> references = timer.time("buildReferences",
+                () -> knowledgeReferenceService.buildReferences(response.context()));
+        timer.logSummary("agentChain", conversationId);
         return new ChatExecutionResult(
                 extractContent(response),
-                knowledgeReferenceService.buildReferences(response.context())
+                references
         );
+    }
+
+    // ==================== 流式执行 ====================
+
+    /**
+     * 流式模型调用（带 RAG 降级重试）。
+     *
+     * <p>与同步路径的差异：流式下模型已开始输出后才抛错时无法再换路重试，
+     * 因此只有在 <b>订阅之前</b> 的异常（客户端构建失败等）才走 RAG 关闭重试；
+     * 流中途的异常直接上抛，由调用方决定降级文案。
+     *
+     * @param contextHolder 收集 Advisor 上下文（用于事后构建引用），可为空
+     */
+    public Flux<org.springframework.ai.chat.model.ChatResponse> executeStreamWithFallback(String userMessage,
+                                                                                         String conversationId,
+                                                                                         boolean enableToolCallbacks,
+                                                                                         boolean enableRag,
+                                                                                         StageTimer timer,
+                                                                                         AtomicReference<Map<String, Object>> contextHolder) {
+        ChatClient chatClient;
+        try {
+            chatClient = timer.time("clientCreate",
+                    () -> dynamicChatClientFactory.create(enableToolCallbacks, enableRag));
+        } catch (Exception exception) {
+            if (enableRag && ragFailureDetector.isRecoverable(exception)) {
+                log.warn("RAG 检索链路异常，关闭知识库增强后重试（流式） | conversationId={} | error={}",
+                        conversationId, exception.getMessage());
+                chatClient = timer.time("clientCreateRetry",
+                        () -> dynamicChatClientFactory.create(enableToolCallbacks, false));
+            } else {
+                throw asRuntimeException(exception);
+            }
+        }
+
+        final ChatClient finalChatClient = chatClient;
+        Flux<ChatClientResponse> flux;
+        try {
+            flux = finalChatClient.prompt()
+                    .system(dynamicAgentConfigHolder.getSystemPrompt())
+                    .user(userMessage)
+                    .advisors(advisorSpec -> advisorSpec
+                            .param("chat_memory_conversation_id", conversationId)
+                            .param(TimingAdvisor.TIMER_KEY, timer))
+                    .stream()
+                    .chatClientResponse();
+        } catch (Exception exception) {
+            // 工具回调解析失败：关闭工具后重试（与同步路径一致的降级策略）
+            if (enableToolCallbacks && isToolResolutionFailure(exception)) {
+                log.warn("工具回调不可用，关闭工具后重试（流式） | conversationId={} | error={}",
+                        conversationId, exception.getMessage());
+                flux = dynamicChatClientFactory.create(false, enableRag).prompt()
+                        .system(dynamicAgentConfigHolder.getSystemPrompt())
+                        .user(userMessage)
+                        .advisors(advisorSpec -> advisorSpec
+                                .param("chat_memory_conversation_id", conversationId)
+                                .param(TimingAdvisor.TIMER_KEY, timer))
+                        .stream()
+                        .chatClientResponse();
+            } else {
+                throw asRuntimeException(exception);
+            }
+        }
+
+        return flux
+                .doOnNext(chunk -> {
+                    if (contextHolder == null || chunk == null) {
+                        return;
+                    }
+                    // ChatClientResponse 自带 Advisor 上下文（含 qa_retrieved_documents），
+                    // 逐块覆盖，最终保留最后一块携带的上下文。
+                    Map<String, Object> context = chunk.context();
+                    if (context != null && !context.isEmpty()) {
+                        contextHolder.set(context);
+                    }
+                })
+                .map(chunk -> chunk.chatResponse());
+    }
+
+    /**
+     * 根据 Advisor 上下文构建引用列表（流式路径在流结束后调用）。
+     *
+     * @param context Advisor 上下文，可为 null
+     */
+    public List<ChatResponse.Reference> buildReferences(Map<String, Object> context) {
+        if (context == null || context.isEmpty()) {
+            return List.of();
+        }
+        return knowledgeReferenceService.buildReferences(context);
     }
 
     // ==================== 超时/网络异常兜底 ====================
@@ -212,8 +368,8 @@ public class ExecutionFallbackChain {
      */
     public ChatExecutionResult executeUnifiedDirectRestFallback(String userMessage, String conversationId) {
         try {
-            DynamicChatClientFactory.ResolvedChatModelConfig runtimeConfig =
-                    dynamicChatClientFactory.resolveRuntimeConfig();
+            RuntimeChatModelProvider.ResolvedChatModelConfig runtimeConfig =
+                    runtimeChatModelProvider.resolveRuntimeConfig();
             if (runtimeConfig == null
                     || runtimeConfig.baseUrl() == null || runtimeConfig.baseUrl().isBlank()
                     || runtimeConfig.apiKey() == null || runtimeConfig.apiKey().isBlank()

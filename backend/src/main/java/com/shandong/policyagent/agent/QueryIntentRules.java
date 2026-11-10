@@ -64,6 +64,41 @@ public final class QueryIntentRules {
     );
 
     /**
+     * 显式联网请求关键词。
+     *
+     * <p>用户明确说"联网搜索/上网查/搜一下"时，这是<b>最高优先级意图</b>，
+     * 应当短路"政策+价格混合问法"的保守策略（先给政策结论、暂不联网）。</p>
+     *
+     * <p>背景：手机/电脑等商品的"标准版/Pro/Max"等型号后缀会命中政策关键词"标准"，
+     * 导致"iPhone17标准版256GB 价格"被误判为混合问法，联网搜索被静默跳过。</p>
+     */
+    public static final Set<String> EXPLICIT_SEARCH_KEYWORDS = Set.of(
+            "联网搜索", "联网查", "上网查", "上网搜", "网上搜", "网上查",
+            "搜一下", "搜索一下", "查一下最新", "帮我搜", "帮我查"
+    );
+
+    /**
+     * 政策语境关键词（强信号）。
+     *
+     * <p>与 POLICY_CONSULTING_KEYWORDS 的区别：这里只保留"几乎不可能出现在商品名里"的词。
+     * "标准/条件/流程/资格/规则"等词在商品型号语境中极常见（如"iPhone17标准版"），
+     * 单独用它们判定政策意图会产生大量误判，因此只在混合问法判定中降级处理。</p>
+     */
+    public static final Set<String> STRONG_POLICY_KEYWORDS = Set.of(
+            "政策", "补贴", "国补", "以旧换新", "申领"
+    );
+
+    /**
+     * 政策语境关键词（弱信号）。
+     *
+     * <p>必须与 STRONG_POLICY_KEYWORDS 同时出现才算政策意图，
+     * 避免"标准版/配置标准"这类商品描述被当成政策问题。</p>
+     */
+    public static final Set<String> WEAK_POLICY_KEYWORDS = Set.of(
+            "流程", "条件", "资格", "标准", "规则"
+    );
+
+    /**
      * 商品类别关键词（取 5 处并集）。
      * 用于识别用户提及的具体商品品类。
      */
@@ -147,15 +182,34 @@ public final class QueryIntentRules {
 
     /**
      * 政策+价格混合问法判定（ChatService 和 ReActPlanningService 共用，逻辑完全一致）。
+     *
+     * <p><b>误判修复</b>：原实现把"标准/条件/流程/资格/规则"直接当政策关键词，
+     * 而这些词在商品型号语境中极常见——"iPhone17标准版256GB 价格"里的"标准"是
+     * 型号后缀而非政策口径，导致该问法被判成混合问法，联网搜索被静默跳过。
+     * 现改为：弱政策词必须与强政策词（政策/补贴/国补/以旧换新/申领）共现才算政策意图。</p>
      */
     public static boolean isPolicyPriceMixed(String normalized) {
         if (normalized == null || normalized.isBlank()) {
             return false;
         }
-        boolean hasPolicy = containsAny(normalized,
-                "政策", "补贴", "国补", "以旧换新", "申领", "流程", "条件", "资格", "标准", "规则");
+        boolean hasPolicy = containsAny(normalized, STRONG_POLICY_KEYWORDS)
+                || (containsAny(normalized, WEAK_POLICY_KEYWORDS)
+                    && containsAny(normalized, STRONG_POLICY_KEYWORDS));
         boolean hasPrice = containsAny(normalized,
                 "价格", "报价", "市场价", "多少钱", "优惠", "到手价", "售价", "价位", "价");
         return hasPolicy && hasPrice;
+    }
+
+    /**
+     * 是否为用户显式要求的联网检索。
+     *
+     * <p>用户明确说"联网搜索/上网查/搜一下"时，联网检索是用户的显式指令，
+     * 优先级高于"政策+价格混合问法"的保守策略（先给政策结论、按需再联网）。</p>
+     */
+    public static boolean isExplicitSearchRequest(String normalized) {
+        if (normalized == null || normalized.isBlank()) {
+            return false;
+        }
+        return containsAny(normalized, EXPLICIT_SEARCH_KEYWORDS);
     }
 }

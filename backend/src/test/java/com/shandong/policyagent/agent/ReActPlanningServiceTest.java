@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.chat.model.ChatModel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -17,7 +16,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class ReActPlanningServiceTest {
 
     @Mock
-    private ChatModel chatModel;
+    private com.shandong.policyagent.service.RuntimeChatModelProvider runtimeChatModelProvider;
 
     @Mock
     private AgentPlanParser planParser;
@@ -30,7 +29,7 @@ class ReActPlanningServiceTest {
         properties.setPlanningEnabled(true);
         properties.setMaxPlanningSteps(4);
         properties.setPlanningTimeoutSeconds(15);
-        planningService = new ReActPlanningService(chatModel, planParser, properties);
+        planningService = new ReActPlanningService(runtimeChatModelProvider, planParser, properties);
     }
 
     @Test
@@ -39,7 +38,7 @@ class ReActPlanningServiceTest {
 
         assertTrue(plan.needToolCall());
         assertEquals("calculateSubsidy", plan.steps().getFirst().toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 
     @Test
@@ -48,7 +47,7 @@ class ReActPlanningServiceTest {
 
         assertTrue(plan.needToolCall());
         assertEquals("amap-mcp", plan.steps().getFirst().toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 
     @Test
@@ -57,7 +56,7 @@ class ReActPlanningServiceTest {
 
         assertFalse(plan.needToolCall());
         assertEquals("rag", plan.steps().getFirst().toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 
     @Test
@@ -66,7 +65,7 @@ class ReActPlanningServiceTest {
 
         assertTrue(plan.needToolCall());
         assertEquals("calculateSubsidy", plan.steps().getFirst().toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 
     @Test
@@ -86,7 +85,7 @@ class ReActPlanningServiceTest {
 
         assertFalse(plan.needToolCall());
         assertEquals("rag", plan.steps().getFirst().toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 
     @Test
@@ -95,7 +94,7 @@ class ReActPlanningServiceTest {
 
         assertFalse(plan.needToolCall());
         assertEquals("rag", plan.steps().getFirst().toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 
     @Test
@@ -105,7 +104,7 @@ class ReActPlanningServiceTest {
         assertTrue(plan.needToolCall());
         assertEquals("webSearch", plan.steps().get(0).toolHint());
         assertEquals("calculateSubsidy", plan.steps().get(1).toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 
     @Test
@@ -115,6 +114,28 @@ class ReActPlanningServiceTest {
         assertTrue(plan.needToolCall());
         assertEquals("webSearch", plan.steps().get(0).toolHint());
         assertEquals("calculateSubsidy", plan.steps().get(1).toolHint());
-        verifyNoInteractions(chatModel, planParser);
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
+    }
+
+    @Test
+    void shouldPlanWebSearchForExplicitSearchRequestWithProductModelSuffix() {
+        // 回归：用户原话是「你联网搜索一下价格，iPhone17标准版256GB」。
+        // 修复前「标准版」被当成政策关键词 → 命中混合问法路径 → 计划里没有 webSearch 步骤，
+        // 服务端预执行器因此不搜索，模型只能基于 RAG 政策文档回答「未检索到实时价格」。
+        AgentExecutionPlan plan = planningService.createPlan("conv-9", "你联网搜索一下价格，iPhone17标准版256GB");
+
+        assertTrue(plan.needToolCall(), "显式要求联网搜索时，计划必须启用工具调用");
+        assertEquals("webSearch", plan.steps().get(0).toolHint(), "计划的第一步必须是联网搜索");
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
+    }
+
+    @Test
+    void shouldPlanWebSearchForExplicitSearchRequestWithPolicyContext() {
+        // 即使同时提到政策，显式联网指令也优先于「先政策后价格」的保守策略
+        AgentExecutionPlan plan = planningService.createPlan("conv-10", "帮我搜一下山东以旧换新补贴政策的最新通知");
+
+        assertTrue(plan.needToolCall());
+        assertEquals("webSearch", plan.steps().get(0).toolHint());
+        verifyNoInteractions(runtimeChatModelProvider, planParser);
     }
 }

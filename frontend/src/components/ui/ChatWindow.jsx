@@ -14,11 +14,14 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 
 const DEFAULT_WELCOME_CONTENT = '您好！我是山东省以旧换新政策咨询智能助手。可以帮您查询各类产品补贴标准、了解申请条件和流程、计算您能获得的补贴金额。\n\n请问有什么可以帮您的？';
 
-const STATUS_PHASES = [
-    '正在思考您的问题',
-    '正在调用工具获取信息',
-    '正在整理最终回复'
-];
+// 后端 SSE 推送的阶段 → 面向用户的状态文案（与后端真实阶段一一对应，不再是盲目的定时轮播）
+const STAGE_TEXT = {
+    analyzing: '正在理解您的问题',
+    planning: '正在规划检索与工具调用',
+    tool: '正在调用工具获取信息',
+    retrieving: '正在检索知识库政策依据',
+    generating: '正在组织回复'
+};
 
 const AUTO_SCROLL_THRESHOLD = 120;
 
@@ -42,6 +45,7 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
     const messagesEndRef = useRef(null);
     const messagesListRef = useRef(null);
     const statusTimerRef = useRef(null);
+    const abortControllerRef = useRef(null);
     const prevSessionIdRef = useRef(sessionId);
     const shouldAutoScrollRef = useRef(true);
     const lastPersistedSignatureRef = useRef('');
@@ -92,19 +96,6 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
             clearInterval(statusTimerRef.current);
             statusTimerRef.current = null;
         }
-    };
-
-    const startStatusTimer = (statusMsgId) => {
-        clearStatusTimer();
-        let phaseIndex = 0;
-        statusTimerRef.current = setInterval(() => {
-            phaseIndex = (phaseIndex + 1) % STATUS_PHASES.length;
-            setMessages((prev) => prev.map((msg) => (
-                msg.id === statusMsgId
-                    ? { ...msg, meta: { ...msg.meta, statusText: STATUS_PHASES[phaseIndex] } }
-                    : msg
-            )));
-        }, 1800);
     };
 
     useEffect(() => {
@@ -171,13 +162,16 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                 id: statusMsgId,
                 role: 'assistant',
                 content: '',
-                meta: { transient: true, statusOnly: true, statusText: STATUS_PHASES[0] }
+                meta: { transient: true, statusOnly: true, statusText: STAGE_TEXT.analyzing }
             }
         ]);
         shouldAutoScrollRef.current = true;
 
         setIsGenerating(true);
-        startStatusTimer(statusMsgId);
+
+        // 每轮一个 AbortController：用户点「停止生成」时中断流式请求，省下后端算力
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
 
         try {
             let imageBase64List = null;
@@ -185,8 +179,41 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                 imageBase64List = await Promise.all(imageFiles.map((f) => fileToBase64(f.file)));
             }
 
-            const response = await chatApi.sendMessage(text, sessionId, imageBase64List, location);
-            const finalContent = response?.content || '抱歉，本次未获取到有效回复，请稍后重试。';
+            // 流式：后端逐块推送 delta，前端实时追加到同一条 assistant 消息
+            const streamedContent = { text: '' };
+            const updateAssistant = (patch) => {
+                setMessages((prev) => prev.map((msg) => (
+                    msg.id === statusMsgId ? { ...msg, ...patch } : msg
+                )));
+            };
+
+            const response = await chatApi.sendMessageStream(text, sessionId, {
+                imageBase64List,
+                location,
+                signal: abortController.signal,
+                onStage: (stage) => {
+                    const label = STAGE_TEXT[stage];
+                    if (!label) return;
+                    setMessages((prev) => prev.map((msg) => (
+                        msg.id === statusMsgId
+                            ? { ...msg, meta: { ...msg.meta, statusText: label } }
+                            : msg
+                    )));
+                },
+                onDelta: (chunk) => {
+                    if (!chunk) return;
+                    streamedContent.text += chunk;
+                    updateAssistant({
+                        content: streamedContent.text,
+                        meta: { transient: true, statusOnly: false, streaming: true }
+                    });
+                },
+                onError: (message) => {
+                    console.error('Chat stream error:', message);
+                }
+            });
+
+            const finalContent = response?.content || streamedContent.text || '抱歉，本次未获取到有效回复，请稍后重试。';
             const assistantMsg = {
                 id: response?.id || `assistant-${Date.now()}`,
                 role: 'assistant',
@@ -200,17 +227,31 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
             ]);
         } catch (error) {
             console.error('Chat error:', error);
-            setMessages((prev) => [
-                ...prev.filter((msg) => msg.id !== statusMsgId),
-                {
-                    id: `assistant-error-${Date.now()}`,
-                    role: 'assistant',
-                    content: '抱歉，服务暂时不可用，请稍后重试。'
-                }
-            ]);
+            const aborted = error?.name === 'AbortError' || abortController.signal.aborted;
+            // 保留已流式收到的部分内容，避免用户完全看不到回复
+            setMessages((prev) => {
+                const partial = prev.find((msg) => msg.id === statusMsgId)?.content;
+                return [
+                    ...prev.filter((msg) => msg.id !== statusMsgId),
+                    {
+                        id: `assistant-error-${Date.now()}`,
+                        role: 'assistant',
+                        content: partial && partial.trim()
+                            ? `${partial}\n\n（${aborted ? '已停止生成' : '本次回复中断，可点击重新发送'}）`
+                            : (aborted ? '已停止生成。' : '抱歉，服务暂时不可用，请稍后重试。')
+                    }
+                ];
+            });
         } finally {
+            abortControllerRef.current = null;
             clearStatusTimer();
             setIsGenerating(false);
+        }
+    };
+
+    const handleStop = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort(new Error('用户停止生成'));
         }
     };
 
@@ -300,6 +341,13 @@ const ChatWindow = ({ sessionId, initialMessages, onSessionUpdate }) => {
                         <div ref={messagesEndRef} />
                     </div>
                     <InputArea onSend={handleSend} isGenerating={isGenerating} />
+                    {isGenerating && (
+                        <div className="ui-stop-zone">
+                            <button type="button" className="ui-stop-button" onClick={handleStop}>
+                                停止生成
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

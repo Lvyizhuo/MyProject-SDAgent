@@ -23,17 +23,17 @@
 
 在开始之前，你的电脑上需要装好以下软件。点击链接去官网下载安装包，双击安装，一路"下一步"就行。
 
-| 软件 | 用途 | 下载地址 | 安装后验证命令 |
-|------|------|----------|---------------|
-| **Git** | 下载项目代码 | https://git-scm.com/downloads | `git --version` |
+| 软件                     | 用途                                                   | 下载地址                                        | 安装后验证命令       |
+| ------------------------ | ------------------------------------------------------ | ----------------------------------------------- | -------------------- |
+| **Git**            | 下载项目代码                                           | https://git-scm.com/downloads                   | `git --version`    |
 | **Docker Desktop** | 运行数据库、缓存等基础设施（**两种方式都需要**） | https://www.docker.com/products/docker-desktop/ | `docker --version` |
 
 > 如果你选择**方式一（本地开发）**，还需要额外安装：
 
-| 软件 | 用途 | 下载地址 | 安装后验证命令 |
-|------|------|----------|---------------|
+| 软件                    | 用途         | 下载地址                        | 安装后验证命令    |
+| ----------------------- | ------------ | ------------------------------- | ----------------- |
 | **Java 21 (JDK)** | 运行后端程序 | https://adoptium.net/ 选 JDK 21 | `java -version` |
-| **Node.js 20+** | 运行前端程序 | https://nodejs.org/ 选 LTS 版本 | `node -v` |
+| **Node.js 20+**   | 运行前端程序 | https://nodejs.org/ 选 LTS 版本 | `node -v`       |
 
 > 如果你选择**方式二（Docker 一键）**，只需要 Git + Docker Desktop 就够了，后端和前端都在容器里跑。
 
@@ -113,6 +113,7 @@ docker compose up -d postgres redis minio ollama ollama-init reranker
 ```
 
 **这一步做了什么？**
+
 - 下载 5 个 Docker 镜像（首次需要几分钟，取决于网速）
 - 启动 5 个容器 + 1 个初始化任务
 - `ollama-init` 会自动下载嵌入模型 `bge-m3`（约 1.2GB）和 `nomic-embed-text`（约 274MB），下载完自动退出
@@ -256,19 +257,19 @@ chmod +x deploy-windows.sh
 
 脚本会依次问你以下配置项（每项都有默认值，直接回车可用默认；必填项不能留空）：
 
-| 配置项 | 说明 | 是否必填 |
-|--------|------|---------|
-| DASHSCOPE_API_KEY | 阿里云大模型 API Key（[获取地址](https://dashscope.console.aliyun.com/apiKey)） | 必填 |
-| TAVILY_API_KEY | 联网搜索 Key（[获取地址](https://tavily.com/)） | 可选，直接回车跳过 |
-| POSTGRES_PASSWORD | 数据库密码 | 必填（已自动生成强随机值，直接回车即可） |
-| MINIO_USER | 文件存储管理员用户名 | 必填（默认 minioadmin） |
-| MINIO_PASSWORD | 文件存储管理员密码 | 必填（已自动生成强随机值，直接回车即可） |
-| APP_JWT_SECRET | 登录令牌签名密钥 | 必填（已自动生成，直接回车即可） |
-| APP_MODEL_PROVIDER_ENCRYPTION_SECRET | 模型管理加密密钥 | 可选（已自动生成，直接回车即可） |
-| APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS | 历史加密密钥兼容 | 可选，直接回车跳过 |
-| APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS | CORS 跨域白名单 | 必填（默认已含 localhost） |
-| APP_EMBEDDING_OLLAMA_BASE_URL | Ollama 嵌入服务地址 | 必填（默认 http://ollama:11434，不用改） |
-| TZ | 容器时区 | 必填（默认 Asia/Shanghai） |
+| 配置项                                       | 说明                                                                           | 是否必填                                 |
+| -------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------- |
+| DASHSCOPE_API_KEY                            | 阿里云大模型 API Key（[获取地址](https://dashscope.console.aliyun.com/apiKey)） | 必填                                     |
+| TAVILY_API_KEY                               | 联网搜索 Key（[获取地址](https://tavily.com/)）                                 | 可选，直接回车跳过                       |
+| POSTGRES_PASSWORD                            | 数据库密码                                                                     | 必填（已自动生成强随机值，直接回车即可） |
+| MINIO_USER                                   | 文件存储管理员用户名                                                           | 必填（默认 minioadmin）                  |
+| MINIO_PASSWORD                               | 文件存储管理员密码                                                             | 必填（已自动生成强随机值，直接回车即可） |
+| APP_JWT_SECRET                               | 登录令牌签名密钥                                                               | 必填（已自动生成，直接回车即可）         |
+| APP_MODEL_PROVIDER_ENCRYPTION_SECRET         | 模型管理加密密钥                                                               | 可选（已自动生成，直接回车即可）         |
+| APP_MODEL_PROVIDER_LEGACY_ENCRYPTION_SECRETS | 历史加密密钥兼容                                                               | 可选，直接回车跳过                       |
+| APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS    | CORS 跨域白名单                                                                | 必填（默认已含 localhost）               |
+| APP_EMBEDDING_OLLAMA_BASE_URL                | Ollama 嵌入服务地址                                                            | 必填（默认 http://ollama:11434，不用改） |
+| TZ                                           | 容器时区                                                                       | 必填（默认 Asia/Shanghai）               |
 
 填写完毕后，脚本会显示配置汇总让你确认。确认后，脚本会自动：
 
@@ -313,22 +314,22 @@ vi .env
 
 **必须修改的配置项：**
 
-| 变量名 | 说明 | 怎么填 |
-|--------|------|--------|
-| `DASHSCOPE_API_KEY` | 阿里云大模型 Key | 填入你的真实 Key |
-| `POSTGRES_PASSWORD` | 数据库密码 | 用 `openssl rand -base64 48` 生成一个强密码 |
-| `MINIO_PASSWORD` | MinIO 管理员密码 | 用 `openssl rand -base64 48` 生成一个强密码 |
-| `APP_JWT_SECRET` | JWT 签名密钥 | 用 `openssl rand -base64 48` 生成，**必须是标准 Base64** |
+| 变量名                | 说明             | 怎么填                                                           |
+| --------------------- | ---------------- | ---------------------------------------------------------------- |
+| `DASHSCOPE_API_KEY` | 阿里云大模型 Key | 填入你的真实 Key                                                 |
+| `POSTGRES_PASSWORD` | 数据库密码       | 用 `openssl rand -base64 48` 生成一个强密码                    |
+| `MINIO_PASSWORD`    | MinIO 管理员密码 | 用 `openssl rand -base64 48` 生成一个强密码                    |
+| `APP_JWT_SECRET`    | JWT 签名密钥     | 用 `openssl rand -base64 48` 生成，**必须是标准 Base64** |
 
 **可选修改：**
 
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `TAVILY_API_KEY` | 联网搜索 Key | 空（不配置则联网搜索不可用） |
-| `MINIO_USER` | MinIO 用户名 | `minioadmin` |
-| `APP_MODEL_PROVIDER_ENCRYPTION_SECRET` | 模型管理加密密钥 | 空（不配置会回退使用 JWT 密钥） |
-| `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` | CORS 域名白名单 | `http://mmgg.dpdns.org,https://mmgg.dpdns.org`（本地用改成 `http://localhost:5173,http://127.0.0.1:5173`） |
-| `APP_EMBEDDING_OLLAMA_BASE_URL` | Ollama 地址 | `http://ollama:11434`（容器内默认，不用改） |
+| 变量名                                        | 说明             | 默认值                                                                                                         |
+| --------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| `TAVILY_API_KEY`                            | 联网搜索 Key     | 空（不配置则联网搜索不可用）                                                                                   |
+| `MINIO_USER`                                | MinIO 用户名     | `minioadmin`                                                                                                 |
+| `APP_MODEL_PROVIDER_ENCRYPTION_SECRET`      | 模型管理加密密钥 | 空（不配置会回退使用 JWT 密钥）                                                                                |
+| `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` | CORS 域名白名单  | `http://mmgg.dpdns.org,https://mmgg.dpdns.org`（本地用改成 `http://localhost:5173,http://127.0.0.1:5173`） |
+| `APP_EMBEDDING_OLLAMA_BASE_URL`             | Ollama 地址      | `http://ollama:11434`（容器内默认，不用改）                                                                  |
 
 > 注意：不要保留占位符如 `replace-with-strong-password`，否则会报错。
 
@@ -420,6 +421,7 @@ wget -O install.sh http://download.bt.cn/install/install-ubuntu_6.0.sh && sudo b
 ### 8.2 安全组/防火墙放行
 
 在云服务商控制台放行以下端口：
+
 - `22/tcp`（SSH）
 - `80/tcp`（HTTP）
 - `443/tcp`（HTTPS）
@@ -441,12 +443,12 @@ vi .env
 
 **必须填写的配置：**
 
-| 变量名 | 怎么填 |
-|--------|--------|
-| `DASHSCOPE_API_KEY` | 你的真实 Key |
-| `POSTGRES_PASSWORD` | `openssl rand -base64 48` 生成 |
-| `MINIO_PASSWORD` | `openssl rand -base64 48` 生成 |
-| `APP_JWT_SECRET` | `openssl rand -base64 48` 生成（必须是标准 Base64） |
+| 变量名                                        | 怎么填                                                  |
+| --------------------------------------------- | ------------------------------------------------------- |
+| `DASHSCOPE_API_KEY`                         | 你的真实 Key                                            |
+| `POSTGRES_PASSWORD`                         | `openssl rand -base64 48` 生成                        |
+| `MINIO_PASSWORD`                            | `openssl rand -base64 48` 生成                        |
+| `APP_JWT_SECRET`                            | `openssl rand -base64 48` 生成（必须是标准 Base64）   |
 | `APP_SECURITY_CORS_ALLOWED_ORIGIN_PATTERNS` | 你的域名，如 `http://example.com,https://example.com` |
 
 ### 8.4 一键部署
@@ -558,6 +560,7 @@ cd backend && docker compose ps redis
 ### Q: 端口被占用
 
 **方式一**：如果 8080 端口被其他程序占用，后端会报错。两种解法：
+
 1. 找到并关掉占用端口的程序
 2. 在 `application.yml` 中修改端口：`server.port: 8081`
 
@@ -695,27 +698,27 @@ docker compose down -v                                          # 停止并清�
 
 ## 端口一览
 
-| 端口 | 服务 | 说明 |
-|------|------|------|
-| 5173 | 前端 | 浏览器访问的网页 |
-| 8080 | 后端 API | 前端通过代理调用 |
-| 5433 | PostgreSQL | 数据库 |
-| 6379 | Redis | 缓存 |
-| 9000 | MinIO API | 文件存储接口 |
-| 9001 | MinIO Console | 文件管理网页 |
-| 11434 | Ollama | 本地嵌入模型（bge-m3） |
-| 8989 | Reranker | 本地重排序模型（bge-reranker-v2-m3） |
+| 端口  | 服务          | 说明                                 |
+| ----- | ------------- | ------------------------------------ |
+| 5173  | 前端          | 浏览器访问的网页                     |
+| 8080  | 后端 API      | 前端通过代理调用                     |
+| 5433  | PostgreSQL    | 数据库                               |
+| 6379  | Redis         | 缓存                                 |
+| 9000  | MinIO API     | 文件存储接口                         |
+| 9001  | MinIO Console | 文件管理网页                         |
+| 11434 | Ollama        | 本地嵌入模型（bge-m3）               |
+| 8989  | Reranker      | 本地重排序模型（bge-reranker-v2-m3） |
 
 ---
 
 ## 两种方式对比
 
-| | 方式一：本地开发 | 方式二：Docker 一键 |
-|---|---|---|
-| **需要安装** | Git + Docker Desktop + Java 21 + Node.js | Git + Docker Desktop |
-| **后端/前端运行在** | 你的电脑上（方便调试） | Docker 容器内（隔离干净） |
-| **配置方式** | 手动 export 环境变量 | 交互式向导（Windows）或编辑 .env（Linux） |
-| **启动命令数** | 多步（基础设施 → 变量 → 后端 → 前端） | 一条命令 |
-| **适合场景** | 开发调试、改代码、看日志 | 快速体验、不想装 Java/Node |
-| **日志查看** | 直接看终端输出 | `docker compose logs -f backend` |
-| **停止服务** | 分别按 Ctrl+C + docker compose down | `docker compose down` |
+|                           | 方式一：本地开发                         | 方式二：Docker 一键                       |
+| ------------------------- | ---------------------------------------- | ----------------------------------------- |
+| **需要安装**        | Git + Docker Desktop + Java 21 + Node.js | Git + Docker Desktop                      |
+| **后端/前端运行在** | 你的电脑上（方便调试）                   | Docker 容器内（隔离干净）                 |
+| **配置方式**        | 手动 export 环境变量                     | 交互式向导（Windows）或编辑 .env（Linux） |
+| **启动命令数**      | 多步（基础设施 → 变量 → 后端 → 前端） | 一条命令                                  |
+| **适合场景**        | 开发调试、改代码、看日志                 | 快速体验、不想装 Java/Node                |
+| **日志查看**        | 直接看终端输出                           | `docker compose logs -f backend`        |
+| **停止服务**        | 分别按 Ctrl+C + docker compose down      | `docker compose down`                   |

@@ -55,7 +55,7 @@ public class ReActPlanningService {
                 7. 不要声称“没有 webSearch 工具”或“无法联网搜索”；若属于实时信息查询，必须规划 webSearch。
             """;
 
-    private final ChatModel chatModel;
+    private final com.shandong.policyagent.service.RuntimeChatModelProvider runtimeChatModelProvider;
     private final AgentPlanParser planParser;
     private final AgentWorkflowProperties properties;
 
@@ -83,8 +83,12 @@ public class ReActPlanningService {
                     new UserMessage(userMessage)
             ));
             // 规划 LLM 调用走专用线程池，避免阻塞 ForkJoinPool.commonPool
-            Supplier<String> llmCall = () ->
-                    chatModel.call(planningPrompt).getResult().getOutput().getText();
+            // 使用运行时模型（管理员当前配置的模型），而不是 Spring 默认 ChatModel Bean ——
+            // 后者用的是固定的 DASHSCOPE_API_KEY，管理员改模型后会稳定 401。
+            Supplier<String> llmCall = () -> {
+                ChatModel model = runtimeChatModelProvider.buildChatModel();
+                return model.call(planningPrompt).getResult().getOutput().getText();
+            };
             CompletableFuture<String> planFuture = agentPlannerTaskExecutor != null
                     ? CompletableFuture.supplyAsync(llmCall, agentPlannerTaskExecutor)
                     : CompletableFuture.supplyAsync(llmCall);
@@ -154,29 +158,43 @@ public class ReActPlanningService {
             );
         }
 
-            if (isPolicyPriceMixedQuestion(normalized)) {
-                log.info("ReAct 规划命中政策+价格混合路径（先政策后价格） | conversationId={}", conversationId);
-                return new AgentExecutionPlan(
-                    "先给政策结论，再按需补充实时价格",
-                    false,
+        // 显式联网请求优先于"政策+价格混合"的保守策略。
+        // 用户说"联网搜索一下价格"就是要联网，不能因为同时提到政策/型号就退化成只做 RAG。
+        if (isExplicitSearchRequest(normalized)) {
+            log.info("ReAct 规划命中显式联网请求路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                    "用户显式要求联网检索，先联网拿到实时数据再回答",
+                    true,
                     List.of(
-                        new AgentExecutionPlan.AgentStep(1, "从知识库检索并总结本地政策口径", AgentExecutionPlan.TOOL_HINT_RAG),
-                        new AgentExecutionPlan.AgentStep(2, "先回答政策结论，再提示可继续补充实时价格", AgentExecutionPlan.TOOL_HINT_NONE)
-                    )
-                );
-            }
-
-                if (requiresRealtimeSearch(normalized)) {
-                    log.info("ReAct 规划命中实时查询快捷路径 | conversationId={}", conversationId);
-                    return new AgentExecutionPlan(
-                        "问题需要实时信息，先联网检索后回答",
-                        true,
-                        List.of(
                             new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(shortcutSource), AgentExecutionPlan.TOOL_HINT_WEB_SEARCH),
                             new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", AgentExecutionPlan.TOOL_HINT_NONE)
-                        )
-                    );
-                }
+                    )
+            );
+        }
+
+        if (isPolicyPriceMixedQuestion(normalized)) {
+            log.info("ReAct 规划命中政策+价格混合路径（先政策后价格） | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                "先给政策结论，再按需补充实时价格",
+                false,
+                List.of(
+                    new AgentExecutionPlan.AgentStep(1, "从知识库检索并总结本地政策口径", AgentExecutionPlan.TOOL_HINT_RAG),
+                    new AgentExecutionPlan.AgentStep(2, "先回答政策结论，再提示可继续补充实时价格", AgentExecutionPlan.TOOL_HINT_NONE)
+                )
+            );
+        }
+
+        if (requiresRealtimeSearch(normalized)) {
+            log.info("ReAct 规划命中实时查询快捷路径 | conversationId={}", conversationId);
+            return new AgentExecutionPlan(
+                "问题需要实时信息，先联网检索后回答",
+                true,
+                List.of(
+                    new AgentExecutionPlan.AgentStep(1, "调用 webSearch 查询实时信息，关键词：" + summarizeQuery(shortcutSource), AgentExecutionPlan.TOOL_HINT_WEB_SEARCH),
+                    new AgentExecutionPlan.AgentStep(2, "结合检索结果给出结论并附来源链接", AgentExecutionPlan.TOOL_HINT_NONE)
+                )
+            );
+        }
 
         if (requiresMapSearch(normalized)) {
             log.info("ReAct 规划命中地图检索快捷路径 | conversationId={}", conversationId);
@@ -233,7 +251,8 @@ public class ReActPlanningService {
         if (hasSubsidyComputationIntent(normalized)) {
             return false;
         }
-        if (isPolicyPriceMixedQuestion(normalized)) {
+        // 显式联网请求不受"政策+价格混合"压制（用户的显式指令优先）
+        if (isPolicyPriceMixedQuestion(normalized) && !isExplicitSearchRequest(normalized)) {
             return false;
         }
         return QueryIntentRules.containsAny(normalized, QueryIntentRules.REALTIME_SEARCH_KEYWORDS);
@@ -284,6 +303,13 @@ public class ReActPlanningService {
 
     private boolean isPolicyPriceMixedQuestion(String normalized) {
         return QueryIntentRules.isPolicyPriceMixed(normalized);
+    }
+
+    /**
+     * 用户是否显式要求联网检索（"联网搜索/上网查/搜一下"）。
+     */
+    private boolean isExplicitSearchRequest(String normalized) {
+        return QueryIntentRules.isExplicitSearchRequest(normalized);
     }
 
     private String summarizeQuery(String userMessage) {

@@ -2,7 +2,6 @@ package com.shandong.policyagent.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shandong.policyagent.tool.WebSearchTool;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,7 +25,6 @@ import java.util.concurrent.TimeUnit;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ProductPriceCacheService {
 
     private static final String KEY_PREFIX = "chat:price-cache:";
@@ -35,9 +33,25 @@ public class ProductPriceCacheService {
     private final ObjectMapper objectMapper;
     private final WebSearchTool webSearchTool;
     private final SessionFactCacheService sessionFactCacheService;
-
-    @Qualifier("chatAsyncTaskExecutor")
     private final Executor chatAsyncTaskExecutor;
+
+    /**
+     * 显式构造器。
+     *
+     * <p>项目里有多个 Executor 类型的 Bean，{@code @Qualifier} 必须写在构造参数上；
+     * 写在字段上时 Lombok 生成的构造参数不携带该注解，Spring 无法消歧义。</p>
+     */
+    public ProductPriceCacheService(StringRedisTemplate redisTemplate,
+                                   ObjectMapper objectMapper,
+                                   WebSearchTool webSearchTool,
+                                   SessionFactCacheService sessionFactCacheService,
+                                   @Qualifier("chatAsyncTaskExecutor") Executor chatAsyncTaskExecutor) {
+        this.redisTemplate = redisTemplate;
+        this.objectMapper = objectMapper;
+        this.webSearchTool = webSearchTool;
+        this.sessionFactCacheService = sessionFactCacheService;
+        this.chatAsyncTaskExecutor = chatAsyncTaskExecutor;
+    }
 
     @Value("${app.price-cache.ttl-minutes:1440}")
     private long ttlMinutes;
